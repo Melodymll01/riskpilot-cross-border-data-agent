@@ -1,0 +1,262 @@
+{
+  "name": "OOD 分类器评测集 v2",
+  "description": "相比 v1，单条长度扩展到 30-80 字以贴近真实用户提问分布；新增 secondary_types 软标签字段以处理跨类型歧义；OOD 侧增加困难负样本（表面像合规问题但无需走 RAG）。",
+  "version": "2.0",
+  "created": "2026-04-23",
+  "split": "test",
+  "usage": "held-out evaluation only; 本数据集仅用于评测，严禁用于训练或作为 few-shot 示例来源",
+  "leakage_control": {
+    "train_test_separation": "N/A — 本系统的 QuestionClassifier 为 zero-shot LLM 调用，无训练过程，不存在训练/测试集污染",
+    "fewshot_source": "CLASSIFY_PROMPT 中的示例来自 retrieval/agent/question_classifier.py 内置示例池，与本评测集 cases 无交集",
+    "field_isolation": "评测脚本仅向模型传入 query 字段；label / expected_type / secondary_types / difficulty / note 仅供评测程序对比使用，不进入 prompt",
+    "frozen": true,
+    "freeze_note": "一经使用即冻结；如需修改请升级 version（v2 -> v3）并作废旧结果"
+  },
+  "schema": {
+    "query": "用户提问文本（贴近真实业务表述，30-80 字）",
+    "label": "in_domain | ood",
+    "expected_type": "主类型：definition | comparison | condition | process | case",
+    "secondary_types": "次类型数组，命中任一即算分类正确（软标签，处理天然混合的问题）",
+    "difficulty": "easy | medium | hard",
+    "note": "备注，记录设计意图"
+  },
+  "labeling_policy": {
+    "priority_when_ambiguous": ["case", "process", "comparison", "condition", "definition"],
+    "explanation": "当一条 query 同时落入多个类型时，主类型按优先级取最具体的那个，其余落到 secondary_types。例如『举例说明 A 与 B 的区别』主类型为 case，次类型为 comparison。"
+  },
+  "cases": [
+    {
+      "query": "请结合《数据出境安全评估办法》解释一下『数据出境安全评估』的法律定义，以及它和一般的数据合规审查有什么本质区别？",
+      "label": "in_domain",
+      "expected_type": "definition",
+      "secondary_types": ["comparison"],
+      "difficulty": "medium",
+      "note": "定义为主，末尾夹了一个对比问句"
+    },
+    {
+      "query": "在 PIPL 框架下，个人信息、敏感个人信息、重要数据这三类在定义、识别标准和跨境处理要求上有哪些核心差异？",
+      "label": "in_domain",
+      "expected_type": "comparison",
+      "secondary_types": ["definition"],
+      "difficulty": "hard",
+      "note": "三元对比，需要模型识别 comparison 而非 definition"
+    },
+    {
+      "query": "我们公司准备把员工个人信息传到境外总部，到底应该走标准合同备案还是申报安全评估？两条路径在门槛、周期和监管强度上怎么选？",
+      "label": "in_domain",
+      "expected_type": "comparison",
+      "secondary_types": ["case", "condition"],
+      "difficulty": "hard",
+      "note": "典型跨类型：表面是比较，里面带场景（case）和判断条件（condition）"
+    },
+    {
+      "query": "如果一家跨国企业在中国收集了超过 100 万条个人信息并希望同步到位于法兰克福的数据中心，PIPL 与 GDPR 谁的要求更严？在双重合规下应优先遵循哪一个？",
+      "label": "in_domain",
+      "expected_type": "comparison",
+      "secondary_types": ["case"],
+      "difficulty": "hard",
+      "note": "对比 + 真实案例"
+    },
+    {
+      "query": "我们是一家员工规模 5000 人的电商公司，累计处理的个人信息超 100 万条但不含敏感类别，按照现行规定是否必须申报数据出境安全评估？",
+      "label": "in_domain",
+      "expected_type": "condition",
+      "secondary_types": ["case"],
+      "difficulty": "medium",
+      "note": "判断触发条件 + 给定具体情境"
+    },
+    {
+      "query": "向境外接收方提供个人信息时，除了单独同意之外，还需要在个人信息保护影响评估、合同条款、告知事项等层面满足哪些具体条件？",
+      "label": "in_domain",
+      "expected_type": "condition",
+      "secondary_types": ["process"],
+      "difficulty": "medium",
+      "note": "条件清单，可能被误判为 process"
+    },
+    {
+      "query": "请完整梳理一下个人信息出境标准合同的备案流程，从合同签订、PIA 报告编制、提交网信部门到后续变更登记，每一步需要准备什么材料？",
+      "label": "in_domain",
+      "expected_type": "process",
+      "secondary_types": [],
+      "difficulty": "medium",
+      "note": "明确 process，长描述考验嵌入检索"
+    },
+    {
+      "query": "企业首次向 CAC 申报数据出境安全评估时，从立项、自评估报告到正式受理、补正、通过的完整步骤是怎样的？每个阶段通常耗时多久？",
+      "label": "in_domain",
+      "expected_type": "process",
+      "secondary_types": ["condition"],
+      "difficulty": "hard",
+      "note": "流程 + 耗时条件"
+    },
+    {
+      "query": "A 公司是一家国内 SaaS 厂商，要把中国客户的交易流水数据传给新加坡母公司做 BI 分析，请结合现行法规帮我判断这个场景的合规路径，并指出最关键的三个风险点。",
+      "label": "in_domain",
+      "expected_type": "case",
+      "secondary_types": ["condition", "process"],
+      "difficulty": "hard",
+      "note": "典型 case，期望模型识别出这是具体场景咨询"
+    },
+    {
+      "query": "一家跨境电商平台把中国买家的订单、收货地址和手机号存储在新加坡 AWS 节点，同时通过香港节点做 CDN 加速，这种架构是否构成数据出境？需要走哪条合规路径？",
+      "label": "in_domain",
+      "expected_type": "case",
+      "secondary_types": ["condition"],
+      "difficulty": "hard",
+      "note": "多地域复杂架构案例"
+    },
+    {
+      "query": "按照 2024 年《促进和规范数据跨境流动规定》，哪些场景下企业可以豁免数据出境安全评估、标准合同备案和认证三种机制？",
+      "label": "in_domain",
+      "expected_type": "condition",
+      "secondary_types": [],
+      "difficulty": "medium",
+      "note": "豁免条件，考时效性"
+    },
+    {
+      "query": "个人信息保护认证这条合规路径主要适用于哪些类型的企业和数据出境场景？相比标准合同和安全评估各有什么独特优势？",
+      "label": "in_domain",
+      "expected_type": "condition",
+      "secondary_types": ["comparison"],
+      "difficulty": "medium",
+      "note": "条件 + 隐含比较"
+    },
+    {
+      "query": "根据《数据安全法》和后续配套文件，『重要数据』这一概念的法律定义、识别要素和行业目录是怎样的？目前是否有统一的国家级目录？",
+      "label": "in_domain",
+      "expected_type": "definition",
+      "secondary_types": ["condition"],
+      "difficulty": "medium",
+      "note": "定义 + 识别条件"
+    },
+    {
+      "query": "企业在落地数据分类分级时通常遵循哪些基本原则？公开、内部、敏感、核心四级的划分逻辑与 GB/T 43697-2024 的要求如何对应？",
+      "label": "in_domain",
+      "expected_type": "definition",
+      "secondary_types": ["process"],
+      "difficulty": "hard",
+      "note": "定义 + 落地流程"
+    },
+    {
+      "query": "跨境传输敏感个人信息（如人脸、行踪轨迹、金融账户）在法律依据、单独同意形式、PIA 深度和接收方能力审查上有哪些高于普通个人信息的特殊要求？",
+      "label": "in_domain",
+      "expected_type": "condition",
+      "secondary_types": ["comparison"],
+      "difficulty": "hard",
+      "note": "特殊要求 + 隐含与普通 PI 对比"
+    },
+    {
+      "query": "我们要把用户人脸识别数据同步给境外 AI 训练平台，应该通过什么样的页面交互和文本来取得『单独同意』？一次性弹窗勾选是否合规？",
+      "label": "in_domain",
+      "expected_type": "process",
+      "secondary_types": ["case", "condition"],
+      "difficulty": "hard",
+      "note": "流程 + 场景 + 合规判断"
+    },
+    {
+      "query": "目前国内对哪些行业、哪些类型的数据实施了数据本地化存储要求？金融、汽车、医疗三个行业的本地化规则各有什么差异？",
+      "label": "in_domain",
+      "expected_type": "condition",
+      "secondary_types": ["comparison"],
+      "difficulty": "hard",
+      "note": "条件枚举 + 跨行业对比"
+    },
+    {
+      "query": "公有云服务商在境外节点上存储中国用户数据、但运营主体在国内的情况下，这种架构是否属于《PIPL》意义上的数据出境？判断标准是什么？",
+      "label": "in_domain",
+      "expected_type": "case",
+      "secondary_types": ["definition", "condition"],
+      "difficulty": "hard",
+      "note": "有争议的边界案例"
+    },
+    {
+      "query": "从法律口径上看，香港特别行政区到底算不算《PIPL》语境下的『境外』？把用户数据传到香港子公司是否需要走安评或标准合同？",
+      "label": "in_domain",
+      "expected_type": "condition",
+      "secondary_types": ["case"],
+      "difficulty": "medium",
+      "note": "港澳台边界问题"
+    },
+    {
+      "query": "CAC 数据出境安全评估从受理到出结果的法定时限是多少？实际平均审查周期大概多久？如果被要求补正会延长多久？",
+      "label": "in_domain",
+      "expected_type": "condition",
+      "secondary_types": ["process"],
+      "difficulty": "medium",
+      "note": "时限类条件"
+    },
+
+    {
+      "query": "今天北京的天气怎么样？明天出差要不要带伞？",
+      "label": "ood",
+      "difficulty": "easy",
+      "note": "典型闲聊"
+    },
+    {
+      "query": "帮我写一段 Python 代码，用 pandas 读取一个 CSV 文件，跳过前两行并把第三列转成 datetime。",
+      "label": "ood",
+      "difficulty": "easy",
+      "note": "代码请求"
+    },
+    {
+      "query": "最近有什么好看的悬疑推理类国产电影或剧集可以推荐几部吗？最好是 2024 年之后上线的。",
+      "label": "ood",
+      "difficulty": "easy",
+      "note": "娱乐推荐"
+    },
+    {
+      "query": "红烧肉想做得皮酥肉嫩又不腻口，炒糖色、焯水、炖煮的完整步骤和火候应该怎么掌握？",
+      "label": "ood",
+      "difficulty": "hard",
+      "note": "困难负样本：结构极像 process 模板"
+    },
+    {
+      "query": "你好，能简单介绍一下你自己是谁、背后用的是什么模型、具备哪些能力吗？",
+      "label": "ood",
+      "difficulty": "easy",
+      "note": "自我介绍闲聊"
+    },
+    {
+      "query": "帮我把这句英文翻译成地道的中文：『Data localization requirements vary significantly across jurisdictions.』",
+      "label": "ood",
+      "difficulty": "hard",
+      "note": "困难负样本：内容包含 data localization 关键词，极易被误判为 in_domain"
+    },
+    {
+      "query": "A 股今天大盘走势怎么样？新能源和半导体板块哪个更值得关注？",
+      "label": "ood",
+      "difficulty": "easy",
+      "note": "金融行情"
+    },
+    {
+      "query": "从北京南站坐高铁到上海虹桥，最快的车次是哪一趟？全程大约要多久、票价多少？",
+      "label": "ood",
+      "difficulty": "easy",
+      "note": "交通查询"
+    },
+    {
+      "query": "我想准备一份数据合规岗的面试简历，能不能帮我把过去三段实习经历改写得更有亮点？",
+      "label": "ood",
+      "difficulty": "hard",
+      "note": "困难负样本：含『数据合规』关键词但本质是简历润色，不是知识问答"
+    },
+    {
+      "query": "讲个不冷的程序员笑话放松一下，最好是关于写 bug 和开会的。",
+      "label": "ood",
+      "difficulty": "easy",
+      "note": "娱乐"
+    },
+    {
+      "query": "GDPR 的全称是什么？它和 CCPA 在立法年份、适用范围、处罚力度上谁更严？",
+      "label": "ood",
+      "difficulty": "hard",
+      "note": "困难负样本：纯境外法规知识，不在本 RAG 知识库范围内（本库聚焦中国数据出境），应判 OOD"
+    },
+    {
+      "query": "帮我起草一封邮件，通知海外团队我们下周要开一个关于跨境数据合规的内部对齐会，语气正式一些。",
+      "label": "ood",
+      "difficulty": "hard",
+      "note": "困难负样本：提到跨境数据合规但任务本身是写邮件"
+    }
+  ]
+}

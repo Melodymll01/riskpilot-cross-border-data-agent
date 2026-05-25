@@ -1,0 +1,56 @@
+# ── 版本控制 ─────────────────────────────────────
+.git/
+.gitignore
+.gitattributes
+
+# ── 密钥与本地配置 ───────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ── Python ───────────────────────────────────────
+.venv/
+venv/
+ENV/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── 运行时数据（容器启动后通过 volume 挂载）──────
+data/chroma_db/
+data/chroma_db_*/
+data/uploads/
+data/embed_cache/
+data/*.db
+data/*.sqlite3
+logs/
+*.log
+
+# ── 缓存 ─────────────────────────────────────────
+.cache/
+
+# ── IDE / OS ─────────────────────────────────────
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ── 文档/评测产物 ────────────────────────────────
+evaluations/*/reports/
+!evaluations/*/reports/.gitkeep
+
+# ── 私人材料 ─────────────────────────────────────
+interview_doc/
+prompts/
+.github/skills/
+
+# ── Docker 自身 ──────────────────────────────────
+Dockerfile
+.dockerignore
+docker-compose.yml
+docker-compose.*.yml

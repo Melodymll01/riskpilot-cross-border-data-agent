@@ -1,0 +1,27 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: riskpilot-rag:latest
+    container_name: riskpilot-rag
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    env_file:
+      - .env          # 密钥与配置从本机 .env 注入，不打进镜像
+    volumes:
+      # 持久化数据：向量库、上传文件、embedding 缓存、聊天历史
+      - ./data:/app/data
+      # 日志持久化
+      - ./logs:/app/logs
+      # HuggingFace 模型缓存（避免每次重建镜像都重新下载 reranker，约 1.1GB）
+      - hf-cache:/app/.cache/huggingface
+    # 默认资源限制（按需调整）。reranker 推理建议 >=2GB
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+volumes:
+  hf-cache:

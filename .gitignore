@@ -1,0 +1,120 @@
+# =========================
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+
+# =========================
+# 虚拟环境 & 环境变量
+# =========================
+.venv/
+venv/
+venv_broken/
+ENV/
+env/
+.env
+.env.*
+!.env.example
+
+# =========================
+# 运行时数据（不跟踪，但保留 data/ 下的源码）
+# =========================
+data/chroma_db/
+data/chroma_db_*/
+data/uploads/
+data/embed_cache/
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+data/*.json
+
+# 日志
+logs/
+*.log
+debug.log
+
+# =========================
+# 测试产物
+# =========================
+tests/data/chroma_db/
+tests/data/uploads/
+tests/logs/
+
+# =========================
+# 评测产物（保留代码与 README，不跟踪生成的报告/数据集快照）
+# =========================
+evaluations/**/reports/
+evaluations/**/*.tmp.json
+
+# =========================
+# 数据库 / 缓存 / 备份
+# =========================
+*.sqlite
+*.sqlite3
+*.db
+*.bak
+*.tmp
+*.swp
+
+# =========================
+# 模型 / 向量 / 大文件缓存
+# =========================
+*.bin
+*.pt
+*.pth
+*.onnx
+*.safetensors
+*.faiss
+.cache/
+.hf_cache/
+
+# =========================
+# 私人 / 面试素材（不公开）
+# =========================
+interview_doc/
+prompts/
+.github/skills/
+.copilot/
+.claude/
+
+# =========================
+# 编辑器 / IDE
+# =========================
+.vscode/
+.idea/
+*.code-workspace
+
+# =========================
+# OS
+# =========================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# =========================
+# Node / 前端依赖（如未来引入打包）
+# =========================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# =========================
+# Docker 运行时（保留 Dockerfile / docker-compose.yml）
+# =========================
+*.pid
+.docker/
