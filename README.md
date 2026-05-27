@@ -2,14 +2,73 @@
 
 一个面向数据出境法规、政策、指南场景的知识库问答系统。支持本地文档导入和网页内容采集，将多种来源的知识统一处理、向量化存储，实现基于检索增强生成（RAG）的智能问答。
 
+## 关键指标
+
+| 维度 | 数值 | 来源 |
+| --- | --- | --- |
+| Top-K=2 检索命中率 | **93.3%** | [chunk_eval_latest.json](evaluations/chunk_params/reports/chunk_eval_latest.json)（chunk_size=300, overlap=60） |
+| Top-1 平均语义相似度 | **0.641** | 同上 |
+| OOD 误杀率（in-domain） | **0.0%** | [ood_eval_latest.md](evaluations/ood/reports/ood_eval_latest.md) |
+| OOD 召回率 | 66.7%（待改进，见下） | 同上 |
+| 细分类型软标签准确率 | 70.0% | 同上 |
+
+## 系统架构
+
+```mermaid
+flowchart LR
+    subgraph Ingest[知识接入层]
+        A1[PDF/TXT/DOCX] --> L[unified_loader]
+        A2[URL 网页] --> L
+        L --> C[cleaner] --> S[splitter] --> M[metadata]
+    end
+
+    subgraph Index[索引层]
+        M --> E[Embedder<br/>智谱 embedding-3]
+        M --> B[BM25 + jieba]
+        E --> V[(ChromaDB<br/>向量库)]
+    end
+
+    subgraph Agent[Agentic RAG 决策环路]
+        Q[用户问题] --> QC[问题分类器<br/>5 类]
+        QC --> QT[查询变换<br/>改写/拆解/HyDE]
+        QT --> R[混合检索<br/>Vector+BM25 RRF]
+        V -.-> R
+        B -.-> R
+        R --> RR[Cross-Encoder<br/>bge-reranker-base]
+        RR --> EC{证据质量<br/>评估}
+        EC -- partial/insufficient --> QT
+        EC -- 知识库不足 --> WS[Web 搜索兜底]
+        WS --> RR
+        EC -- sufficient --> GEN[LLM 生成<br/>带引用溯源]
+    end
+
+    GEN --> ANS[回答 + 引用]
+```
+
 ## 功能特性
 
 - **多源知识接入**：支持 PDF / TXT / DOCX 文件上传 + 网页 URL 采集
 - **统一处理链路**：所有数据源经过同一条「加载 → 清洗 → 切分 → 向量化 → 入库」链路
-- **向量检索**：基于 ChromaDB 的语义检索，支持 Top-K 相关内容召回
+- **混合检索**：向量检索 + BM25 + RRF 融合 + Cross-Encoder 重排序
+- **Agentic RAG**：问题分类 → 查询变换（HyDE/拆解）→ 检索 → 证据评估 → 反思迭代（最多 3 轮）→ 联网兜底
 - **RAG 问答**：基于检索结果生成回答，拒绝无据编造
 - **引用溯源**：回答附带引用来源（文档名/网页标题、原文片段）
 - **知识管理**：支持查看/删除已导入的知识来源
+
+## 评测体系
+
+项目内置三套评测，所有报告归档在 [evaluations/](evaluations/)：
+
+1. **切块参数调优**（[chunk_params/run.py](evaluations/chunk_params/run.py)）—— 网格搜索 chunk_size × overlap，以命中率与 Top-1 相似度为指标，定型当前默认参数
+2. **OOD 与细分类型分类**（[tests/eval_ood.py](tests/eval_ood.py)）—— 32 条样本（in-domain 20 + OOD 12），评估问题分类器的准召与软标签准确率
+3. **端到端基准**（[benchmark/run.py](evaluations/benchmark/run.py)）—— 测量整链路延迟与回答质量
+
+### 当前已识别的待改进项（坦诚记录，避免简历刷分式包装）
+
+- **OOD 召回率 66.7% 未达自定目标 85%**：4 条 OOD 样本被误判为 in-domain（翻译、行程查询、邮件起草、跨法域对比），分类器对"借用领域关键词的非问答意图"识别不足。
+  - 改进方向：① 在分类 prompt 中补充上述 bad case 作为 few-shot 反例；② OOD 探针检索阶段引入 distance + Top-K 一致性的联合判据，而非仅看 Top-1 distance。
+- **细分类型严格准确率 55%（软标签 70%）**：`definition` 与 `condition` 经常互相混淆（如"法律定义"被误判为"条件触发"）。
+  - 改进方向：拆解 prompt，将"问的是 *是什么* 还是 *什么情况下*"显式列为判别要点；考虑用小样本微调一个轻量分类头替代纯 prompt 路线。
 
 ## 项目结构
 
