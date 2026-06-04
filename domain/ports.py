@@ -1,0 +1,166 @@
+"""Domain 层端口（Protocol）定义。
+
+每个 Protocol 都是 infra 层适配器的"对接合同"。本文件不实现任何方法，只定义签名。
+约定：
+- 所有 Protocol 标注 `@runtime_checkable`，便于测试使用 `isinstance` 检查 fake 是否满足契约。
+- 方法签名以 `docs/experiment_v1.md` §4.2 为准。
+- 不导入 infra / app / api；不引入 IO 或网络依赖。
+- L3+ 记忆相关 Port 暴露 `SessionProfile` / `Fact`，不暴露底层向量库 / SQLite 细节。
+
+模块边界：
+- 检索三段式（BM25 / 向量 / RRF / Reranker）由 infra 层组合，对外只暴露 `RetrievePort`。
+- 鉴权流程由 `AuthPort` 抽象，匿名 / OAuth / JWT 颁发与校验在同一个 Port 下统一。
+"""
+
+from __future__ import annotations
+
+from typing import Literal, Protocol, runtime_checkable
+
+from domain.models import (
+    Artifact,
+    Chunk,
+    EvidenceJudgement,
+    Fact,
+    Message,
+    SessionProfile,
+    Task,
+    ToolCall,
+    User,
+    WebResult,
+)
+
+# === 身份 ===
+
+
+@runtime_checkable
+class AuthPort(Protocol):
+    """OAuth 流程 + JWT 颁发 + 匿名用户创建。"""
+
+    def begin_oauth(self, provider: str) -> tuple[str, str]:
+        """返回 `(auth_url, state)`，前端跳转到 `auth_url`，回调时携带 `state`。"""
+        ...
+
+    def complete_oauth(self, provider: str, code: str, state: str) -> User:
+        """校验 `state`、用 `code` 换 access_token、拉用户信息、upsert 后返回。"""
+        ...
+
+    def issue_jwt(self, user_id: str) -> str: ...
+
+    def verify_jwt(self, token: str) -> str | None:
+        """校验通过返回 `user_id`，否则返回 `None`（不抛异常）。"""
+        ...
+
+    def create_anonymous(self) -> User: ...
+
+
+@runtime_checkable
+class UserRepoPort(Protocol):
+    def upsert(self, user: User) -> None: ...
+
+    def get(self, user_id: str) -> User | None: ...
+
+    def merge_owner(self, from_id: str, to_id: str) -> int:
+        """把所有 `owner_id == from_id` 的资源迁移到 `to_id`，返回迁移条数。"""
+        ...
+
+    def touch(self, user_id: str) -> None:
+        """更新 `last_active_at`，不动其它字段。"""
+        ...
+
+
+# === 任务 / 消息 ===
+
+
+@runtime_checkable
+class TaskRepoPort(Protocol):
+    def create(self, task: Task) -> None: ...
+
+    def get(self, task_id: str, owner_id: str) -> Task | None: ...
+
+    def list_for_owner(self, owner_id: str, limit: int = 50) -> list[Task]: ...
+
+    def update(self, task: Task) -> None: ...
+
+    def delete(self, task_id: str, owner_id: str) -> bool: ...
+
+    def append_message(self, msg: Message) -> None: ...
+
+    def list_messages(self, task_id: str) -> list[Message]: ...
+
+    def append_tool_call(self, call: ToolCall) -> None: ...
+
+    def append_artifact(self, art: Artifact) -> None: ...
+
+
+# === LLM / Embedding / 检索 ===
+
+
+@runtime_checkable
+class EmbedPort(Protocol):
+    def embed(self, texts: list[str]) -> list[list[float]]: ...
+
+
+@runtime_checkable
+class ChatPort(Protocol):
+    def chat(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        temperature: float = 0.2,
+        max_tokens: int | None = None,
+    ) -> str: ...
+
+
+@runtime_checkable
+class RetrievePort(Protocol):
+    """检索三段式（BM25 + 向量 + RRF + Reranker）的高层入口。"""
+
+    def retrieve(
+        self,
+        query: str,
+        top_k: int = 5,
+        corpus: Literal["law", "user_docs"] = "law",
+        owner_id: str | None = None,
+        filters: dict[str, str] | None = None,
+    ) -> list[Chunk]: ...
+
+
+# === 外部服务 ===
+
+
+@runtime_checkable
+class EvidencePort(Protocol):
+    """风险画像 evidence 服务（schema-evidence-risk-profiling）。"""
+
+    def judge(self, factor_id: str, context: dict[str, str]) -> EvidenceJudgement: ...
+
+
+@runtime_checkable
+class WebSearchPort(Protocol):
+    def search(self, query: str, max_results: int = 3) -> list[WebResult]: ...
+
+
+# === 记忆（按 owner_id / task_id 多层） ===
+
+
+@runtime_checkable
+class MemoryPort(Protocol):
+    """4 层记忆统一入口：L1 短期 / L2 摘要 / L3 用户画像 / L4 语义事实。"""
+
+    # L1 短期：按 task_id
+    def append_message(self, task_id: str, msg: Message) -> None: ...
+
+    def recent_messages(self, task_id: str, n: int) -> list[Message]: ...
+
+    # L2 摘要：按 task_id
+    def get_summary(self, task_id: str) -> str | None: ...
+
+    def maybe_summarize(self, task_id: str, threshold: int = 20) -> None: ...
+
+    # L3 用户画像：按 owner_id（跨 task / 跨设备）
+    def get_profile(self, owner_id: str) -> SessionProfile: ...
+
+    def update_profile(self, owner_id: str, facts: dict[str, str]) -> None: ...
+
+    # L4 语义事实：按 owner_id
+    def recall_semantic(self, owner_id: str, query: str, k: int) -> list[Fact]: ...

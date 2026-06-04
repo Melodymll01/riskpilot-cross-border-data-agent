@@ -1,0 +1,68 @@
+"""Domain 层异常树。
+
+所有从 domain / app 层抛出的、表达"业务概念错误"的异常，必须继承自 `DomainError`。
+infra 层的技术性异常（如 HTTPError / SQLite OperationalError）由 infra 层捕获并翻译
+为 `DomainError` 子类，确保上层只感知业务语义。
+"""
+
+from __future__ import annotations
+
+
+class DomainError(Exception):
+    """业务异常根类。"""
+
+
+# === 身份 / 鉴权 ===
+
+class AuthError(DomainError):
+    """鉴权失败统一基类。"""
+
+
+class InvalidToken(AuthError):
+    """JWT 无效、过期或签名错误。"""
+
+
+class OAuthFlowError(AuthError):
+    """OAuth 流程异常：state 不匹配 / code 失效 / provider 拒绝。"""
+
+
+# === 用户 / 任务 ===
+
+class UserNotFound(DomainError):
+    """按 `user_id` 找不到用户。"""
+
+
+class TaskNotFound(DomainError):
+    """按 `task_id`(+`owner_id`) 找不到任务。"""
+
+
+class OwnerMismatch(DomainError):
+    """资源 `owner_id` 与当前请求者不匹配（越权访问）。"""
+
+
+# === Tool / Agent ===
+
+class ToolNotFound(DomainError):
+    """Agent 想调用的工具未注册。"""
+
+
+class ToolExecutionError(DomainError):
+    """工具执行期错误，应携带 `tool_name` 与 `cause`。"""
+
+
+# === 检索 / 记忆 / 外部服务 ===
+
+class RetrievalError(DomainError):
+    """检索链路失败（向量库 / BM25 / RRF / Reranker 任一环节）。"""
+
+
+class MemoryError(DomainError):  # noqa: A001 - 明确覆盖语义；不与 builtins.MemoryError 混用
+    """记忆层读写失败。"""
+
+
+class EvidenceServiceError(DomainError):
+    """风险画像 evidence 服务不可用或返回非法 schema。"""
+
+
+class WebSearchError(DomainError):
+    """联网检索失败。"""
