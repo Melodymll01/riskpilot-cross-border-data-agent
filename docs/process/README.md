@@ -9,7 +9,8 @@
 |---|---|---|---|---|---|---|---|
 | [001](step_001_design_v1_freeze.md) | Design v1.1 Freeze | Done | `docs/experiment_v1.md`, `docs/decisions/ADR-001..008.md`, `docs/architecture/overview.md` | — (doc only) | 8 ADR + ~1550-line spec 冻结 | 对话式 Copilot + GitHub OAuth + 匿名双轨 + 4 层架构方案定稿；7 PR 拆分明确 | Step 002 工程基建 |
 | [002](step_002_engineering_scaffold.md) | Engineering Scaffold (PR-1) | Done | `requirements-dev.txt`, `pytest.ini`, `pyproject.toml`, `.pre-commit-config.yaml`, `.github/workflows/ci.yml`, `Makefile`, `docs/README.md` | `pip install -r requirements-dev.txt && pytest -q` | 未运行（待 step_004 启动前建立基线） | dev 依赖 / lint / type / format / pre-commit / CI / Makefile / 文档骨架就位；不动业务代码 | Step 003 gitignore 审查 |
-| [003](step_003_gitignore_audit.md) | .gitignore Engineering Audit | Done | `.gitignore` | `git check-ignore -v docs/...` | 4 个 docs 文件均未被忽略 | 补齐 Python 标配缺项（.tox/.nox/.hypothesis/coverage.lcov/*.prof/.envrc/.python-version/*.orig/*.rej）；显式声明 docs/decisions / docs/process / docs/architecture / evaluations/**/datasets 为受跟踪 | Step 004 PR-2 domain 层 |
+| [003](step_003_gitignore_audit.md) | .gitignore Engineering Audit | Done | `.gitignore` | `git check-ignore -v docs/...` | 4 个 docs 文件均未被忽略 | 补齐 Python 标配缺项（.tox/.nox/.hypothesis/coverage.lcov/*.prof/.envrc/.python-version/*.orig/*.rej）；显式声明 docs/decisions / docs/process / docs/architecture / evaluations/**/datasets 为受跟踪 | Step 004 测试基线 |
+| [004](step_004_baseline.md) | Test & Lint Baseline | Done | — (env only) | `pytest -q --no-cov` + `ruff check . --statistics` | **88 passed** / 437 ruff errors（347 auto-fixable） | venv 补齐（chromadb 1.5.9 用 binary-only wheel）；存量绿基线 88/88；ruff 高频项 UP006(202)/I001(54)/F401(44) 留给后续模块 PR 清理 | Step 005 PR-2 domain 层 |
 
 ## 写作规范
 
