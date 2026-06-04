@@ -1,6 +1,66 @@
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = ["test_*.py"]
-python_classes = ["Test*"]
-python_functions = ["test_*"]
-addopts = "-v --tb=short -q"
+[project]
+name = "ragdataout"
+version = "0.1.0"
+description = "PIPL compliance Copilot: Tool-Use Agent + LoRA evidence model + hybrid retrieval"
+requires-python = ">=3.10"
+
+# pytest config moved to pytest.ini
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = [
+    ".venv",
+    "data",
+    "logs",
+    "evaluations/*/reports",
+    "frontend",
+    "interview_doc",
+    "prompts",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "C4"]
+ignore = [
+    "E501",   # line too long (let formatter handle)
+    "B008",   # function calls in defaults (FastAPI Depends)
+    "SIM108", # ternary
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["B011", "SIM"]
+"evaluations/**/*.py" = ["B", "SIM"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.10"
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unreachable = true
+ignore_missing_imports = true
+exclude = [
+    "^evaluations/",
+    "^frontend/",
+    "^tests/",
+]
+
+[[tool.mypy.overrides]]
+module = ["domain.*", "app.*", "infra.auth.*"]
+disallow_untyped_defs = true
+warn_return_any = true
+
+[tool.coverage.run]
+branch = true
+source = ["risk", "domain", "app", "infra", "api"]
+omit = ["*/tests/*", "*/__init__.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@(abc\\.)?abstractmethod",
+]

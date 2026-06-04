@@ -12,11 +12,18 @@ dist/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.tox/
+.nox/
+.hypothesis/
 .coverage
 .coverage.*
 htmlcov/
 coverage.xml
+coverage.lcov
 *.cover
+*.prof
+pip-log.txt
+pip-delete-this-directory.txt
 
 # =========================
 # 虚拟环境 & 环境变量
@@ -29,6 +36,8 @@ env/
 .env
 .env.*
 !.env.example
+.envrc
+.python-version
 
 # =========================
 # 运行时数据（不跟踪，但保留 data/ 下的源码）
@@ -118,3 +127,19 @@ yarn-error.log*
 # =========================
 *.pid
 .docker/
+
+# =========================
+# 合并/补丁残留
+# =========================
+*.orig
+*.rej
+
+# =========================
+# 显式跟踪（防止以上规则误伤）
+# 这些文件夹/文件是工程档案，必须进 git
+# =========================
+# docs/decisions/    — ADR 决策记录
+# docs/process/      — 开发过程留痕
+# docs/architecture/ — 架构设计
+# evaluations/**/datasets/  — 评测输入数据集
+!.gitkeep
