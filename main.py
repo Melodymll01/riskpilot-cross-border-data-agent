@@ -2,7 +2,10 @@
 基于 RAG 的数据出境知识库问答系统 - 主入口
 
 启动方式:
-    uvicorn main:app --host 127.0.0.1 --port 8004 --reload
+    uvicorn main:app --host 127.0.0.1 --port 8765 --reload
+
+端口 8765 与 config.settings.github_redirect_uri 默认值保持一致，
+OAuth 回调才能落到本地服务。
 """
 
 import logging
@@ -39,6 +42,31 @@ logger = logging.getLogger(__name__)
 
 
 # ===================== Lifespan（替代已弃用的 on_event） =====================
+
+def _warn_oauth_redirect_port_mismatch(server_port: int | None) -> None:
+    """启动时检查：若 server 监听端口与 github_redirect_uri 里的端口不一致，发出警告。
+
+    端口不一致会让 GitHub OAuth 回调跳到一个空端口，前端看起来像「登录不进去」。
+    服务端无法可靠探测 uvicorn 实际监听端口（可能由命令行 --port 指定），
+    所以只在通过 ``python main.py`` 直起场景或 ``UVICORN_PORT`` 已知时校验。
+    """
+    from urllib.parse import urlparse
+
+    if server_port is None:
+        return
+    try:
+        parsed = urlparse(settings.github_redirect_uri)
+        cb_port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    except Exception:  # pragma: no cover - 配置极端损坏
+        return
+    if cb_port != server_port:
+        logger.warning(
+            "OAuth redirect URI 端口 (%s) 与服务监听端口 (%s) 不一致，"
+            "GitHub 登录回调会跳到死端口；请同步修改 .env 中 GITHUB_REDIRECT_URI 或 server 端口。",
+            cb_port,
+            server_port,
+        )
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -138,9 +166,14 @@ async def serve_frontend():
 
 if __name__ == "__main__":
     import uvicorn
+
+    # 端口默认跟 settings.github_redirect_uri 保持一致，避免 OAuth 回调跟服务不同端口造成「登录不进去」。
+    # 如需改端口，请同步修改 .env 中 GITHUB_REDIRECT_URI 及 GitHub OAuth App 里的 callback。
+    SERVER_PORT = 8765
+    _warn_oauth_redirect_port_mismatch(SERVER_PORT)
     uvicorn.run(
         "main:app",
         host="127.0.0.1",
-        port=8004,
+        port=SERVER_PORT,
         reload=False,
     )

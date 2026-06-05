@@ -2,8 +2,9 @@
 
 import os
 from typing import List, Literal, Optional
-from pydantic import Field
-from pydantic_settings import BaseSettings
+from typing_extensions import Annotated
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, NoDecode
 
 
 class Settings(BaseSettings):
@@ -97,9 +98,28 @@ class Settings(BaseSettings):
 
     # ── 管理员（Step 012-tail：权限基线） ─────────────────────────────────────
     # 命名空间需与 User.user_id 一致，例如 "github:melody-rabbit"。
-    # .env 用逗号分隔：ADMIN_USER_IDS=github:foo,github:bar
+    # .env 支持两种写法：
+    #   逗号分隔：ADMIN_USER_IDS=github:foo,github:bar
+    #   JSON 数组：ADMIN_USER_IDS=["github:foo","github:bar"]
     # 命中此列表的用户：UserOut.is_admin=True，可通过 require_admin 访问管理接口。
-    admin_user_ids: List[str] = []
+    # 允许逗号分隔 或 JSON 数组；NoDecode 跳过 pydantic-settings 默认的 JSON 预解析，走下面的 validator。
+    admin_user_ids: Annotated[List[str], NoDecode] = []
+
+    @field_validator("admin_user_ids", mode="before")
+    @classmethod
+    def _split_admin_user_ids(cls, v):
+        """允许 .env 用逗号分隔写法（避免用户被迫写 JSON 数组语法）。
+
+        同时兼容 JSON 写法。空字符串返回空列表。
+        """
+        if v is None or v == "":
+            return []
+        if isinstance(v, str):
+            s = v.strip()
+            if s.startswith("["):
+                return v  # 交给 pydantic 默认 JSON 解析
+            return [item.strip() for item in s.split(",") if item.strip()]
+        return v
 
     # ── API v2（Step 010 PR-6：FastAPI 路由 + SSE） ────────────────────────────
     cookie_name: str = "copilot_session"
