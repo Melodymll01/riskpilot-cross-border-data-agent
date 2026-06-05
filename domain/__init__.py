@@ -23,6 +23,8 @@ from domain.errors import (
 )
 from domain.models import (
     Artifact,
+    AuditAction,
+    AuditEntry,
     BaseDomainModel,
     Chunk,
     Citation,
@@ -48,6 +50,7 @@ from domain.models import (
     WebResult,
 )
 from domain.ports import (
+    AuditLogPort,
     AuthPort,
     ChatPort,
     DocumentLoaderPort,
@@ -80,6 +83,8 @@ __all__ = [
     "WebSearchError",
     # models
     "BaseDomainModel",
+    "AuditEntry",
+    "AuditAction",
     "User",
     "Task",
     "Message",
@@ -105,6 +110,7 @@ __all__ = [
     "Corpus",
     # ports
     "AuthPort",
+    "AuditLogPort",
     "UserRepoPort",
     "TaskRepoPort",
     "EmbedPort",

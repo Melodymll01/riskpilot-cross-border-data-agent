@@ -37,7 +37,7 @@ jobs:
         run: |
           ruff check \
             domain app \
-            infra/auth infra/kb infra/risk_profile \
+            infra/auth infra/kb infra/risk_profile infra/audit \
             api/v2 \
             config.py main.py \
             tests/api tests/app tests/domain tests/infra tests/fakes

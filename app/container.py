@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING
 
 from app.agent import ComplianceCopilotAgent, register_default_tools
 from app.factories import (
+    build_audit_log,
     build_auth,
     build_chat,
     build_document_loader,
@@ -47,6 +48,7 @@ from app.use_cases.run_copilot import RunCopilotUseCase
 if TYPE_CHECKING:
     from config import Settings
     from domain.ports import (
+        AuditLogPort,
         AuthPort,
         ChatPort,
         DocumentLoaderPort,
@@ -62,7 +64,7 @@ if TYPE_CHECKING:
 
 
 class AppContainer:
-    """10 个 Port + 5 个 use case 的中央配电盘。"""
+    """11 个 Port + 5 个 use case 的中央配电盘。"""
 
     def __init__(
         self,
@@ -70,6 +72,7 @@ class AppContainer:
         *,
         user_repo: UserRepoPort | None = None,
         task_repo: TaskRepoPort | None = None,
+        audit_log: AuditLogPort | None = None,
         embedder: EmbedPort | None = None,
         chat: ChatPort | None = None,
         retriever: RetrievePort | None = None,
@@ -82,16 +85,19 @@ class AppContainer:
     ) -> None:
         self.settings = settings
 
-        # ── 存储层：SQLite 单连接池给两个 repo 共享 ─────────────────────
+        # ── 存储层：SQLite 单连接池给三个 repo 共享 ─────────────────────
         pool = (
             build_sqlite_pool(settings)
-            if user_repo is None or task_repo is None
+            if user_repo is None or task_repo is None or audit_log is None
             else None
         )
         self.user_repo: UserRepoPort = user_repo or build_user_repo(
             settings, pool=pool
         )
         self.task_repo: TaskRepoPort = task_repo or build_task_repo(
+            settings, pool=pool
+        )
+        self.audit_log: AuditLogPort = audit_log or build_audit_log(
             settings, pool=pool
         )
 
@@ -121,6 +127,7 @@ class AppContainer:
             kb_repo=self.kb_repo,
             loader=self.document_loader,
             embedder=self.embedder,
+            audit_log=self.audit_log,
         )
         # ── Agent 层（Step 009 PR-5b）─────────────────────────────────
         # 工具注册表必须晚于所有 port 初始化，因为 handler 闭包持有 self.* 引用

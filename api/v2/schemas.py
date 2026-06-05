@@ -191,3 +191,26 @@ class WebIngestRequest(BaseModel):
             msg = "URL 缺少域名"
             raise ValueError(msg)
         return v
+
+
+# ── Audit log (Step 021) ───────────────────────────────────────────────
+
+
+class AuditEntryOut(BaseModel):
+    """对外的审计记录视图（HTTP 层 schema，与 ``domain.AuditEntry`` 对齐）。"""
+
+    actor_id: str
+    action: str
+    resource: str
+    timestamp: float
+    request_id: str | None = None
+    success: bool
+    error: str | None = None
+    extra_json: dict[str, Any] = Field(default_factory=dict)
+
+
+class AuditLogListResponse(BaseModel):
+    """``GET /audit/logs`` 返回：审计记录列表（按时间倒序）。"""
+
+    entries: list[AuditEntryOut]
+    count: int = Field(ge=0)

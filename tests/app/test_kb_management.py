@@ -16,8 +16,8 @@ from dataclasses import FrozenInstanceError
 import pytest
 
 from app.use_cases import KbIngestResult, KbManagementUseCase
-from domain.models import KbChunk
-from tests.fakes import FakeDocumentLoader, FakeEmbed, FakeKbRepo
+from domain.models import AuditAction, KbChunk
+from tests.fakes import FakeAuditLogRepo, FakeDocumentLoader, FakeEmbed, FakeKbRepo
 
 
 def _make_uc(
@@ -190,3 +190,177 @@ class TestKbIngestResult:
         r = KbIngestResult(success=True, source_name="x", chunk_count=1, message="ok")
         with pytest.raises(FrozenInstanceError):
             r.success = False  # type: ignore[misc]
+
+
+class _BoomLoader:
+    """触发 loader 异常的桩，用来验证审计失败路径。"""
+
+    def load_file(self, *args: object, **kwargs: object) -> list[KbChunk]:
+        raise RuntimeError("loader boom")
+
+    def load_web(self, *args: object, **kwargs: object) -> list[KbChunk]:
+        raise RuntimeError("web boom")
+
+
+def _make_uc_with_audit() -> tuple[
+    KbManagementUseCase, FakeKbRepo, FakeDocumentLoader, FakeAuditLogRepo
+]:
+    repo = FakeKbRepo()
+    loader = FakeDocumentLoader()
+    audit = FakeAuditLogRepo()
+    uc = KbManagementUseCase(
+        kb_repo=repo,
+        loader=loader,
+        embedder=FakeEmbed(dim=4),
+        audit_log=audit,
+    )
+    return uc, repo, loader, audit
+
+
+class TestAuditHooks:
+    """Step 021：写操作必须落审计；audit=None 时静默跳过。"""
+
+    def test_audit_log_none_bypasses_hook(self) -> None:
+        chunks = _make_kb_chunks("PIPL", 2)
+        uc = KbManagementUseCase(
+            kb_repo=FakeKbRepo(),
+            loader=FakeDocumentLoader(chunks=chunks),
+            embedder=FakeEmbed(dim=4),
+            audit_log=None,  # 显式不接审计
+        )
+        # 不应崩溃
+        result = uc.ingest_file("/tmp/PIPL.txt", actor_id="github:Melodymll01")
+        assert result.success is True
+
+    def test_delete_success_records_audit(self) -> None:
+        repo = FakeKbRepo()
+        audit = FakeAuditLogRepo()
+        uc = KbManagementUseCase(
+            kb_repo=repo,
+            loader=FakeDocumentLoader(chunks=_make_kb_chunks("PIPL", 3)),
+            embedder=FakeEmbed(dim=4),
+            audit_log=audit,
+        )
+        uc.ingest_file("/tmp/PIPL.txt", actor_id="github:Melodymll01")
+        audit.entries.clear()  # 只看 delete
+
+        deleted = uc.delete_document("PIPL", actor_id="github:Melodymll01")
+        assert deleted == 3
+        assert len(audit.entries) == 1
+        e = audit.entries[0]
+        assert e.action == AuditAction.KB_DELETE
+        assert e.resource == "PIPL"
+        assert e.actor_id == "github:Melodymll01"
+        assert e.success is True
+        assert e.error is None
+        assert e.extra_json["deleted_count"] == 3
+
+    def test_delete_idempotent_records_success(self) -> None:
+        """删除不存在的资源：从 use case 视角是成功幂等（API 层另行判 404）。"""
+        uc, _, _, audit = _make_uc_with_audit()
+        uc.delete_document("nope", actor_id="github:Melodymll01")
+        assert len(audit.entries) == 1
+        assert audit.entries[0].success is True
+        assert audit.entries[0].extra_json["deleted_count"] == 0
+
+    def test_ingest_file_success_records_audit(self) -> None:
+        repo = FakeKbRepo()
+        audit = FakeAuditLogRepo()
+        uc = KbManagementUseCase(
+            kb_repo=repo,
+            loader=FakeDocumentLoader(chunks=_make_kb_chunks("PIPL", 4)),
+            embedder=FakeEmbed(dim=4),
+            audit_log=audit,
+        )
+        result = uc.ingest_file(
+            "/tmp/PIPL.txt",
+            original_filename="PIPL.txt",
+            category="法规",
+            actor_id="github:Melodymll01",
+            request_id="req-1",
+        )
+        assert result.success is True
+        assert len(audit.entries) == 1
+        e = audit.entries[0]
+        assert e.action == AuditAction.KB_INGEST_FILE
+        assert e.resource == "PIPL"
+        assert e.actor_id == "github:Melodymll01"
+        assert e.request_id == "req-1"
+        assert e.success is True
+        assert e.extra_json["chunk_count"] == 4
+        assert e.extra_json["category"] == "法规"
+
+    def test_ingest_file_loader_failure_records_audit(self) -> None:
+        repo = FakeKbRepo()
+        audit = FakeAuditLogRepo()
+        uc = KbManagementUseCase(
+            kb_repo=repo,
+            loader=_BoomLoader(),  # type: ignore[arg-type]
+            embedder=FakeEmbed(dim=4),
+            audit_log=audit,
+        )
+        with pytest.raises(RuntimeError, match="loader boom"):
+            uc.ingest_file(
+                "/tmp/x.txt",
+                original_filename="x.txt",
+                actor_id="github:Melodymll01",
+            )
+        assert len(audit.entries) == 1
+        e = audit.entries[0]
+        assert e.action == AuditAction.KB_INGEST_FILE
+        assert e.resource == "x.txt"
+        assert e.success is False
+        assert "loader boom" in (e.error or "")
+
+    def test_ingest_file_empty_records_audit(self) -> None:
+        repo = FakeKbRepo()
+        audit = FakeAuditLogRepo()
+        uc = KbManagementUseCase(
+            kb_repo=repo,
+            loader=FakeDocumentLoader(empty=True),
+            embedder=FakeEmbed(dim=4),
+            audit_log=audit,
+        )
+        result = uc.ingest_file(
+            "/tmp/empty.txt",
+            original_filename="empty.txt",
+            actor_id="github:Melodymll01",
+        )
+        assert result.success is False
+        assert len(audit.entries) == 1
+        assert audit.entries[0].success is False
+        assert "为空" in (audit.entries[0].error or "")
+
+    def test_ingest_web_success_records_audit(self) -> None:
+        chunk = KbChunk(
+            chunk_id="x:0",
+            text="网页",
+            source_name="https://example.com/x",
+            source_type="web",
+            title="示例",
+            source_url="https://example.com/x",
+            chunk_index=0,
+        )
+        repo = FakeKbRepo()
+        audit = FakeAuditLogRepo()
+        uc = KbManagementUseCase(
+            kb_repo=repo,
+            loader=FakeDocumentLoader(chunks=[chunk]),
+            embedder=FakeEmbed(dim=4),
+            audit_log=audit,
+        )
+        uc.ingest_web(
+            "https://example.com/x",
+            category="政策",
+            actor_id="github:Melodymll01",
+        )
+        assert len(audit.entries) == 1
+        e = audit.entries[0]
+        assert e.action == AuditAction.KB_INGEST_WEB
+        assert e.resource == "https://example.com/x"
+        assert e.success is True
+
+    def test_actor_id_default_when_none(self) -> None:
+        uc, _, _, audit = _make_uc_with_audit()
+        uc.delete_document("nope")  # 不传 actor_id
+        assert audit.entries[0].actor_id == "system:unknown"

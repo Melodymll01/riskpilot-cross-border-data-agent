@@ -22,6 +22,7 @@ from api.v2 import build_v2_router
 from api.v2.errors import install_exception_handlers
 from app.container import AppContainer
 from config import Settings
+from tests.fakes.fake_audit_log import FakeAuditLogRepo
 from tests.fakes.fake_auth import FakeAuth
 from tests.fakes.fake_chat import FakeChat
 from tests.fakes.fake_document_loader import FakeDocumentLoader
@@ -63,6 +64,7 @@ def container(test_settings: Settings, chat_script: list[str]) -> AppContainer:
         test_settings,
         user_repo=InMemoryUserRepo(),
         task_repo=InMemoryTaskRepo(),
+        audit_log=FakeAuditLogRepo(),
         embedder=FakeEmbed(),
         chat=FakeChat(responses=chat_script),
         retriever=FakeRetrieve(),

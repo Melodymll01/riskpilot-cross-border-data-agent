@@ -18,6 +18,7 @@ from typing import Literal, Protocol, runtime_checkable
 
 from domain.models import (
     Artifact,
+    AuditEntry,
     Chunk,
     EvidenceJudgement,
     Fact,
@@ -259,3 +260,34 @@ class MemoryPort(Protocol):
 
     # L4 语义事实：按 owner_id
     def recall_semantic(self, owner_id: str, query: str, k: int) -> list[Fact]: ...
+
+
+# === 审计（Step 021） ===
+
+
+@runtime_checkable
+class AuditLogPort(Protocol):
+    """admin 操作审计端口（Step 021）。
+
+    职责：把 ``AuditEntry`` 不可变记录到持久层；提供按 ``action`` / ``actor_id``
+    过滤的只读查询。
+
+    实现方约定：
+    - ``record`` 同步阻塞；写失败抛异常（由调用方决定如何兜底，典型策略是
+      ``try/except`` 吞错并打 warning 日志，**不**让 audit 失败影响主业务）
+    - ``list_recent`` 按 ``timestamp`` 倒序；过滤参数 None 表示不过滤
+    - 不提供 update / delete API（审计要求可追溯不可变）
+
+    与 ``logger.info`` 区别：本端口的产出是结构化、按字段索引的合规流水账；
+    散点 logger 是给开发者看的运维日志，二者不互相替代。
+    """
+
+    def record(self, entry: AuditEntry) -> None: ...
+
+    def list_recent(
+        self,
+        *,
+        limit: int = 50,
+        action: str | None = None,
+        actor_id: str | None = None,
+    ) -> list[AuditEntry]: ...

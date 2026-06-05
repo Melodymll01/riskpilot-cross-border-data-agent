@@ -10,6 +10,7 @@ import tempfile
 import pytest
 
 from app.factories import (
+    build_audit_log,
     build_auth,
     build_chat,
     build_embedder,
@@ -22,6 +23,7 @@ from app.factories import (
 )
 from config import Settings
 from domain.ports import (
+    AuditLogPort,
     AuthPort,
     ChatPort,
     EmbedPort,
@@ -49,6 +51,10 @@ class TestStorageFactories:
     def test_task_repo_satisfies_port(self, settings: Settings) -> None:
         pool = build_sqlite_pool(settings)
         assert isinstance(build_task_repo(settings, pool=pool), TaskRepoPort)
+
+    def test_audit_log_satisfies_port(self, settings: Settings) -> None:
+        pool = build_sqlite_pool(settings)
+        assert isinstance(build_audit_log(settings, pool=pool), AuditLogPort)
 
 
 class TestAuthFactory:

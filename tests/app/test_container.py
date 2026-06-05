@@ -1,4 +1,4 @@
-"""AppContainer 装配测试：注入全 fake，断言 10 个 port + 5 个 use case 就位。"""
+"""AppContainer 装配测试：注入全 fake，断言 11 个 port + 5 个 use case 就位。"""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from app.use_cases import (
 )
 from config import settings
 from domain.ports import (
+    AuditLogPort,
     AuthPort,
     ChatPort,
     DocumentLoaderPort,
@@ -25,6 +26,7 @@ from domain.ports import (
     WebSearchPort,
 )
 from tests.fakes import (
+    FakeAuditLogRepo,
     FakeAuth,
     FakeChat,
     FakeDocumentLoader,
@@ -43,6 +45,7 @@ def _full_fake_container() -> AppContainer:
         settings,
         user_repo=InMemoryUserRepo(),
         task_repo=InMemoryTaskRepo(),
+        audit_log=FakeAuditLogRepo(),
         embedder=FakeEmbed(),
         chat=FakeChat(),
         retriever=FakeRetrieve(),
@@ -61,6 +64,7 @@ class TestPortConformance:
         c = _full_fake_container()
         assert isinstance(c.user_repo, UserRepoPort)
         assert isinstance(c.task_repo, TaskRepoPort)
+        assert isinstance(c.audit_log, AuditLogPort)
         assert isinstance(c.embedder, EmbedPort)
         assert isinstance(c.chat, ChatPort)
         assert isinstance(c.retriever, RetrievePort)

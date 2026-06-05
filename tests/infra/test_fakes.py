@@ -6,6 +6,7 @@ import pytest
 
 from domain.models import Chunk, EvidenceJudgement, KbChunk, KbDocument, WebResult
 from domain.ports import (
+    AuditLogPort,
     ChatPort,
     DocumentLoaderPort,
     EmbedPort,
@@ -17,6 +18,7 @@ from domain.ports import (
     WebSearchPort,
 )
 from tests.fakes import (
+    FakeAuditLogRepo,
     FakeChat,
     FakeDocumentLoader,
     FakeEmbed,
@@ -56,6 +58,9 @@ class TestFakeProtocolConformance:
 
     def test_fake_document_loader_is_document_loader_port(self) -> None:
         assert isinstance(FakeDocumentLoader(), DocumentLoaderPort)
+
+    def test_fake_audit_log_is_audit_log_port(self) -> None:
+        assert isinstance(FakeAuditLogRepo(), AuditLogPort)
 
 
 class TestFakeBehavior:

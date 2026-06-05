@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from domain.ports import (
+    AuditLogPort,
     AuthPort,
     ChatPort,
     DocumentLoaderPort,
@@ -26,6 +27,7 @@ from domain.ports import (
     UserRepoPort,
     WebSearchPort,
 )
+from infra.audit import SqliteAuditLogRepo
 from infra.auth import AnonymousProvider, AuthService, GitHubOAuthProvider, JwtIssuer
 from infra.chat import OpenAIChatAdapter
 from infra.evidence import MockEvidenceClient
@@ -55,6 +57,13 @@ def build_task_repo(
     settings: Settings, *, pool: SqliteConnectionPool | None = None
 ) -> TaskRepoPort:
     return SqliteTaskRepo(pool or build_sqlite_pool(settings))
+
+
+def build_audit_log(
+    settings: Settings, *, pool: SqliteConnectionPool | None = None
+) -> AuditLogPort:
+    """构造 ``AuditLogPort`` 实现：默认 ``SqliteAuditLogRepo`` 复用同一连接池。"""
+    return SqliteAuditLogRepo(pool or build_sqlite_pool(settings))
 
 
 def build_embedder(_settings: Settings) -> EmbedPort:
@@ -125,6 +134,7 @@ def build_auth(settings: Settings, user_repo: UserRepoPort) -> AuthPort:
 
 
 __all__ = [
+    "build_audit_log",
     "build_auth",
     "build_chat",
     "build_document_loader",

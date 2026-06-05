@@ -288,3 +288,45 @@ class Fact(BaseDomainModel):
     text: str = Field(min_length=1)
     tags: list[str] = Field(default_factory=list)
     created_at: float = Field(default_factory=lambda: time.time())
+
+
+# === 审计（Step 021） ===
+
+
+class AuditEntry(BaseDomainModel):
+    """admin 操作审计记录：不可变七元组流水账。
+
+    用于满足合规审计要求（PIPL §55 等"日志留存"），让"谁、什么时间、对什么
+    资源、做了什么、是否成功"可追溯。
+
+    字段语义：
+    - ``actor_id``    操作者，遵循 ``"<namespace>:<id>"`` 命名空间（与 ``User.user_id`` 一致）
+    - ``action``      操作类型。当前枚举见 ``AuditAction`` 常量；保持 str 以便后续扩展
+    - ``resource``    被操作资源标识，如 ``source_name``、URL 等业务主键
+    - ``timestamp``   Unix epoch seconds（与 ``Task`` / ``Message`` 时间戳约定一致）
+    - ``request_id``  关联 SSE / API 请求的 trace id；当前可为 ``None``，留位给后续 tracing
+    - ``success``     ``True`` 表示主操作成功；失败时也要记一条（携带 ``error``）
+    - ``error``       失败时的简短描述；``success=True`` 时应为 ``None``
+    - ``extra_json``  扩展业务量化字段（如 ``chunk_count`` / ``file_size_bytes``）
+
+    设计取舍：之所以**不**做单独的 ``ActionLiteral``，是为了让未来新增 action
+    （如 ``"user.merge_owner"`` / ``"task.delete"``）零侵入；但 ``AuditAction``
+    模块常量集中在一处便于检索。
+    """
+
+    actor_id: str = Field(min_length=1)
+    action: str = Field(min_length=1)
+    resource: str = Field(min_length=1)
+    timestamp: float = Field(default_factory=lambda: time.time())
+    request_id: str | None = None
+    success: bool
+    error: str | None = None
+    extra_json: dict[str, Any] = Field(default_factory=dict)
+
+
+class AuditAction:
+    """审计 ``action`` 字段的预定义常量集。新 action 在此集中维护便于检索。"""
+
+    KB_DELETE = "kb.delete"
+    KB_INGEST_FILE = "kb.ingest_file"
+    KB_INGEST_WEB = "kb.ingest_web"

@@ -17,6 +17,8 @@ from pydantic import ValidationError
 
 from domain import (
     Artifact,
+    AuditAction,
+    AuditEntry,
     BaseDomainModel,
     Chunk,
     Citation,
@@ -332,6 +334,77 @@ class TestKbChunk:
         c = self._make()
         c2 = KbChunk.model_validate_json(c.model_dump_json())
         assert c == c2
+
+
+# === AuditEntry (Step 021) ===
+
+
+def _make_audit_entry(**overrides: object) -> AuditEntry:
+    defaults: dict[str, object] = {
+        "actor_id": "github:Melodymll01",
+        "action": AuditAction.KB_DELETE,
+        "resource": "doc.pdf",
+        "success": True,
+    }
+    defaults.update(overrides)
+    return AuditEntry(**defaults)  # type: ignore[arg-type]
+
+
+class TestAuditEntry:
+    def test_happy_path_defaults(self) -> None:
+        e = _make_audit_entry()
+        assert e.actor_id == "github:Melodymll01"
+        assert e.action == "kb.delete"
+        assert e.resource == "doc.pdf"
+        assert e.success is True
+        assert e.error is None
+        assert e.request_id is None
+        assert e.extra_json == {}
+        # 默认 timestamp 由 default_factory 填充
+        assert e.timestamp > 0
+
+    def test_failure_path(self) -> None:
+        e = _make_audit_entry(success=False, error="loader exploded")
+        assert e.success is False
+        assert e.error == "loader exploded"
+
+    def test_extra_json_preserved(self) -> None:
+        e = _make_audit_entry(extra_json={"deleted_count": 3, "category": "law"})
+        assert e.extra_json["deleted_count"] == 3
+        assert e.extra_json["category"] == "law"
+
+    def test_request_id_optional(self) -> None:
+        e = _make_audit_entry(request_id="req-abc-123")
+        assert e.request_id == "req-abc-123"
+
+    def test_frozen(self) -> None:
+        e = _make_audit_entry()
+        with pytest.raises(ValidationError):
+            e.actor_id = "evil"  # type: ignore[misc]
+
+    def test_extra_forbidden(self) -> None:
+        with pytest.raises(ValidationError):
+            AuditEntry(  # type: ignore[call-arg]
+                actor_id="x",
+                action="kb.delete",
+                resource="r",
+                success=True,
+                stowaway="boom",
+            )
+
+    def test_action_constants(self) -> None:
+        assert AuditAction.KB_DELETE == "kb.delete"
+        assert AuditAction.KB_INGEST_FILE == "kb.ingest_file"
+        assert AuditAction.KB_INGEST_WEB == "kb.ingest_web"
+
+    def test_json_round_trip(self) -> None:
+        e1 = _make_audit_entry(
+            request_id="r-1",
+            extra_json={"k": "v"},
+            timestamp=1700000000.0,
+        )
+        e2 = AuditEntry.model_validate_json(e1.model_dump_json())
+        assert e1 == e2
 
 
 # === 通用不变量 ===

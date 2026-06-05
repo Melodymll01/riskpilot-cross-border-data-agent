@@ -135,9 +135,11 @@ def build_documents_routes(container: AppContainer) -> APIRouter:
     )
     def delete_document(
         source_name: str,
-        _admin_id: str = Depends(require_admin),
+        admin_id: str = Depends(require_admin),
     ) -> DeleteDocumentResponse:
-        deleted = container.kb_management.delete_document(source_name)
+        deleted = container.kb_management.delete_document(
+            source_name, actor_id=admin_id
+        )
         if deleted == 0:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -161,7 +163,7 @@ def build_documents_routes(container: AppContainer) -> APIRouter:
     async def ingest_file(
         file: UploadFile = File(..., description="PDF / TXT / DOCX，最大 ${max_upload_mb}MB"),
         category: str = Query("", description="文档分类标签", max_length=100),
-        _admin_id: str = Depends(require_admin),
+        admin_id: str = Depends(require_admin),
     ) -> KbIngestResponse:
         original_name = file.filename or "unknown"
         suffix = Path(original_name).suffix.lower()
@@ -207,6 +209,7 @@ def build_documents_routes(container: AppContainer) -> APIRouter:
                     str(save_path),
                     original_filename=original_name,
                     category=category or None,
+                    actor_id=admin_id,
                 )
             )
             return _to_ingest_response(result)
@@ -232,13 +235,14 @@ def build_documents_routes(container: AppContainer) -> APIRouter:
     )
     async def ingest_web(
         body: WebIngestRequest,
-        _admin_id: str = Depends(require_admin),
+        admin_id: str = Depends(require_admin),
     ) -> KbIngestResponse:
         try:
             result = await anyio.to_thread.run_sync(
                 lambda: container.kb_management.ingest_web(
                     body.url,
                     category=body.category or None,
+                    actor_id=admin_id,
                 )
             )
         except ValueError as e:
