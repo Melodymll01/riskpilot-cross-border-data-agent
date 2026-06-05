@@ -8,8 +8,9 @@
 from __future__ import annotations
 
 from typing import Any, Literal
+from urllib.parse import urlparse
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # ── 通用 ────────────────────────────────────────────────────────────────
 
@@ -130,3 +131,63 @@ class ChatEventOut(BaseModel):
 class ChatResponse(BaseModel):
     task_id: str
     events: list[ChatEventOut]
+
+
+# ── Documents (KB management, Step 016c) ───────────────────────────────
+
+
+class KbDocumentOut(BaseModel):
+    """对外的 KB 文档视图（按 ``source_name`` 聚合）。"""
+
+    source_name: str
+    source_type: Literal["file", "web"]
+    title: str = ""
+    source_url: str | None = None
+    chunk_count: int = Field(ge=0)
+    category: str = ""
+
+
+class KbDocumentListResponse(BaseModel):
+    documents: list[KbDocumentOut]
+    total_chunks: int = Field(ge=0)
+
+
+class KbDocumentStatsResponse(BaseModel):
+    """``GET /documents/stats`` 返回：知识库总览统计。"""
+
+    document_count: int = Field(ge=0)
+    chunk_count: int = Field(ge=0)
+
+
+class KbIngestResponse(BaseModel):
+    """``POST /documents/file`` 与 ``POST /documents/web`` 共享返回结构。"""
+
+    success: bool
+    source_name: str = ""
+    chunk_count: int = 0
+    message: str = ""
+
+
+class DeleteDocumentResponse(BaseModel):
+    ok: bool = True
+    source_name: str
+    deleted_count: int = Field(ge=0)
+
+
+class WebIngestRequest(BaseModel):
+    """``POST /documents/web`` 请求体。"""
+
+    url: str = Field(min_length=1, max_length=2000)
+    category: str = Field(default="", max_length=100)
+
+    @field_validator("url")
+    @classmethod
+    def _validate_url(cls, v: str) -> str:
+        parsed = urlparse(v)
+        if parsed.scheme not in ("http", "https"):
+            msg = "仅支持 http/https 协议的 URL"
+            raise ValueError(msg)
+        if not parsed.netloc:
+            msg = "URL 缺少域名"
+            raise ValueError(msg)
+        return v
