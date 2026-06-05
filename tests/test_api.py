@@ -38,55 +38,6 @@ class TestHealthCheck:
         assert data["status"] in ("ok", "initializing")
 
 
-class TestIngestEndpoints:
-    """入库端点测试。"""
-
-    def test_upload_unsupported_format(self, client):
-        """不支持的文件格式应返回 400。"""
-        test_client, _ = client
-        resp = test_client.post(
-            "/api/ingest/file",
-            files={"file": ("test.exe", b"binary content", "application/octet-stream")},
-        )
-        assert resp.status_code == 400
-        assert "不支持" in resp.json()["detail"]
-
-    def test_upload_file_too_large(self, client):
-        """超过大小限制应返回 413。"""
-        test_client, _ = client
-        # 创建一个超大内容（默认限制 50MB，我们发 51MB）
-        large_content = b"x" * (51 * 1024 * 1024)
-        resp = test_client.post(
-            "/api/ingest/file",
-            files={"file": ("test.pdf", large_content, "application/pdf")},
-        )
-        assert resp.status_code == 413
-
-    def test_web_ingest_invalid_url(self, client):
-        """无效 URL 应返回 422。"""
-        test_client, _ = client
-        resp = test_client.post(
-            "/api/ingest/web",
-            json={"url": "ftp://invalid.com"},
-        )
-        assert resp.status_code == 422
-
-    def test_web_ingest_valid_url(self, client):
-        """有效 URL 请求应被接受（Mock 底层实现）。"""
-        test_client, mock_ks = client
-        from service import IngestResult
-        mock_ks.ingest_web.return_value = IngestResult(
-            success=True, message="采集成功",
-            source_name="测试网页", chunk_count=5,
-        )
-        resp = test_client.post(
-            "/api/ingest/web",
-            json={"url": "https://example.com/article"},
-        )
-        assert resp.status_code == 200
-        assert resp.json()["success"] is True
-
-
 class TestAskEndpoints:
     """问答端点测试。"""
 

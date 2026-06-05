@@ -14,14 +14,11 @@
     - 组件通过构造函数注入，支持替换实现
 """
 
-import os
 import logging
 from dataclasses import dataclass
 from typing import List, Dict, Any, Optional
 
 from config import settings
-from ingestion.unified_loader import UnifiedLoader
-from processing.metadata import build_chunks, ChunkWithMetadata
 from retrieval.search.embedder import Embedder
 from retrieval.search.vector_store import VectorStore
 from retrieval.search.retriever import Retriever
@@ -40,31 +37,23 @@ class RetrievalResult:
     query_used: List[str]  # 实际使用的查询（含改写后的）
 
 
-@dataclass
-class IngestResult:
-    """入库结果。"""
-    success: bool
-    message: str
-    source_name: str
-    chunk_count: int
-
-
 class KnowledgeService:
-    """知识库服务层：统一封装入库、检索、问答能力。
+    """知识库检索 / 问答 / 深度研究服务层（仅读）。
 
-    多 Agent 系统中，各 Agent 通过此类访问知识库：
+    入库管理面已迁移至 ``app/use_cases/kb_management.py:KbManagementUseCase``
+    （Step 016b/c 重构，走 ``container.kb_management`` 绑 ``KbDocumentRepoPort``
+    + ``DocumentLoaderPort`` + ``EmbedPort``）；该类只保留检索 / 问答 /
+    Agentic RAG 三个能力，给老 ``/api/retrieve`` ``/api/ask`` ``/api/research``
+    入口与 benchmark 脚本使用。
 
         from service import KnowledgeService
         ks = KnowledgeService()
 
-        # Agent 1: 法规检索 Agent — 只检索，不生成回答
+        # 法规检索 Agent — 只检索，不生成回答
         results = ks.retrieve("数据出境安全评估的触发条件", top_k=5)
 
-        # Agent 2: 合规问答 Agent — 检索 + 生成回答
+        # 合规问答 Agent — 检索 + 生成回答
         answer = ks.ask("个人信息出境需要哪些手续？")
-
-        # Agent 3: 风险分析 Agent — 带分类过滤的检索
-        results = ks.retrieve("安全评估", top_k=8, category="法规")
     """
 
     def __init__(
@@ -73,12 +62,10 @@ class KnowledgeService:
         vector_store: Optional[VectorStore] = None,
         retriever: Optional[Retriever] = None,
         qa_chain: Optional[QAChain] = None,
-        loader: Optional[UnifiedLoader] = None,
     ):
         """初始化知识服务，支持组件注入（不传则使用默认实例）。"""
         self.embedder = embedder or Embedder()
         self.vector_store = vector_store or VectorStore()
-        self.loader = loader or UnifiedLoader()
 
         query_rewriter = QueryRewriter()
 
@@ -115,57 +102,6 @@ class KnowledgeService:
         )
 
         logger.info("KnowledgeService 初始化完成（含 Agentic RAG Agent）")
-
-    # ==================== 入库能力 ====================
-
-    def ingest_file(self, file_path: str, original_filename: Optional[str] = None,
-                    category: str = "") -> IngestResult:
-        """导入本地文件到知识库。
-
-        Args:
-            file_path: 文件路径
-            original_filename: 原始文件名
-            category: 文档分类标签（如 "法规"、"政策"、"指南"）
-        """
-        raw_doc = self.loader.load_file(file_path, original_filename)
-        return self._ingest_document(
-            raw_doc, category,
-            empty_msg=f"文件内容为空或无法提取文本",
-            fallback_name=original_filename or "",
-            success_msg=f"文件 [{raw_doc.source_name}] 导入成功",
-        )
-
-    def ingest_web(self, url: str, category: str = "") -> IngestResult:
-        """采集网页内容到知识库。"""
-        raw_doc = self.loader.load_web(url)
-        return self._ingest_document(
-            raw_doc, category,
-            empty_msg="网页内容为空",
-            fallback_name=url,
-            success_msg=f"网页 [{raw_doc.title}] 采集成功",
-        )
-
-    def _ingest_document(self, raw_doc, category: str,
-                         empty_msg: str, fallback_name: str,
-                         success_msg: str) -> IngestResult:
-        """公共入库流程：切块 → 嵌入 → 写入向量库。"""
-        if category:
-            raw_doc.extra_metadata["category"] = category
-
-        chunks = build_chunks(raw_doc)
-        if not chunks:
-            return IngestResult(False, empty_msg, fallback_name, 0)
-
-        if category:
-            for c in chunks:
-                c.category = category
-
-        self.vector_store.delete_by_source(raw_doc.source_name)
-        texts = [c.text for c in chunks]
-        embeddings = self.embedder.embed_texts(texts)
-        self.vector_store.add_chunks(chunks, embeddings)
-
-        return IngestResult(True, success_msg, raw_doc.source_name, len(chunks))
 
     # ==================== 检索能力（核心：供 Agent 调用） ====================
 
@@ -229,18 +165,6 @@ class KnowledgeService:
         """
         retrieval = self.retrieve(question, top_k=top_k, category=category)
         yield from self.qa_chain.generate_stream(question, retrieval.chunks)
-
-    # ==================== 管理能力 ====================
-
-    def list_sources(self) -> Dict[str, Any]:
-        """获取所有知识来源。"""
-        sources = self.vector_store.get_all_sources()
-        total = self.vector_store.get_total_count()
-        return {"sources": sources, "total_chunks": total}
-
-    def delete_source(self, source_name: str) -> int:
-        """删除指定来源。返回删除的记录数。"""
-        return self.vector_store.delete_by_source(source_name)
 
     # ==================== Agentic RAG 深度研究 ====================
 

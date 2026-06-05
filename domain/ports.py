@@ -170,8 +170,8 @@ class KbDocumentRepoPort(Protocol):
     - 切分 / 清洗 / 嵌入由上层 ``IngestionUseCase``（Step 016b）编排，
       本端口只接受已就绪的 ``KbChunk`` 列表与平行的 embeddings。
 
-    与 v1 ``service.py:KnowledgeService.list_sources/delete_source`` 是平行实现，
-    Step 016d 删除 v1 后本端口成为唯一入口。
+    与 v1 ``service.py:KnowledgeService.list_sources/delete_source`` 的老 KB 管理
+    职责被本端口完整接管；Step 016d 已删除 v1 入口，本端口成为唯一管理面入口。
     """
 
     def list_documents(self) -> list[KbDocument]: ...

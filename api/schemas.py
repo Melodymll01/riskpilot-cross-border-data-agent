@@ -2,26 +2,9 @@
 
 from typing import List, Optional
 from pydantic import BaseModel, Field, field_validator
-from urllib.parse import urlparse
 
 
 # ===================== 请求模型 =====================
-
-class WebIngestRequest(BaseModel):
-    """网页采集请求。"""
-    url: str = Field(..., description="要采集的网页 URL", examples=["https://example.com/article"])
-    category: str = Field(default="", description="文档分类标签：法规/政策/指南/标准")
-
-    @field_validator("url")
-    @classmethod
-    def validate_url(cls, v: str) -> str:
-        parsed = urlparse(v)
-        if parsed.scheme not in ("http", "https"):
-            raise ValueError("仅支持 http/https 协议的 URL")
-        if not parsed.netloc:
-            raise ValueError("URL 缺少域名")
-        return v
-
 
 class AskRequest(BaseModel):
     """问答请求。"""
@@ -38,14 +21,6 @@ class RetrieveRequest(BaseModel):
 
 
 # ===================== 响应模型 =====================
-
-class IngestResponse(BaseModel):
-    """知识接入响应。"""
-    success: bool
-    message: str
-    source_name: str = ""
-    chunk_count: int = 0
-
 
 class CitationItem(BaseModel):
     """引用来源项。"""
@@ -78,28 +53,6 @@ class RetrieveResponse(BaseModel):
     """纯检索响应（不含 LLM 回答，供 Agent 使用）。"""
     chunks: List[RetrieveChunkItem] = Field(default_factory=list)
     query_used: List[str] = Field(default_factory=list, description="实际使用的检索查询（含改写）")
-
-
-class SourceItem(BaseModel):
-    """知识来源项。"""
-    source_type: str
-    source_name: str
-    title: str
-    source_url: Optional[str] = None
-    chunk_count: int = 0
-
-
-class SourceListResponse(BaseModel):
-    """知识来源列表响应。"""
-    sources: List[SourceItem]
-    total_chunks: int
-
-
-class DeleteSourceResponse(BaseModel):
-    """删除知识来源响应。"""
-    success: bool
-    message: str = ""
-    deleted_count: int = 0
 
 
 # ===================== Agentic RAG 模型 =====================

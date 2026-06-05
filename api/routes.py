@@ -1,15 +1,17 @@
-"""FastAPI 路由定义：知识接入、检索问答、来源管理。"""
+"""FastAPI 路由定义：检索 / 问答 / Agentic RAG / 对话历史。
 
-import os
+知识库管理面（上传 / sources 列表 / 删除）已于 Step 016d 迁移至
+``/api/v2/documents/*``（走 admin-only + ``container.kb_management``），本文件
+不再提供老 ``/api/ingest/*`` ``/api/sources*`` 端点。
+"""
+
 import asyncio
 import json
 import logging
 import time
 import threading
-from pathlib import Path
-from uuid import uuid4
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from starlette.responses import StreamingResponse
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -23,17 +25,12 @@ limiter = Limiter(
     config_filename="",  # 不让 slowapi 读 .env（已由 pydantic-settings 管理，避免中文 Windows 编码问题）
 )
 from api.schemas import (
-    WebIngestRequest,
     AskRequest,
     RetrieveRequest,
-    IngestResponse,
     AskResponse,
     RetrieveResponse,
     RetrieveChunkItem,
     CitationItem,
-    SourceListResponse,
-    SourceItem,
-    DeleteSourceResponse,
     ResearchRequest,
     ResearchResponse,
     ResearchStepItem,
@@ -82,22 +79,6 @@ def get_knowledge_service() -> KnowledgeService:
         raise RuntimeError("KnowledgeService 初始化失败")
     return _knowledge_service
 
-# 允许上传的文件后缀
-ALLOWED_EXTENSIONS = {".pdf", ".txt", ".docx"}
-
-
-# ==================== 工具函数 ====================
-
-def _safe_save_path(original_filename: str) -> tuple[str, str]:
-    """生成安全的保存路径（UUID文件名），返回 (save_path, original_name)。
-
-    使用 UUID 完全消除路径穿越风险，同时保留原始后缀用于格式判断。
-    """
-    suffix = Path(original_filename).suffix.lower()
-    safe_name = f"{uuid4().hex}{suffix}"
-    save_path = os.path.join(settings.upload_dir, safe_name)
-    return save_path, original_filename
-
 
 # ==================== 健康检查 ====================
 
@@ -113,72 +94,6 @@ async def health_check():
         return {"status": "ok", "chunks": total}
     except Exception:
         return {"status": "degraded", "chunks": 0}
-
-
-# ==================== 入库接口 ====================
-
-@router.post("/api/ingest/file", response_model=IngestResponse)
-@limiter.limit(settings.rate_limit_ingest)
-async def ingest_file(
-    request: Request,
-    file: UploadFile = File(...),
-    category: str = Query("", description="文档分类标签：法规/政策/指南/标准"),
-):
-    """上传本地文档并导入知识库。支持 PDF / TXT / DOCX。"""
-    original_name = file.filename or "unknown"
-    suffix = Path(original_name).suffix.lower()
-    if suffix not in ALLOWED_EXTENSIONS:
-        raise HTTPException(400, f"不支持的文件格式: {suffix}，仅支持 {ALLOWED_EXTENSIONS}")
-
-    content = await file.read()
-    max_bytes = settings.max_upload_mb * 1024 * 1024
-    if len(content) > max_bytes:
-        raise HTTPException(413, f"文件过大，最大支持 {settings.max_upload_mb}MB")
-
-    save_path, _ = _safe_save_path(original_name)
-    try:
-        with open(save_path, "wb") as f:
-            f.write(content)
-
-        logger.info(f"文件已保存: {save_path}（原始名: {original_name}）")
-        result = await asyncio.to_thread(
-            get_knowledge_service().ingest_file, save_path, original_name, category
-        )
-
-        return IngestResponse(
-            success=result.success, message=result.message,
-            source_name=result.source_name, chunk_count=result.chunk_count,
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"文件导入失败: {e}")
-        raise HTTPException(500, f"文件导入失败: {str(e)}")
-    finally:
-        # 无论成功或失败，都删除临时文件，避免磁盘泄漏
-        if os.path.exists(save_path):
-            try:
-                os.remove(save_path)
-            except OSError:
-                logger.warning(f"临时文件清理失败: {save_path}")
-
-
-@router.post("/api/ingest/web", response_model=IngestResponse)
-@limiter.limit(settings.rate_limit_ingest)
-async def ingest_web(request: Request, req: WebIngestRequest):
-    """采集网页内容并导入知识库。"""
-    try:
-        result = await asyncio.to_thread(get_knowledge_service().ingest_web, req.url, req.category)
-        return IngestResponse(
-            success=result.success, message=result.message,
-            source_name=result.source_name, chunk_count=result.chunk_count,
-        )
-    except ValueError as e:
-        raise HTTPException(400, str(e))
-    except Exception as e:
-        logger.exception(f"网页采集失败: {e}")
-        raise HTTPException(500, f"网页采集失败: {str(e)}")
 
 
 # ==================== 检索接口（供多 Agent 调用） ====================
@@ -374,37 +289,6 @@ async def research_stream(request: Request, req: ResearchRequest):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
-
-
-# ==================== 知识来源管理 ====================
-
-@router.get("/api/sources", response_model=SourceListResponse)
-async def list_sources():
-    """获取当前知识库中所有知识来源列表。"""
-    if not _service_ready.is_set():
-        return SourceListResponse(sources=[], total_chunks=0)
-    try:
-        data = await asyncio.to_thread(get_knowledge_service().list_sources)
-        return SourceListResponse(
-            sources=[SourceItem(**s) for s in data["sources"]],
-            total_chunks=data["total_chunks"],
-        )
-    except Exception as e:
-        logger.exception(f"获取知识源失败: {e}")
-        raise HTTPException(500, f"获取知识源失败: {str(e)}")
-
-
-@router.delete("/api/sources/{source_name}", response_model=DeleteSourceResponse)
-async def delete_source(source_name: str):
-    """按来源名称删除知识。"""
-    try:
-        deleted = await asyncio.to_thread(get_knowledge_service().delete_source, source_name)
-        if deleted == 0:
-            return DeleteSourceResponse(success=False, message=f"未找到来源: {source_name}", deleted_count=0)
-        return DeleteSourceResponse(success=True, message=f"已删除来源 [{source_name}] 的 {deleted} 条记录", deleted_count=deleted)
-    except Exception as e:
-        logger.exception(f"删除来源失败: {e}")
-        raise HTTPException(500, f"删除来源失败: {str(e)}")
 
 
 # ==================== 对话历史管理 ====================

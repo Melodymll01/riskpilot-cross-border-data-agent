@@ -3,37 +3,9 @@
 import pytest
 from pydantic import ValidationError
 from api.schemas import (
-    WebIngestRequest,
     AskRequest,
-    RetrieveRequest,
     ResearchRequest,
-    IngestResponse,
-    DeleteSourceResponse,
 )
-
-
-class TestWebIngestRequest:
-    """网页采集请求验证。"""
-
-    def test_valid_url(self):
-        req = WebIngestRequest(url="https://example.com/article")
-        assert req.url == "https://example.com/article"
-
-    def test_http_url(self):
-        req = WebIngestRequest(url="http://example.com")
-        assert req.url.startswith("http://")
-
-    def test_invalid_scheme(self):
-        with pytest.raises(ValidationError, match="仅支持 http/https"):
-            WebIngestRequest(url="ftp://example.com/file")
-
-    def test_missing_domain(self):
-        with pytest.raises(ValidationError, match="URL 缺少域名"):
-            WebIngestRequest(url="https://")
-
-    def test_default_category(self):
-        req = WebIngestRequest(url="https://example.com")
-        assert req.category == ""
 
 
 class TestAskRequest:
@@ -77,17 +49,3 @@ class TestResearchRequest:
     def test_invalid_mode_rejected(self):
         with pytest.raises(ValidationError, match="report.*qa"):
             ResearchRequest(query="测试", mode="invalid")
-
-
-class TestDeleteSourceResponse:
-    """删除来源响应模型。"""
-
-    def test_with_all_fields(self):
-        resp = DeleteSourceResponse(success=True, message="删除成功", deleted_count=5)
-        assert resp.success is True
-        assert resp.deleted_count == 5
-
-    def test_defaults(self):
-        resp = DeleteSourceResponse(success=False)
-        assert resp.message == ""
-        assert resp.deleted_count == 0
