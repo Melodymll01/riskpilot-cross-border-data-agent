@@ -21,6 +21,8 @@ from domain.models import (
     Chunk,
     EvidenceJudgement,
     Fact,
+    KbChunk,
+    KbDocument,
     Message,
     RiskProfile,
     SessionProfile,
@@ -155,6 +157,44 @@ class RiskProfilePort(Protocol):
         *,
         language: str = "zh",
     ) -> RiskProfile: ...
+
+
+@runtime_checkable
+class KbDocumentRepoPort(Protocol):
+    """知识库管理端口（Step 016a）：按 ``source_name`` 聚合的 CRUD + 写入。
+
+    职责边界：
+    - **不做**检索（检索走 ``RetrievePort``，由 BM25 + 向量 + RRF 协同）。
+    - **只做**管理面：列出文档、按 source 聚合、计 chunk 数、按 source 删除，
+      以及"批量写入 chunks + embeddings"的原子操作。
+    - 切分 / 清洗 / 嵌入由上层 ``IngestionUseCase``（Step 016b）编排，
+      本端口只接受已就绪的 ``KbChunk`` 列表与平行的 embeddings。
+
+    与 v1 ``service.py:KnowledgeService.list_sources/delete_source`` 是平行实现，
+    Step 016d 删除 v1 后本端口成为唯一入口。
+    """
+
+    def list_documents(self) -> list[KbDocument]: ...
+
+    def get_document(self, source_name: str) -> KbDocument | None: ...
+
+    def count_chunks(self) -> int: ...
+
+    def delete_document(self, source_name: str) -> int:
+        """按 ``source_name`` 删除其所有 chunk，返回实际删除条数（不存在返回 0）。"""
+        ...
+
+    def add_chunks(
+        self,
+        chunks: list[KbChunk],
+        embeddings: list[list[float]],
+    ) -> None:
+        """批量写入 chunks 与 embeddings。``len(chunks) == len(embeddings)`` 必须满足。
+
+        实现方应在写入前清理同 ``source_name`` 的旧数据（典型语义：替换而非追加），
+        以保持 ingestion 链路的"先删后插"幂等。
+        """
+        ...
 
 
 @runtime_checkable

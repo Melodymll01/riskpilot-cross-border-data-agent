@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-from domain.models import Chunk, EvidenceJudgement, WebResult
+import pytest
+
+from domain.models import Chunk, EvidenceJudgement, KbChunk, KbDocument, WebResult
 from domain.ports import (
     ChatPort,
     EmbedPort,
     EvidencePort,
+    KbDocumentRepoPort,
     RetrievePort,
     TaskRepoPort,
     UserRepoPort,
@@ -16,6 +19,7 @@ from tests.fakes import (
     FakeChat,
     FakeEmbed,
     FakeEvidence,
+    FakeKbRepo,
     FakeRetrieve,
     FakeWebSearch,
     InMemoryTaskRepo,
@@ -44,6 +48,9 @@ class TestFakeProtocolConformance:
 
     def test_in_memory_task_repo_is_task_repo_port(self) -> None:
         assert isinstance(InMemoryTaskRepo(), TaskRepoPort)
+
+    def test_fake_kb_repo_is_kb_document_repo_port(self) -> None:
+        assert isinstance(FakeKbRepo(), KbDocumentRepoPort)
 
 
 class TestFakeBehavior:
@@ -92,3 +99,61 @@ class TestFakeBehavior:
         out = ws.search("q", max_results=2)
         assert len(out) == 2
         assert ws.calls == [("q", 2)]
+
+
+class TestFakeKbRepoBehavior:
+    """``FakeKbRepo`` 行为：列表 / 删除 / add_chunks 先删后插 / 长度断言。"""
+
+    def _make_chunks(self, source: str, n: int) -> list[KbChunk]:
+        return [
+            KbChunk(
+                chunk_id=f"{source}:{i}",
+                text=f"text-{i}",
+                source_name=source,
+                source_type="file",
+                title=f"{source} 标题",
+                chunk_index=i,
+            )
+            for i in range(n)
+        ]
+
+    def test_empty_initial_state(self) -> None:
+        repo = FakeKbRepo()
+        assert repo.list_documents() == []
+        assert repo.count_chunks() == 0
+        assert repo.get_document("missing") is None
+
+    def test_add_chunks_then_list(self) -> None:
+        repo = FakeKbRepo()
+        chunks = self._make_chunks("PIPL", 3)
+        repo.add_chunks(chunks, [[0.1, 0.2]] * 3)
+
+        docs = repo.list_documents()
+        assert len(docs) == 1
+        assert isinstance(docs[0], KbDocument)
+        assert docs[0].source_name == "PIPL"
+        assert docs[0].chunk_count == 3
+        assert repo.count_chunks() == 3
+
+    def test_add_chunks_overwrites_same_source(self) -> None:
+        repo = FakeKbRepo()
+        repo.add_chunks(self._make_chunks("PIPL", 3), [[0.1]] * 3)
+        repo.add_chunks(self._make_chunks("PIPL", 5), [[0.2]] * 5)
+        # 同 source 覆盖：总数 5（不是 3+5=8）
+        assert repo.count_chunks() == 5
+        assert repo.get_document("PIPL") is not None
+        assert repo.get_document("PIPL").chunk_count == 5  # type: ignore[union-attr]
+
+    def test_delete_document_returns_count(self) -> None:
+        repo = FakeKbRepo()
+        repo.add_chunks(self._make_chunks("PIPL", 3), [[0.1]] * 3)
+        repo.add_chunks(self._make_chunks("DSL", 2), [[0.2]] * 2)
+        n = repo.delete_document("PIPL")
+        assert n == 3
+        assert repo.delete_document("PIPL") == 0  # 已不存在
+        assert repo.count_chunks() == 2
+
+    def test_length_mismatch_raises(self) -> None:
+        repo = FakeKbRepo()
+        with pytest.raises(ValueError, match="长度必须一致"):
+            repo.add_chunks(self._make_chunks("PIPL", 3), [[0.1]] * 2)

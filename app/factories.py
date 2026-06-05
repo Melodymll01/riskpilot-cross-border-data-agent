@@ -18,6 +18,7 @@ from domain.ports import (
     ChatPort,
     EmbedPort,
     EvidencePort,
+    KbDocumentRepoPort,
     RetrievePort,
     RiskProfilePort,
     TaskRepoPort,
@@ -27,6 +28,7 @@ from domain.ports import (
 from infra.auth import AnonymousProvider, AuthService, GitHubOAuthProvider, JwtIssuer
 from infra.chat import OpenAIChatAdapter
 from infra.evidence import MockEvidenceClient
+from infra.kb import ChromaKbRepo
 from infra.risk_profile import StubRiskProfileService
 from infra.search import EmbedderAdapter, HybridRetrieverAdapter
 from infra.storage import SqliteTaskRepo, SqliteUserRepo
@@ -79,6 +81,18 @@ def build_risk_profile(_settings: Settings) -> RiskProfilePort:
     return StubRiskProfileService(mode="raise")
 
 
+def build_kb_repo(_settings: Settings) -> KbDocumentRepoPort:
+    """构造 ``KbDocumentRepoPort`` 实现：当前默认 ``ChromaKbRepo``。
+
+    chromadb ``PersistentClient`` 在底层按 ``persist_dir`` 缓存实例，因此即使
+    检索侧 ``HybridRetrieverAdapter`` 也持有 ``VectorStore``，这里再 new 一个
+    ``VectorStore`` 仍指向同一个 collection，写入对检索可见。
+    """
+    from retrieval.search.vector_store import VectorStore
+
+    return ChromaKbRepo(vector_store=VectorStore())
+
+
 def build_auth(settings: Settings, user_repo: UserRepoPort) -> AuthPort:
     """组合 JwtIssuer + GitHubOAuthProvider + AnonymousProvider 为 AuthService。"""
     jwt_issuer = JwtIssuer(
@@ -105,6 +119,7 @@ __all__ = [
     "build_chat",
     "build_embedder",
     "build_evidence",
+    "build_kb_repo",
     "build_retriever",
     "build_risk_profile",
     "build_sqlite_pool",

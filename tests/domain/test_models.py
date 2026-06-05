@@ -22,6 +22,8 @@ from domain import (
     Citation,
     EvidenceJudgement,
     Fact,
+    KbChunk,
+    KbDocument,
     Message,
     SessionProfile,
     Task,
@@ -250,6 +252,86 @@ class TestFact:
     def test_minimal(self) -> None:
         f = Fact(fact_id="f1", owner_id="anon:u1", text="prefers PIPL excerpts")
         assert f.tags == []
+
+
+class TestKbDocument:
+    """``KbDocument`` 是知识库管理面的文档级聚合视角。"""
+
+    def _make(self, **overrides: object) -> KbDocument:
+        defaults: dict[str, object] = {
+            "source_name": "PIPL.txt",
+            "source_type": "file",
+            "title": "个人信息保护法",
+            "source_url": None,
+            "chunk_count": 12,
+            "category": "法规",
+        }
+        defaults.update(overrides)
+        return KbDocument(**defaults)  # type: ignore[arg-type]
+
+    def test_happy_path(self) -> None:
+        d = self._make()
+        assert isinstance(d, KbDocument)
+        assert d.source_name == "PIPL.txt"
+        assert d.source_type == "file"
+        assert d.chunk_count == 12
+
+    def test_source_type_literal_enforced(self) -> None:
+        with pytest.raises(ValidationError):
+            self._make(source_type="ftp")
+
+    def test_chunk_count_non_negative(self) -> None:
+        with pytest.raises(ValidationError):
+            self._make(chunk_count=-1)
+
+    def test_empty_source_name_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            self._make(source_name="")
+
+    def test_json_round_trip(self) -> None:
+        d = self._make()
+        d2 = KbDocument.model_validate_json(d.model_dump_json())
+        assert d == d2
+
+
+class TestKbChunk:
+    """``KbChunk`` 是写侧的入库 chunk（不含 embedding / score）。"""
+
+    def _make(self, **overrides: object) -> KbChunk:
+        defaults: dict[str, object] = {
+            "chunk_id": "c0",
+            "text": "第一条 ...",
+            "source_name": "PIPL.txt",
+            "source_type": "file",
+            "title": "个人信息保护法",
+            "source_url": None,
+            "chunk_index": 0,
+            "category": "法规",
+        }
+        defaults.update(overrides)
+        return KbChunk(**defaults)  # type: ignore[arg-type]
+
+    def test_happy_path(self) -> None:
+        c = self._make()
+        assert isinstance(c, KbChunk)
+        assert c.chunk_id == "c0"
+
+    def test_empty_text_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            self._make(text="")
+
+    def test_chunk_index_non_negative(self) -> None:
+        with pytest.raises(ValidationError):
+            self._make(chunk_index=-1)
+
+    def test_source_type_literal_enforced(self) -> None:
+        with pytest.raises(ValidationError):
+            self._make(source_type="ftp")
+
+    def test_json_round_trip(self) -> None:
+        c = self._make()
+        c2 = KbChunk.model_validate_json(c.model_dump_json())
+        assert c == c2
 
 
 # === 通用不变量 ===

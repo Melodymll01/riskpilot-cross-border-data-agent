@@ -4,6 +4,7 @@ from tests.fakes.fake_auth import FakeAuth, FakeOAuthProvider
 from tests.fakes.fake_chat import FakeChat
 from tests.fakes.fake_embed import FakeEmbed
 from tests.fakes.fake_evidence import FakeEvidence
+from tests.fakes.fake_kb_repo import FakeKbRepo
 from tests.fakes.fake_repos import InMemoryTaskRepo, InMemoryUserRepo
 from tests.fakes.fake_retrieve import FakeRetrieve
 from tests.fakes.fake_websearch import FakeWebSearch
@@ -13,6 +14,7 @@ __all__ = [
     "FakeChat",
     "FakeEmbed",
     "FakeEvidence",
+    "FakeKbRepo",
     "FakeOAuthProvider",
     "FakeRetrieve",
     "FakeWebSearch",

@@ -222,6 +222,49 @@ class RiskProfile(BaseDomainModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+# === 知识库管理面（Step 016a） ===
+
+KbSourceType = Literal["file", "web"]
+"""知识库 source 来源类型：``file`` 上传文件 / ``web`` 抓取网页。"""
+
+
+class KbDocument(BaseDomainModel):
+    """知识库中按 ``source_name`` 聚合的"文档"视角。
+
+    与 ``Chunk`` 区别：``Chunk`` 是检索返回的最小语义片段（含 score），
+    本模型是管理面的"文档级聚合"，由 ``KbDocumentRepoPort.list_documents``
+    返回，给前端 KB 面板渲染列表与总览。
+
+    字段语义对齐现有 ``retrieval/search/vector_store.py:VectorStore.get_all_sources``
+    输出，仅做 frozen + extra=forbid 的 schema 收紧。
+    """
+
+    source_name: str = Field(min_length=1)
+    source_type: KbSourceType
+    title: str = ""
+    source_url: str | None = None
+    chunk_count: int = Field(ge=0)
+    category: str = ""
+
+
+class KbChunk(BaseDomainModel):
+    """待入库的 chunk（domain 视角；不含 embedding，由调用方并行提供）。
+
+    与 ``Chunk`` 区别：本模型只用于写侧（入库），不带 ``score`` / ``metadata``
+    自由字段；字段集合与 ``processing/metadata.py:ChunkWithMetadata`` 一一对齐，
+    由 ``infra/kb/chroma_kb_repo.py`` 做形态转换。
+    """
+
+    chunk_id: str = Field(min_length=1)
+    text: str = Field(min_length=1)
+    source_name: str = Field(min_length=1)
+    source_type: KbSourceType
+    title: str = ""
+    source_url: str | None = None
+    chunk_index: int = Field(ge=0)
+    category: str = ""
+
+
 # === 记忆 ===
 
 

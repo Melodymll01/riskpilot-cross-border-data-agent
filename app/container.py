@@ -1,7 +1,7 @@
 """``AppContainer``：DI 装配中心。
 
 职责：
-- 一次性把 8 个 Port 装好，所有 use case 共享同一组实例（保证 SQLite 单连接池）
+- 一次性把 9 个 Port 装好，所有 use case 共享同一组实例（保证 SQLite 单连接池）
 - 支持"全工厂"模式（生产）与"全注入"模式（测试）混用
 - 同步装配 4 个 use case，挂在 self 上
 
@@ -26,6 +26,7 @@ from app.factories import (
     build_chat,
     build_embedder,
     build_evidence,
+    build_kb_repo,
     build_retriever,
     build_risk_profile,
     build_sqlite_pool,
@@ -48,6 +49,7 @@ if TYPE_CHECKING:
         ChatPort,
         EmbedPort,
         EvidencePort,
+        KbDocumentRepoPort,
         RetrievePort,
         RiskProfilePort,
         TaskRepoPort,
@@ -57,7 +59,7 @@ if TYPE_CHECKING:
 
 
 class AppContainer:
-    """8 个 Port + 4 个 use case 的中央配电盘。"""
+    """9 个 Port + 4 个 use case 的中央配电盘。"""
 
     def __init__(
         self,
@@ -71,6 +73,7 @@ class AppContainer:
         web_search: WebSearchPort | None = None,
         evidence: EvidencePort | None = None,
         risk_profile: RiskProfilePort | None = None,
+        kb_repo: KbDocumentRepoPort | None = None,
         auth: AuthPort | None = None,
     ) -> None:
         self.settings = settings
@@ -97,6 +100,7 @@ class AppContainer:
         self.risk_profile: RiskProfilePort = risk_profile or build_risk_profile(
             settings
         )
+        self.kb_repo: KbDocumentRepoPort = kb_repo or build_kb_repo(settings)
 
         # ── 鉴权（依赖 user_repo） ────────────────────────────────────
         self.auth: AuthPort = auth or build_auth(settings, self.user_repo)
