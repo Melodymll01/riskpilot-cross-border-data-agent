@@ -50,6 +50,11 @@ data/*.db
 data/*.sqlite
 data/*.sqlite3
 data/*.json
+# SQLite WAL 模式辅助文件
+*.db-shm
+*.db-wal
+*.sqlite3-shm
+*.sqlite3-wal
 
 # 日志
 logs/

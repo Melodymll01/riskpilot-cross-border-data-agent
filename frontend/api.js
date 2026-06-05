@@ -1,0 +1,71 @@
+/**
+ * api.js — `/api/v2/*` 的轻量 REST 客户端。
+ *
+ * 约定：
+ * - 所有请求带 `credentials: "include"` 让浏览器自动携带 copilot_session cookie
+ * - 服务端用结构化错误：{error_code, message}；非 2xx 抛 ApiError，业务层统一捕获
+ * - SSE 端点单独走 sse.js，这里只管 JSON 请求
+ */
+
+const BASE = "/api/v2";
+
+export class ApiError extends Error {
+  constructor(status, errorCode, message) {
+    super(message || errorCode || `HTTP ${status}`);
+    this.name = "ApiError";
+    this.status = status;
+    this.errorCode = errorCode;
+  }
+}
+
+async function request(method, path, body) {
+  const opts = {
+    method,
+    credentials: "include",
+    headers: { "Accept": "application/json" },
+  };
+  if (body !== undefined) {
+    opts.headers["Content-Type"] = "application/json";
+    opts.body = JSON.stringify(body);
+  }
+  const resp = await fetch(`${BASE}${path}`, opts);
+  const text = await resp.text();
+  let data = null;
+  if (text) {
+    try { data = JSON.parse(text); } catch { data = { raw: text }; }
+  }
+  if (!resp.ok) {
+    const code = data?.error_code || data?.detail?.error_code || "HTTP_ERROR";
+    const msg = data?.message || data?.detail?.message || data?.detail || resp.statusText;
+    throw new ApiError(resp.status, code, msg);
+  }
+  return data;
+}
+
+/* ─────────── auth ─────────── */
+export const auth = {
+  me: () => request("GET", "/auth/me"),
+  anonymous: () => request("POST", "/auth/anonymous"),
+  githubLoginUrl: () => request("GET", "/auth/github/login"),
+  logout: () => request("POST", "/auth/logout"),
+};
+
+/* ─────────── tasks ─────────── */
+export const tasks = {
+  list: (limit = 50) => request("GET", `/tasks?limit=${limit}`),
+  get: (taskId) => request("GET", `/tasks/${encodeURIComponent(taskId)}`),
+  patch: (taskId, body) => request("PATCH", `/tasks/${encodeURIComponent(taskId)}`, body),
+  remove: (taskId) => request("DELETE", `/tasks/${encodeURIComponent(taskId)}`),
+};
+
+/* ─────────── copilot ─────────── */
+export const copilot = {
+  // 同步聚合（备用，前端默认走 SSE）
+  chat: (body) => request("POST", "/copilot/chat", body),
+};
+
+/* ─────────── health ─────────── */
+export const health = {
+  check: () => request("GET", "/health"),
+  ready: () => request("GET", "/health/ready"),
+};

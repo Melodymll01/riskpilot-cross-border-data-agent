@@ -3,528 +3,104 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>数据出境合规知识库</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <title>合规副驾 · Compliance Copilot</title>
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
-  <!-- ========== 侧边栏 ========== -->
-  <aside class="sidebar" id="sidebar">
-    <div class="sidebar-logo">
-      <div class="logo-icon">
-        <svg viewBox="0 0 40 40" fill="none">
-          <defs>
-            <linearGradient id="logoGrad" x1="0" y1="0" x2="40" y2="40">
-              <stop offset="0%" stop-color="#6366f1"/>
-              <stop offset="100%" stop-color="#3b82f6"/>
-            </linearGradient>
-          </defs>
-          <rect width="40" height="40" rx="12" fill="url(#logoGrad)"/>
-          <path d="M12 14h16M12 20h12M12 26h8" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
-          <circle cx="28" cy="26" r="3" fill="#fbbf24"/>
-        </svg>
-      </div>
-      <div class="logo-text">
-        <div class="logo-title">DataGuard</div>
-        <div class="logo-sub">数据出境合规知识库</div>
-      </div>
-    </div>
-
-    <nav class="sidebar-nav">
-      <div class="nav-section-label">导航</div>
-
-      <button class="nav-item active" data-view="dashboard">
-        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
-          <rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>
-        </svg>
-        <span>仪表盘</span>
-      </button>
-
-      <button class="nav-item" data-view="knowledge">
-        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>
-        </svg>
-        <span>知识库</span>
-      </button>
-
-      <button class="nav-item" data-view="chat">
-        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/>
-        </svg>
-        <span>智能问答</span>
-      </button>
-
-      <button class="nav-item" data-view="research">
-        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/>
-        </svg>
-        <span>深度研究</span>
-      </button>
-
-      <div class="nav-section-label" style="margin-top:16px">系统</div>
-
-      <button class="nav-item" onclick="window.open('/docs','_blank')">
-        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-        </svg>
-        <span>API 文档</span>
-      </button>
-    </nav>
-
-    <div class="sidebar-footer">
-      <div class="sidebar-status">
-        <div class="status-indicator" id="status-dot"></div>
-        <span id="sidebar-status-text">检测中...</span>
-      </div>
-      <div class="sidebar-version">v1.0.0 · RAG 引擎</div>
-    </div>
-  </aside>
-
-  <!-- ========== 主内容区 ========== -->
-  <div class="main-layout">
-    <!-- 顶栏 -->
-    <header class="topbar">
-      <button class="topbar-menu" id="menu-toggle" aria-label="菜单">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
-        </svg>
-      </button>
-      <div class="topbar-title" id="topbar-title">仪表盘</div>
-      <div class="topbar-actions">
-        <div class="topbar-badge">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="width:13px;height:13px;margin-right:4px;vertical-align:-1px">
-            <path d="M8 1L10 5.5L15 6L11.5 9.5L12.5 14.5L8 12L3.5 14.5L4.5 9.5L1 6L6 5.5Z"/>
-          </svg>
-          RAG 系统
-        </div>
-      </div>
-    </header>
-
-    <!-- ========== 视图：仪表盘 ========== -->
-    <main id="view-dashboard" class="view active">
-      <!-- Hero 区域 -->
-      <div class="dashboard-hero">
-        <div class="hero-content">
-          <div class="hero-badge">数据出境合规 · 智能知识库</div>
-          <h1 class="hero-title">数据出境知识库问答系统</h1>
-          <p class="hero-desc">基于 RAG（检索增强生成）技术，为数据出境合规场景提供智能化的法规检索与问答服务</p>
-        </div>
-        <div class="hero-decoration">
-          <div class="hero-orb hero-orb-1"></div>
-          <div class="hero-orb hero-orb-2"></div>
-          <div class="hero-orb hero-orb-3"></div>
+  <div class="app" id="app">
+    <!-- ─────────── 左侧任务边栏 ─────────── -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-logo">CC</div>
+        <div class="brand-text">
+          <div class="brand-title">合规副驾</div>
+          <div class="brand-sub">数据出境合规 · v2</div>
         </div>
       </div>
 
-      <!-- 统计卡片 -->
-      <div class="stats-grid">
-        <div class="stat-card stat-card-blue">
-          <div class="stat-icon-wrap">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
-              <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
-            </svg>
-          </div>
-          <div class="stat-body">
-            <div class="stat-value" id="stat-chunks">—</div>
-            <div class="stat-label">知识片段总数</div>
-          </div>
-        </div>
+      <button class="btn btn-primary btn-block" id="btn-new-task">
+        <span class="ico">＋</span> 新建任务
+      </button>
 
-        <div class="stat-card stat-card-green">
-          <div class="stat-icon-wrap">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>
-            </svg>
-          </div>
-          <div class="stat-body">
-            <div class="stat-value" id="stat-sources">—</div>
-            <div class="stat-label">知识来源数量</div>
-          </div>
-        </div>
+      <div class="task-list-header">
+        <span>历史任务</span>
+        <span class="task-count" id="task-count">0</span>
+      </div>
+      <ol class="task-list" id="task-list"></ol>
 
-        <div class="stat-card stat-card-purple">
-          <div class="stat-icon-wrap">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/>
-              <polyline points="22 4 12 14.01 9 11.01"/>
-            </svg>
+      <div class="sidebar-footer">
+        <div class="user-card" id="user-card">
+          <div class="user-avatar" id="user-avatar">?</div>
+          <div class="user-info">
+            <div class="user-name" id="user-name">未登录</div>
+            <div class="user-provider" id="user-provider">—</div>
           </div>
-          <div class="stat-body">
-            <div class="stat-value" id="stat-status">—</div>
-            <div class="stat-label">服务状态</div>
-          </div>
+          <button class="btn btn-ghost btn-icon" id="btn-user-menu" title="账户菜单">⋯</button>
         </div>
-
-        <div class="stat-card stat-card-amber">
-          <div class="stat-icon-wrap">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
-            </svg>
-          </div>
-          <div class="stat-body">
-            <div class="stat-value">Agentic</div>
-            <div class="stat-label">自反思 RAG 引擎</div>
-          </div>
+        <div class="user-menu hidden" id="user-menu">
+          <button class="menu-item" id="btn-github-login">使用 GitHub 登录</button>
+          <button class="menu-item" id="btn-logout">退出登录</button>
         </div>
       </div>
+    </aside>
 
-      <!-- 快速操作 -->
-      <div class="card glass-card">
-        <div class="card-header">
-          <h2 class="card-title">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;margin-right:6px;vertical-align:-3px">
-              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
-            </svg>
-            快速开始
-          </h2>
+    <!-- ─────────── 右侧主区：聊天 ─────────── -->
+    <main class="chat-pane">
+      <header class="chat-header">
+        <div class="chat-title" id="chat-title">新对话</div>
+        <div class="chat-actions">
+          <span class="status-dot" id="status-dot" data-state="unknown"></span>
+          <span class="status-text" id="status-text">检查中…</span>
         </div>
-        <div class="card-body">
-          <div class="quick-actions">
-            <button class="quick-action-btn" onclick="navigate('knowledge')">
-              <div class="qa-icon-wrap qa-icon-blue">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-              </div>
-              <div class="qa-label">上传文档</div>
-              <div class="qa-desc">导入 PDF / TXT / DOCX</div>
+      </header>
+
+      <section class="messages" id="messages">
+        <!-- 空状态：欢迎卡 -->
+        <div class="welcome" id="welcome">
+          <h1>欢迎使用合规副驾</h1>
+          <p>面向数据出境法规的对话式合规助手。Agent 会自主调用工具检索法条、研判证据并给出可追溯的回答。</p>
+          <div class="suggest-grid">
+            <button class="suggest-card" data-q="个人信息出境的三种合规路径分别是什么？">
+              <div class="suggest-icon">📜</div>
+              <div class="suggest-text">个人信息出境的三种合规路径分别是什么？</div>
             </button>
-            <button class="quick-action-btn" onclick="navigate('knowledge')">
-              <div class="qa-icon-wrap qa-icon-green">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>
-              </div>
-              <div class="qa-label">采集网页</div>
-              <div class="qa-desc">抓取在线法规文本</div>
+            <button class="suggest-card" data-q="什么情况下必须申报数据出境安全评估？">
+              <div class="suggest-icon">🔍</div>
+              <div class="suggest-text">什么情况下必须申报数据出境安全评估？</div>
             </button>
-            <button class="quick-action-btn" onclick="navigate('chat')">
-              <div class="qa-icon-wrap qa-icon-purple">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>
-              </div>
-              <div class="qa-label">智能问答</div>
-              <div class="qa-desc">向知识库提问</div>
+            <button class="suggest-card" data-q="标准合同备案需要准备哪些材料？">
+              <div class="suggest-icon">📝</div>
+              <div class="suggest-text">标准合同备案需要准备哪些材料？</div>
             </button>
-            <button class="quick-action-btn" onclick="navigate('research')">
-              <div class="qa-icon-wrap qa-icon-amber">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg>
-              </div>
-              <div class="qa-label">深度研究</div>
-              <div class="qa-desc">Agentic RAG 深度报告</div>
+            <button class="suggest-card" data-q="重要数据如何识别？依据是什么？">
+              <div class="suggest-icon">⚖️</div>
+              <div class="suggest-text">重要数据如何识别？依据是什么？</div>
             </button>
           </div>
         </div>
-      </div>
+      </section>
 
-      <!-- 系统特性 -->
-      <div class="features-grid">
-        <div class="feature-card">
-          <div class="feature-icon feature-icon-blue">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          </div>
-          <h3>多查询检索</h3>
-          <p>自动改写查询，多路向量检索后合并去重，提升召回率</p>
-        </div>
-        <div class="feature-card">
-          <div class="feature-icon feature-icon-green">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>
-          </div>
-          <h3>混合检索</h3>
-          <p>语义向量检索 + 关键词精确匹配，兼顾语义理解与精确定位</p>
-        </div>
-        <div class="feature-card">
-          <div class="feature-icon feature-icon-purple">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-          </div>
-          <h3>上下文扩展</h3>
-          <p>自动拉取相邻片段，为 LLM 提供更完整的背景信息</p>
-        </div>
-        <div class="feature-card">
-          <div class="feature-icon feature-icon-amber">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-          </div>
-          <h3>Agentic RAG</h3>
-          <p>自我反思型检索：多轮检索 + 质量评估 + 联网搜索补齐 + 深度报告生成</p>
-        </div>
-      </div>
-    </main>
-
-    <!-- ========== 视图：知识库管理 ========== -->
-    <main id="view-knowledge" class="view">
-      <div class="view-header">
-        <div>
-          <h1 class="view-title">知识库管理</h1>
-          <p class="view-desc">上传文档或采集网页，构建专业数据出境合规知识库</p>
-        </div>
-      </div>
-
-      <div class="kb-grid">
-        <div class="kb-left">
-          <div class="card glass-card">
-            <div class="card-header">
-              <h2 class="card-title">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;margin-right:6px;vertical-align:-2px"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                上传文档
-              </h2>
-            </div>
-            <div class="card-body">
-              <div id="upload-zone" class="upload-zone">
-                <div class="upload-icon">
-                  <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5">
-                    <path d="M24 32V16M16 24l8-8 8 8" stroke-linecap="round" stroke-linejoin="round"/>
-                    <path d="M8 36a8 8 0 01-2-15.3A12 12 0 0124 8a12 12 0 0112 9.4A8 8 0 0140 36" stroke-linecap="round"/>
-                  </svg>
-                </div>
-                <div class="upload-text">拖放文件到此处，或<span class="upload-link">点击选择</span></div>
-                <div class="upload-hint">支持 PDF / TXT / DOCX，最大 50MB</div>
-                <input type="file" id="file-input" accept=".pdf,.txt,.docx" hidden />
-              </div>
-              <div class="form-row">
-                <label class="form-label" for="upload-category">文档分类（可选）</label>
-                <input id="upload-category" class="form-input" type="text" placeholder="如：法规 / 政策 / 指南 / 标准" />
-              </div>
-              <button id="btn-upload" class="btn btn-primary btn-block" onclick="document.getElementById('file-input').click()">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                上传文档
-              </button>
-            </div>
-          </div>
-
-          <div class="card glass-card">
-            <div class="card-header">
-              <h2 class="card-title">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;margin-right:6px;vertical-align:-2px"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>
-                采集网页
-              </h2>
-            </div>
-            <div class="card-body">
-              <div class="form-row">
-                <label class="form-label" for="web-url">网页 URL</label>
-                <input id="web-url" class="form-input" type="url" placeholder="https://www.example.gov.cn/..." />
-              </div>
-              <div class="form-row">
-                <label class="form-label" for="web-category">文档分类（可选）</label>
-                <input id="web-category" class="form-input" type="text" placeholder="如：法规 / 政策 / 指南 / 标准" />
-              </div>
-              <button id="btn-ingest-web" class="btn btn-primary btn-block">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>
-                采集网页
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div class="kb-right">
-          <div class="card glass-card" style="height:100%">
-            <div class="card-header">
-              <h2 class="card-title">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;margin-right:6px;vertical-align:-2px"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
-                已入库来源
-              </h2>
-              <div class="card-meta">
-                <span class="meta-badge"><span id="stat-kb-sources">0</span> 个来源</span>
-                <span class="meta-badge"><span id="stat-kb-chunks">0</span> 个片段</span>
-              </div>
-            </div>
-            <div class="card-body source-list-wrap">
-              <div id="source-list" class="source-list">
-                <div class="loading-row">
-                  <div class="loading-spinner"></div>
-                  <span>加载中...</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </main>
-
-    <!-- ========== 视图：智能问答 ========== -->
-    <main id="view-chat" class="view chat-view">
-      <!-- 对话历史侧边栏 -->
-      <div class="chat-history-panel" id="chat-history-panel">
-        <div class="chat-history-header">
-          <h3>历史对话</h3>
-          <button class="btn btn-primary btn-sm" id="btn-new-chat" title="新建对话">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            新对话
+      <footer class="composer">
+        <form id="composer-form" autocomplete="off">
+          <textarea
+            id="composer-input"
+            rows="1"
+            placeholder="问点合规问题…  (Enter 发送，Shift+Enter 换行)"
+          ></textarea>
+          <button type="submit" class="btn btn-primary btn-send" id="btn-send">
+            发送
           </button>
+        </form>
+        <div class="composer-hint">
+          答案基于法规检索 + 工具调用，可能仍有误，请以官方文本为准。
         </div>
-        <div class="chat-history-list" id="chat-history-list">
-          <div class="loading-row"><div class="loading-spinner"></div><span>加载中...</span></div>
-        </div>
-      </div>
-
-      <!-- 对话主区域 -->
-      <div class="chat-main-area">
-      <div class="chat-config">
-        <div class="chat-config-inner">
-          <button class="btn btn-ghost btn-sm" id="btn-toggle-history" title="历史对话">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            历史
-          </button>
-          <div class="config-item">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;opacity:.5"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-            <label for="chat-category">分类</label>
-            <input id="chat-category" class="config-input" type="text" placeholder="全部" />
-          </div>
-          <div class="config-item">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;opacity:.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <label for="chat-topk">检索数</label>
-            <select id="chat-topk" class="config-input">
-              <option value="3">3 条</option>
-              <option value="5" selected>5 条</option>
-              <option value="8">8 条</option>
-              <option value="10">10 条</option>
-            </select>
-          </div>
-          <div style="flex:1"></div>
-        </div>
-      </div>
-
-      <div id="chat-messages" class="chat-messages">
-        <div class="chat-welcome">
-          <div class="welcome-glow"></div>
-          <div class="welcome-icon-wrap">
-            <svg viewBox="0 0 48 48" fill="none" style="width:56px;height:56px">
-              <defs>
-                <linearGradient id="chatGrad" x1="0" y1="0" x2="48" y2="48">
-                  <stop offset="0%" stop-color="#6366f1"/>
-                  <stop offset="100%" stop-color="#3b82f6"/>
-                </linearGradient>
-              </defs>
-              <rect width="48" height="48" rx="16" fill="url(#chatGrad)" opacity="0.12"/>
-              <path d="M33 23a7.5 7.5 0 01-.7 3.2A7 7 0 0126 30a7.5 7.5 0 01-3.2-.7L18 31l1.7-4.8A7.5 7.5 0 0119 23 7 7 0 0124.5 17a7.5 7.5 0 013.2.7h.3A7 7 0 0133 23z" stroke="url(#chatGrad)" stroke-width="2" fill="none"/>
-            </svg>
-          </div>
-          <h3>数据出境合规智能问答</h3>
-          <p>基于知识库内容，为您提供专业的数据出境法规、政策、指南等合规咨询服务</p>
-          <div class="welcome-hints">
-            <button class="hint-chip" onclick="setQuestion('数据出境安全评估的适用情形有哪些？')">
-              数据出境安全评估的适用情形
-            </button>
-            <button class="hint-chip" onclick="setQuestion('个人信息跨境传输需要满足什么条件？')">
-              个人信息跨境传输条件
-            </button>
-            <button class="hint-chip" onclick="setQuestion('标准合同条款的签订要求是什么？')">
-              标准合同条款签订要求
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div class="chat-input-bar">
-        <div class="chat-input-wrap">
-          <textarea id="chat-input" class="chat-textarea" placeholder="输入您的问题，Shift+Enter 换行，Enter 发送..." rows="1"></textarea>
-          <button id="btn-send" class="btn-send" aria-label="发送">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
-            </svg>
-          </button>
-        </div>
-        <div class="chat-input-hint">按 Enter 发送 · Shift+Enter 换行 · 基于知识库内容生成回答</div>
-      </div>
-      </div><!-- /.chat-main-area -->
-    </main>
-
-    <!-- ========== 视图：深度研究 (Agentic RAG) ========== -->
-    <main id="view-research" class="view research-view">
-      <div class="view-header">
-        <div>
-          <h1 class="view-title">深度研究 <span class="badge badge-agentic">Agentic RAG</span></h1>
-          <p class="view-desc">自我反思型研究助手 — 多轮检索 · 质量评估 · 联网补齐 · 深度报告</p>
-        </div>
-      </div>
-
-      <!-- 研究输入区 -->
-      <div class="card glass-card research-input-card">
-        <div class="card-body">
-          <div class="research-form">
-            <textarea id="research-input" class="research-textarea" placeholder="输入您想深入研究的问题，例如：数据出境安全评估的完整流程和各环节的合规要求是什么？" rows="3"></textarea>
-            <div class="research-options">
-              <div class="config-item">
-                <label for="research-mode">输出模式</label>
-                <select id="research-mode" class="config-input">
-                  <option value="report" selected>深度报告</option>
-                  <option value="qa">增强问答</option>
-                </select>
-              </div>
-              <div class="config-item">
-                <label for="research-topk">检索深度</label>
-                <select id="research-topk" class="config-input">
-                  <option value="5">标准 (5)</option>
-                  <option value="8" selected>深入 (8)</option>
-                  <option value="12">全面 (12)</option>
-                </select>
-              </div>
-              <div class="config-item">
-                <label>
-                  <input type="checkbox" id="research-web" checked /> 允许联网搜索
-                </label>
-              </div>
-              <div style="flex:1"></div>
-              <button id="btn-research" class="btn btn-primary">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px">
-                  <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-                </svg>
-                开始研究
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 研究进度面板（研究中显示） -->
-      <div id="research-progress" class="card glass-card research-progress-card" style="display:none">
-        <div class="card-header">
-          <h2 class="card-title">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;margin-right:6px;vertical-align:-2px">
-              <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
-            </svg>
-            Agent 研究进度
-          </h2>
-        </div>
-        <div class="card-body">
-          <div id="research-steps" class="research-steps"></div>
-        </div>
-      </div>
-
-      <!-- 研究结果面板 -->
-      <div id="research-result" class="card glass-card research-result-card" style="display:none">
-        <div class="card-header">
-          <h2 class="card-title" id="research-result-title">研究报告</h2>
-          <div class="card-meta" id="research-meta"></div>
-        </div>
-        <div class="card-body">
-          <div id="research-content" class="research-content markdown-body"></div>
-          <div id="research-citations" class="research-citations"></div>
-        </div>
-      </div>
+      </footer>
     </main>
   </div>
 
-  <div id="toast-container" class="toast-container"></div>
-
+  <!-- 第三方：Markdown 渲染器（已在仓库中，无构建依赖） -->
   <script src="/static/marked.min.js"></script>
-  <script>
-    if (typeof marked !== 'undefined') {
-      marked.setOptions({ gfm: true, breaks: true });
-    }
-  </script>
-  <script src="/static/app.js"></script>
-  <script>
-    function setQuestion(text) {
-      var input = document.getElementById('chat-input');
-      input.value = text;
-      input.focus();
-      input.dispatchEvent(new Event('input'));
-    }
-    document.querySelectorAll('.nav-item').forEach(function(el) {
-      el.addEventListener('click', function() {
-        var labels = { dashboard: '仪表盘', knowledge: '知识库管理', chat: '智能问答', research: '深度研究' };
-        var title = labels[el.dataset.view];
-        if (title) document.getElementById('topbar-title').textContent = title;
-      });
-    });
-  </script>
+  <!-- 应用入口（ES module，自动按 import 链路加载其他模块） -->
+  <script type="module" src="/static/app.js"></script>
 </body>
 </html>
