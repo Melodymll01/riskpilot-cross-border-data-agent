@@ -22,7 +22,7 @@
         <span class="ico">＋</span> 新建任务
       </button>
 
-      <!-- 主导航：对话 / 知识库；KB 入口需登录（admin 可写，普通用户只读） -->
+      <!-- 主导航：对话 / 知识库 / 审计；KB 入口需登录（admin 可写，普通用户只读）；审计 admin-only -->
       <nav class="side-nav" aria-label="主导航">
         <button class="side-nav-item active" data-view="chat" id="nav-chat">
           <span class="ico">💬</span><span>对话</span>
@@ -30,6 +30,10 @@
         <button class="side-nav-item hidden" data-view="kb" id="nav-kb" hidden>
           <span class="ico">📚</span><span>知识库</span>
           <span class="side-nav-tag" id="nav-kb-tag" hidden>admin</span>
+        </button>
+        <button class="side-nav-item hidden" data-view="audit" id="nav-audit" hidden>
+          <span class="ico">📜</span><span>审计日志</span>
+          <span class="side-nav-tag">admin</span>
         </button>
       </nav>
 
@@ -197,6 +201,52 @@
           <tbody></tbody>
         </table>
       </section>
+    </main>
+
+    <!-- ─────────── 右侧主区：审计日志（admin-only） ─────────── -->
+    <main class="audit-pane hidden" id="audit-pane" aria-labelledby="audit-title">
+      <header class="audit-header">
+        <div class="audit-title-wrap">
+          <h1 class="audit-title" id="audit-title">📜 审计日志</h1>
+          <p class="audit-subtitle">记录管理员在知识库上的写操作（上传 / 采集 / 删除）。只读、不可篡改。</p>
+        </div>
+        <div class="audit-toolbar">
+          <select id="audit-action-filter" class="audit-input" title="按动作过滤">
+            <option value="">全部动作</option>
+            <option value="kb.delete">kb.delete</option>
+            <option value="kb.ingest_file">kb.ingest_file</option>
+            <option value="kb.ingest_web">kb.ingest_web</option>
+          </select>
+          <input type="text" id="audit-actor-filter" class="audit-input"
+                 placeholder="actor_id 精确过滤" maxlength="100" />
+          <button class="btn btn-ghost" id="audit-btn-refresh" title="刷新">↻</button>
+        </div>
+      </header>
+
+      <div class="audit-status" id="audit-status" data-state="idle">准备就绪</div>
+
+      <section class="audit-table-wrap">
+        <table class="audit-table" id="audit-table">
+          <thead>
+            <tr>
+              <th class="audit-col-time">时间</th>
+              <th class="audit-col-actor">actor</th>
+              <th class="audit-col-action">action</th>
+              <th class="audit-col-resource">resource</th>
+              <th class="audit-col-success">状态</th>
+              <th class="audit-col-extra">详情</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+
+      <footer class="audit-pager">
+        <button class="btn btn-ghost" id="audit-prev" disabled>← 上一页</button>
+        <span class="audit-page-label" id="audit-page-label">第 1 页</span>
+        <button class="btn btn-ghost" id="audit-next" disabled>下一页 →</button>
+        <span class="audit-pager-hint">每页 50 条；同场过滤下翻页</span>
+      </footer>
     </main>
   </div>
 

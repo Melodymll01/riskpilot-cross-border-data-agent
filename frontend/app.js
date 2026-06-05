@@ -19,20 +19,23 @@ import {
 } from "./chat.js";
 import { refresh as refreshTasks, onSelect as onTaskSelect, setActive as setActiveTask } from "./tasks.js";
 import * as kb from "./kb.js";
+import * as adminAudit from "./admin-audit.js";
 import { health } from "./api.js";
 
 const $ = (sel) => document.querySelector(sel);
 
-// 当前主视图：chat | kb
+// 当前主视图：chat | kb | audit
 let _currentView = "chat";
 
 function switchView(view) {
-  if (view !== "chat" && view !== "kb") return;
+  if (view !== "chat" && view !== "kb" && view !== "audit") return;
   if (view === "kb" && !getUser()) return;  // 未登录不许进 KB
+  if (view === "audit" && !getUser()?.is_admin) return;  // 只 admin 进 audit
   _currentView = view;
 
   $("#chat-pane").classList.toggle("hidden", view !== "chat");
   $("#kb-pane").classList.toggle("hidden", view !== "kb");
+  $("#audit-pane").classList.toggle("hidden", view !== "audit");
 
   document.querySelectorAll(".side-nav-item").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.view === view);
@@ -41,6 +44,9 @@ function switchView(view) {
   if (view === "kb") {
     kb.mount();
     kb.refresh();
+  } else if (view === "audit") {
+    adminAudit.mount();
+    adminAudit.refresh();
   }
 }
 
@@ -126,6 +132,15 @@ function applyKbGate(isLoggedIn, isAdmin) {
   }
   // 未登录却停在 KB 视图：踢回对话
   if (!isLoggedIn && _currentView === "kb") {
+    switchView("chat");
+  }
+  // 审计入口：admin-only
+  const navAudit = $("#nav-audit");
+  if (navAudit) {
+    navAudit.classList.toggle("hidden", !isAdmin);
+    navAudit.hidden = !isAdmin;
+  }
+  if (!isAdmin && _currentView === "audit") {
     switchView("chat");
   }
 }

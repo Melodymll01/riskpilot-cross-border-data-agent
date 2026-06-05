@@ -84,6 +84,7 @@ class SqliteAuditLogRepo:
         self,
         *,
         limit: int = 50,
+        offset: int = 0,
         action: str | None = None,
         actor_id: str | None = None,
     ) -> list[AuditEntry]:
@@ -98,6 +99,7 @@ class SqliteAuditLogRepo:
             params.append(actor_id)
         where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
         params.append(limit)
+        params.append(offset)
         rows = conn.execute(
             f"""
             SELECT timestamp, actor_id, action, resource, request_id,
@@ -105,7 +107,7 @@ class SqliteAuditLogRepo:
             FROM audit_log
             {where}
             ORDER BY timestamp DESC, id DESC
-            LIMIT ?
+            LIMIT ? OFFSET ?
             """,  # noqa: S608  -- where 仅由白名单字段拼接，参数走 ? 占位
             params,
         ).fetchall()

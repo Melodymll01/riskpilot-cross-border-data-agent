@@ -8,7 +8,7 @@
 
 未来扩展（暂不做）：
 - 时间范围 ``since`` / ``until`` 过滤
-- 分页（``cursor`` 或 ``offset``）
+- cursor 风格分页（当前用 offset，足够 admin 翻看场景）
 - 导出 CSV
 """
 
@@ -52,6 +52,7 @@ def build_audit_routes(container: AppContainer) -> APIRouter:
     )
     def list_audit_logs(
         limit: int = Query(50, ge=1, le=500, description="返回上限，默认 50"),
+        offset: int = Query(0, ge=0, description="分页偏移，从 0 开始"),
         action: str | None = Query(
             None, description="按 action 精确过滤，如 'kb.delete'"
         ),
@@ -62,6 +63,7 @@ def build_audit_routes(container: AppContainer) -> APIRouter:
     ) -> AuditLogListResponse:
         entries = container.audit_log.list_recent(
             limit=limit,
+            offset=offset,
             action=action,
             actor_id=actor_id,
         )

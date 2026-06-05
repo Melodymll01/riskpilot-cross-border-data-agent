@@ -171,3 +171,51 @@ class TestFilters(_AdminBase):
         assert resp.status_code == 422
         resp2 = admin_client.get("/api/v2/audit/logs", params={"limit": 1000})
         assert resp2.status_code == 422
+
+
+class TestPagination(_AdminBase):
+    def _seed_five(self, client: TestClient) -> None:
+        for i in range(5):
+            _seed(
+                client,
+                AuditEntry(
+                    actor_id="github:alice",
+                    action=AuditAction.KB_DELETE,
+                    resource=f"r{i}",
+                    timestamp=100.0 + i,  # i=4 最新
+                    success=True,
+                ),
+            )
+
+    def test_offset_default_is_zero(self, admin_client: TestClient) -> None:
+        self._seed_five(admin_client)
+        resp = admin_client.get("/api/v2/audit/logs", params={"limit": 2})
+        body = resp.json()
+        assert [e["resource"] for e in body["entries"]] == ["r4", "r3"]
+
+    def test_offset_paginates(self, admin_client: TestClient) -> None:
+        self._seed_five(admin_client)
+        resp = admin_client.get(
+            "/api/v2/audit/logs", params={"limit": 2, "offset": 2}
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        # 倒序 r4 r3 r2 r1 r0；offset=2 拿 r2 r1
+        assert [e["resource"] for e in body["entries"]] == ["r2", "r1"]
+        assert body["count"] == 2
+
+    def test_offset_beyond_total_returns_empty(
+        self, admin_client: TestClient
+    ) -> None:
+        self._seed_five(admin_client)
+        resp = admin_client.get(
+            "/api/v2/audit/logs", params={"limit": 10, "offset": 100}
+        )
+        body = resp.json()
+        assert body == {"entries": [], "count": 0}
+
+    def test_offset_negative_rejected(self, admin_client: TestClient) -> None:
+        resp = admin_client.get(
+            "/api/v2/audit/logs", params={"offset": -1}
+        )
+        assert resp.status_code == 422

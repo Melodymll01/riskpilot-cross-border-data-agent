@@ -276,6 +276,7 @@ class AuditLogPort(Protocol):
     - ``record`` 同步阻塞；写失败抛异常（由调用方决定如何兜底，典型策略是
       ``try/except`` 吞错并打 warning 日志，**不**让 audit 失败影响主业务）
     - ``list_recent`` 按 ``timestamp`` 倒序；过滤参数 None 表示不过滤
+    - ``offset`` 用于分页（基于 0），与 ``limit`` 共同决定窗口
     - 不提供 update / delete API（审计要求可追溯不可变）
 
     与 ``logger.info`` 区别：本端口的产出是结构化、按字段索引的合规流水账；
@@ -288,6 +289,7 @@ class AuditLogPort(Protocol):
         self,
         *,
         limit: int = 50,
+        offset: int = 0,
         action: str | None = None,
         actor_id: str | None = None,
     ) -> list[AuditEntry]: ...

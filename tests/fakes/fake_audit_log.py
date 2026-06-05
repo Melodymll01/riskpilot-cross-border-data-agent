@@ -28,6 +28,7 @@ class FakeAuditLogRepo:
         self,
         *,
         limit: int = 50,
+        offset: int = 0,
         action: str | None = None,
         actor_id: str | None = None,
     ) -> list[AuditEntry]:
@@ -35,13 +36,12 @@ class FakeAuditLogRepo:
         # 用 enumerate 索引作 secondary key，避免 sort 不稳定
         indexed = list(enumerate(self.entries))
         indexed.sort(key=lambda p: (p[1].timestamp, p[0]), reverse=True)
-        out: list[AuditEntry] = []
+        # 先过滤再分页（与 SQL `WHERE ... LIMIT ? OFFSET ?` 同语义）
+        filtered: list[AuditEntry] = []
         for _idx, e in indexed:
             if action is not None and e.action != action:
                 continue
             if actor_id is not None and e.actor_id != actor_id:
                 continue
-            out.append(e)
-            if len(out) >= limit:
-                break
-        return out
+            filtered.append(e)
+        return filtered[offset : offset + limit]

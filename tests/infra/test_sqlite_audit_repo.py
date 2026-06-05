@@ -120,6 +120,46 @@ class TestFilters:
         assert rows[0].resource == "d1"
 
 
+class TestPagination:
+    def test_offset_skips_n(self, repo: SqliteAuditLogRepo) -> None:
+        for i in range(5):
+            repo.record(_entry(timestamp=float(i), resource=f"r{i}"))
+        # 倒序下 r4, r3, r2, r1, r0；offset=2 跳过前两个
+        rows = repo.list_recent(limit=10, offset=2)
+        assert [r.resource for r in rows] == ["r2", "r1", "r0"]
+
+    def test_offset_with_limit_window(self, repo: SqliteAuditLogRepo) -> None:
+        for i in range(5):
+            repo.record(_entry(timestamp=float(i), resource=f"r{i}"))
+        rows = repo.list_recent(limit=2, offset=1)
+        assert [r.resource for r in rows] == ["r3", "r2"]
+
+    def test_offset_beyond_total_returns_empty(
+        self, repo: SqliteAuditLogRepo
+    ) -> None:
+        repo.record(_entry(resource="only"))
+        assert repo.list_recent(limit=10, offset=10) == []
+
+    def test_offset_respects_filters(self, repo: SqliteAuditLogRepo) -> None:
+        for i in range(4):
+            repo.record(
+                _entry(
+                    timestamp=float(i),
+                    action=AuditAction.KB_DELETE,
+                    resource=f"d{i}",
+                )
+            )
+        repo.record(_entry(action=AuditAction.KB_INGEST_FILE, resource="f"))
+        # 过滤 + 分页同时生效
+        rows = repo.list_recent(
+            limit=2,
+            offset=1,
+            action=AuditAction.KB_DELETE,
+        )
+        # KB_DELETE 倒序：d3, d2, d1, d0；offset=1 跳 d3 拿 d2/d1
+        assert [r.resource for r in rows] == ["d2", "d1"]
+
+
 class TestMigration:
     def test_idempotent_multi_construct(self, pool: SqliteConnectionPool) -> None:
         """重复构造同一个 pool 上的 repo 不应失败（CREATE IF NOT EXISTS）。"""
