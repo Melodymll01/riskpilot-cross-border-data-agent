@@ -85,6 +85,14 @@ class Settings(BaseSettings):
     # 日志
     log_level: str = "INFO"
 
+    # ── 应用层（Step 008 PR-5：DI 容器 + use case） ────────────────────────────
+    sqlite_db_path: str = "./data/rag.sqlite3"
+    jwt_secret: str = "dev-jwt-secret-please-change-32-chars-minimum-length"
+    jwt_ttl_seconds: int = Field(86400, ge=60, le=30 * 86400)  # 1min-30day
+    github_client_id: str = "dev-placeholder-client-id"
+    github_client_secret: str = "dev-placeholder-client-secret"
+    github_redirect_uri: str = "http://localhost:8000/api/auth/github/callback"
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",
