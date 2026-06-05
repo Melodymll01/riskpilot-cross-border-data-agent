@@ -72,17 +72,17 @@ export async function logout() {
 }
 
 /**
- * 拿一段简短的展示名（avatar 字母 + display_name）。
+ * 拿一段简短的展示名（avatar 字母 + display_name + avatar_url）。
  */
 export function displayLabels(user) {
-  if (!user) return { initial: "?", name: "未登录", provider: "—" };
+  if (!user) return { initial: "?", name: "未登录", provider: "—", avatarUrl: "" };
   const name = user.display_name || user.user_id || "未命名";
   const initial = (name.replace(/^anon:/, "")[0] || "?").toUpperCase();
   const provider =
     user.provider === "anonymous" ? "匿名访客"
     : user.provider === "github"  ? "GitHub 用户"
     : user.provider || "—";
-  return { initial, name, provider };
+  return { initial, name, provider, avatarUrl: user.avatar_url || "" };
 }
 
 // 把 ApiError 暴露给上层用

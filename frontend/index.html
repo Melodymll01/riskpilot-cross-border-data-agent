@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>合规副驾 · Compliance Copilot</title>
+  <title>数智合规 · DataCompliance AI</title>
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
@@ -11,9 +11,9 @@
     <!-- ─────────── 左侧任务边栏 ─────────── -->
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-logo">CC</div>
+        <div class="brand-logo">DC</div>
         <div class="brand-text">
-          <div class="brand-title">合规副驾</div>
+          <div class="brand-title">数智合规</div>
           <div class="brand-sub">数据出境合规 · v2</div>
         </div>
       </div>
@@ -47,17 +47,40 @@
     <!-- ─────────── 右侧主区：聊天 ─────────── -->
     <main class="chat-pane">
       <header class="chat-header">
-        <div class="chat-title" id="chat-title">新对话</div>
-        <div class="chat-actions">
-          <span class="status-dot" id="status-dot" data-state="unknown"></span>
-          <span class="status-text" id="status-text">检查中…</span>
+        <!-- 模式切换：新建对话时决定走哪条业务路径 -->
+        <nav class="mode-tabs" id="mode-tabs" role="tablist" aria-label="业务模式">
+          <button class="mode-tab active" role="tab" data-mode="qa" aria-selected="true">
+            <span class="mode-ico">💬</span>
+            <span class="mode-name">知识问答</span>
+            <span class="mode-desc">日常合规查询</span>
+          </button>
+          <button class="mode-tab" role="tab" data-mode="research" aria-selected="false">
+            <span class="mode-ico">🔬</span>
+            <span class="mode-name">深度研究</span>
+            <span class="mode-desc">长报告 · 多轮检索</span>
+          </button>
+          <button class="mode-tab" role="tab" data-mode="profile" aria-selected="false">
+            <span class="mode-ico">📊</span>
+            <span class="mode-name">风险画像</span>
+            <span class="mode-desc">命题输入 · 接口预留</span>
+          </button>
+        </nav>
+        <div class="chat-toolbar">
+          <div class="chat-title-wrap">
+            <span class="chat-title" id="chat-title">新对话</span>
+            <span class="mode-badge" id="chat-mode-badge" hidden></span>
+          </div>
+          <div class="chat-actions">
+            <span class="status-dot" id="status-dot" data-state="unknown"></span>
+            <span class="status-text" id="status-text">检查中…</span>
+          </div>
         </div>
       </header>
 
       <section class="messages" id="messages">
         <!-- 空状态：欢迎卡 -->
         <div class="welcome" id="welcome">
-          <h1>欢迎使用合规副驾</h1>
+          <h1>欢迎使用数智合规</h1>
           <p>面向数据出境法规的对话式合规助手。Agent 会自主调用工具检索法条、研判证据并给出可追溯的回答。</p>
           <div class="suggest-grid">
             <button class="suggest-card" data-q="个人信息出境的三种合规路径分别是什么？">

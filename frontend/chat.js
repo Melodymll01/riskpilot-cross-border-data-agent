@@ -12,9 +12,12 @@ const $ = (sel) => document.querySelector(sel);
 
 // ─────────── 状态 ───────────
 let _currentTaskId = null;
+let _currentMode = "qa";  // qa | research | profile；仅在创建新 task 时生效
 let _abortCurrent = null;
 let _onTaskCreated = null;
 let _onTaskUpdated = null;
+let _onModeChanged = null;
+let _onConversationReset = null;
 
 export function setCurrentTaskId(taskId) {
   _currentTaskId = taskId;
@@ -22,9 +25,23 @@ export function setCurrentTaskId(taskId) {
 export function getCurrentTaskId() {
   return _currentTaskId;
 }
+export function getCurrentMode() {
+  return _currentMode;
+}
+/** 设置当前模式；仅下一条新 task 生效。返回是否变更。*/
+export function setCurrentMode(mode) {
+  if (mode !== "qa" && mode !== "research" && mode !== "profile") return false;
+  if (_currentMode === mode) return false;
+  _currentMode = mode;
+  _onModeChanged?.(mode);
+  return true;
+}
 
 export function onTaskCreated(fn) { _onTaskCreated = fn; }
 export function onTaskUpdated(fn) { _onTaskUpdated = fn; }
+export function onModeChanged(fn) { _onModeChanged = fn; }
+/** 新对话剧本重置后触发，供上层渲染当前 mode 的欢迎卡。*/
+export function onConversationReset(fn) { _onConversationReset = fn; }
 
 // ─────────── DOM 渲染 ───────────
 const messagesEl = () => $("#messages");
@@ -44,7 +61,7 @@ function appendMsg(role) {
   hideWelcome();
   const wrap = document.createElement("div");
   wrap.className = `msg msg-${role}`;
-  const roleLabel = role === "user" ? "你" : "合规副驾";
+  const roleLabel = role === "user" ? "你" : "数智合规";
   wrap.innerHTML = `
     <div class="msg-role">${roleLabel}</div>
     <div class="msg-body"></div>
@@ -181,7 +198,12 @@ export function sendMessage(text) {
   const typing = appendTyping(assistantBody);
 
   const payload = { message: text };
-  if (_currentTaskId) payload.task_id = _currentTaskId;
+  if (_currentTaskId) {
+    payload.task_id = _currentTaskId;
+  } else {
+    // 仅在创建新 task 时顺手携上 mode；service 会持久化到 task.mode
+    payload.mode = _currentMode;
+  }
 
   _abortCurrent = streamChat(payload, {
     onEvent: (frame) => {
@@ -257,6 +279,12 @@ export async function loadTask(taskId) {
 
   const title = detail.task?.title || "对话";
   $("#chat-title").textContent = title;
+  // 历史 task 的 mode 是唯一真相 → 同步 UI Tab
+  const taskMode = detail.task?.mode || "qa";
+  if (taskMode !== _currentMode) {
+    _currentMode = taskMode;
+    _onModeChanged?.(taskMode);
+  }
 
   for (const m of detail.messages || []) {
     const body = appendMsg(m.role === "user" ? "user" : "assistant");
@@ -272,12 +300,9 @@ export function newConversation() {
   if (_abortCurrent) { _abortCurrent.abort(); _abortCurrent = null; }
   _currentTaskId = null;
   $("#chat-title").textContent = "新对话";
-  messagesEl().innerHTML = `
-    <div class="welcome" id="welcome">
-      <h1>新对话已就绪</h1>
-      <p>问点合规问题吧 ——</p>
-    </div>
-  `;
+  // 空容器 + 上层按 mode 填充
+  messagesEl().innerHTML = `<div class="welcome" id="welcome"></div>`;
+  _onConversationReset?.(_currentMode);
 }
 
 // ─────────── 工具函数 ───────────

@@ -40,8 +40,13 @@ export async function refresh() {
     if (t.task_id === _activeId) li.classList.add("active");
 
     const title = t.title || "未命名对话";
+    const modeLabel = MODE_LABELS[t.mode] || "";
+    const modeBadge = t.mode && t.mode !== "qa"
+      ? `<span class="task-mode-badge" data-mode="${escapeAttr(t.mode)}">${escapeHtml(modeLabel)}</span>`
+      : "";
     li.innerHTML = `
       <span class="task-title-text" title="${escapeAttr(title)}">${escapeHtml(title)}</span>
+      ${modeBadge}
       <button class="task-delete" title="删除">×</button>
     `;
     li.querySelector(".task-title-text").addEventListener("click", () => {
@@ -61,6 +66,12 @@ export async function refresh() {
     list.appendChild(li);
   }
 }
+
+const MODE_LABELS = {
+  qa: "问答",
+  research: "研究",
+  profile: "画像",
+};
 
 function escapeHtml(s) {
   return String(s ?? "")
