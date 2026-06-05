@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal, TypedDict
 
-from domain.models import Citation
+from domain.models import Chunk, Citation
 
 if TYPE_CHECKING:
     from domain.ports import ChatPort, RetrievePort
@@ -72,7 +72,7 @@ class RunQueryUseCase:
         return "\n\n".join(lines)
 
     @staticmethod
-    def _to_citation(chunk) -> Citation:
+    def _to_citation(chunk: Chunk) -> Citation:
         return Citation(
             source_type=chunk.source_type,
             source_name=chunk.source_name,

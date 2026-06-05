@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from app.agent import ComplianceCopilotAgent, register_default_tools
 from app.factories import (
     build_auth,
     build_chat,
@@ -37,6 +38,7 @@ from app.use_cases import (
     RunQueryUseCase,
     TaskManagementUseCase,
 )
+from app.use_cases.run_copilot import RunCopilotUseCase
 
 if TYPE_CHECKING:
     from config import Settings
@@ -98,6 +100,19 @@ class AppContainer:
         self.task_management = TaskManagementUseCase(self.task_repo)
         self.ingest = IngestionUseCase(self.embedder)
         self.run_query = RunQueryUseCase(retriever=self.retriever, chat=self.chat)
+
+        # ── Agent 层（Step 009 PR-5b）─────────────────────────────────
+        # 工具注册表必须晚于所有 port 初始化，因为 handler 闭包持有 self.* 引用
+        self.tool_registry = register_default_tools(self)
+        self.copilot_agent = ComplianceCopilotAgent(
+            chat=self.chat,
+            task_repo=self.task_repo,
+            tool_registry=self.tool_registry,
+        )
+        self.run_copilot = RunCopilotUseCase(
+            agent=self.copilot_agent,
+            task_management=self.task_management,
+        )
 
 
 __all__ = ["AppContainer"]
