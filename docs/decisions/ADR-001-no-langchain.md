@@ -1,7 +1,9 @@
 # ADR-001: 不引入 LangChain / LlamaIndex 等编排框架
 
-- 状态: accepted
+- 状态: accepted（落地延伸：ADR-011）
 - 日期: 2026-06-04
+- 后续补充：
+  - [ADR-011: ReAct 主循环自实现 + LLM JSON 决策协议](ADR-011-react-agent-self-implemented.md)（Step 009 落地的具体 agent 协议）
 
 ## 背景
 

@@ -1,7 +1,10 @@
 # ADR-006: 4 层 Hexagonal 架构（api / app / domain / infra）
 
-- 状态: accepted
+- 状态: accepted（augmented by ADR-009 / ADR-010）
 - 日期: 2026-06-04
+- 后续补充：
+  - [ADR-009: Closure Router + Container DI](ADR-009-closure-router-container-di.md)（Step 010 落地路由与容器的绑定方式）
+  - [ADR-010: Strangler Fig v1/v2 共存](ADR-010-strangler-fig-v1-v2.md)（Step 010-011 落地老 v1 路由保留策略）
 
 ## 背景
 

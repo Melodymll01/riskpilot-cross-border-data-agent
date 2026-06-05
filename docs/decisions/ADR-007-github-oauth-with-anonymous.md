@@ -1,7 +1,9 @@
 # ADR-007: GitHub OAuth + 匿名身份（双轨）
 
-- 状态: accepted
+- 状态: accepted（augmented by ADR-012）
 - 日期: 2026-06-04
+- 后续补充：
+  - [ADR-012: Admin RBAC](ADR-012-admin-rbac-allowlist.md)（Step 013/018/019 落地 admin 白名单 + 401/403 二段守门）
 
 ## 背景
 
