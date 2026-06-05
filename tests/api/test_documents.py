@@ -1,7 +1,8 @@
 """``/api/v2/documents/*`` 路由测试（Step 016c）。
 
 策略：
-- 全部端点 admin-only：未登录 → 401；登录非 admin → 403；admin → 200/201/4xx 业务态
+- 读端点（GET list / stats / detail）：登录即可；未登录 → 401，登录非 admin → 200
+- 写端点（POST file / web、DELETE）：admin-only；未登录 → 401，登录非 admin → 403，admin → 200/201/4xx 业务态
 - 业务编排用 ``container.kb_management``（已注入 FakeKbRepo + FakeDocumentLoader）
 - 通过 ``container.kb_repo._store`` 直接观察副作用，避免依赖 chroma
 """
@@ -69,20 +70,28 @@ def _seed_chunks(
 
 
 class TestAuthGating:
-    """所有端点 admin-only：未登录 401 / 非 admin 403 / admin 放行。"""
+    """读端点 login-only：未登录 401，登录非 admin 可读；写端点 admin-only：未登录 401，登录非 admin 403。"""
 
     def test_list_requires_auth(self, client: TestClient) -> None:
         resp = client.get("/api/v2/documents")
         assert resp.status_code == 401
         assert resp.json()["error_code"] == "AUTH_REQUIRED"
 
-    def test_list_non_admin_forbidden(
+    def test_list_non_admin_allowed(
         self, authed_client: tuple[TestClient, dict[str, Any]]
     ) -> None:
         client, _ = authed_client
         resp = client.get("/api/v2/documents")
-        assert resp.status_code == 403
-        assert resp.json()["error_code"] == "ADMIN_REQUIRED"
+        assert resp.status_code == 200
+        assert resp.json() == {"documents": [], "total_chunks": 0}
+
+    def test_stats_non_admin_allowed(
+        self, authed_client: tuple[TestClient, dict[str, Any]]
+    ) -> None:
+        client, _ = authed_client
+        resp = client.get("/api/v2/documents/stats")
+        assert resp.status_code == 200
+        assert resp.json() == {"document_count": 0, "chunk_count": 0}
 
     def test_get_requires_auth(self, client: TestClient) -> None:
         resp = client.get("/api/v2/documents/foo.pdf")
@@ -92,6 +101,14 @@ class TestAuthGating:
         resp = client.delete("/api/v2/documents/foo.pdf")
         assert resp.status_code == 401
 
+    def test_delete_non_admin_forbidden(
+        self, authed_client: tuple[TestClient, dict[str, Any]]
+    ) -> None:
+        client, _ = authed_client
+        resp = client.delete("/api/v2/documents/foo.pdf")
+        assert resp.status_code == 403
+        assert resp.json()["error_code"] == "ADMIN_REQUIRED"
+
     def test_ingest_file_requires_auth(self, client: TestClient) -> None:
         resp = client.post(
             "/api/v2/documents/file",
@@ -99,11 +116,32 @@ class TestAuthGating:
         )
         assert resp.status_code == 401
 
+    def test_ingest_file_non_admin_forbidden(
+        self, authed_client: tuple[TestClient, dict[str, Any]]
+    ) -> None:
+        client, _ = authed_client
+        resp = client.post(
+            "/api/v2/documents/file",
+            files={"file": ("a.txt", b"hi", "text/plain")},
+        )
+        assert resp.status_code == 403
+        assert resp.json()["error_code"] == "ADMIN_REQUIRED"
+
     def test_ingest_web_requires_auth(self, client: TestClient) -> None:
         resp = client.post(
             "/api/v2/documents/web", json={"url": "https://x.com"}
         )
         assert resp.status_code == 401
+
+    def test_ingest_web_non_admin_forbidden(
+        self, authed_client: tuple[TestClient, dict[str, Any]]
+    ) -> None:
+        client, _ = authed_client
+        resp = client.post(
+            "/api/v2/documents/web", json={"url": "https://x.com"}
+        )
+        assert resp.status_code == 403
+        assert resp.json()["error_code"] == "ADMIN_REQUIRED"
 
 
 # ───────────────────────── admin-only fixture ───────────────────────────

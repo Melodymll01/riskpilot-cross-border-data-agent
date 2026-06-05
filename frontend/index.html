@@ -22,14 +22,14 @@
         <span class="ico">＋</span> 新建任务
       </button>
 
-      <!-- 主导航：对话 / 知识库；KB 入口仅 admin 可见 -->
+      <!-- 主导航：对话 / 知识库；KB 入口需登录（admin 可写，普通用户只读） -->
       <nav class="side-nav" aria-label="主导航">
         <button class="side-nav-item active" data-view="chat" id="nav-chat">
           <span class="ico">💬</span><span>对话</span>
         </button>
         <button class="side-nav-item hidden" data-view="kb" id="nav-kb" hidden>
           <span class="ico">📚</span><span>知识库</span>
-          <span class="side-nav-tag">admin</span>
+          <span class="side-nav-tag" id="nav-kb-tag" hidden>admin</span>
         </button>
       </nav>
 
@@ -131,12 +131,12 @@
       </footer>
     </main>
 
-    <!-- ─────────── 右侧主区：知识库管理（admin-only） ─────────── -->
+    <!-- ─────────── 右侧主区：知识库（所有登录用户可读，admin 可写） ─────────── -->
     <main class="kb-pane hidden" id="kb-pane" aria-labelledby="kb-title">
       <header class="kb-header">
         <div class="kb-title-wrap">
-          <h1 class="kb-title" id="kb-title">📚 知识库管理</h1>
-          <p class="kb-subtitle">上传法规 / 政策 / 指南文件或采集网页；Agent 会在检索时引用这里的语料。</p>
+          <h1 class="kb-title" id="kb-title">📚 知识库</h1>
+          <p class="kb-subtitle">Agent 在检索时会引用这里的语料。管理员可上传/删除；普通用户只读。</p>
         </div>
         <div class="kb-stats">
           <div class="kb-stat">
@@ -151,7 +151,11 @@
         </div>
       </header>
 
-      <section class="kb-actions">
+      <div class="kb-readonly-banner hidden" id="kb-readonly-banner">
+        🔒 当前以只读模式查看知识库；上传 / 删除需管理员权限。
+      </div>
+
+      <section class="kb-actions" id="kb-actions">
         <div class="kb-action-card">
           <div class="kb-action-title"><span>📄</span> 上传文件</div>
           <div class="kb-action-hint">支持 PDF / TXT / DOCX；最大 50 MB</div>

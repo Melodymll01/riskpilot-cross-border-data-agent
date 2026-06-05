@@ -1,5 +1,9 @@
 /**
- * kb.js — 知识库管理面板（admin-only）。
+ * kb.js — 知识库面板。
+ *
+ * 权限模型：
+ * - 读（list / stats / detail）：任意登录用户
+ * - 写（upload / web / delete）：仅 admin。非 admin 的删除按钮不渲染。
  *
  * 模块状态：
  * - 不缓存文档列表；每次 refresh() 都重新打 GET /api/v2/documents
@@ -9,6 +13,7 @@
  */
 
 import { documents } from "./api.js";
+import { getUser } from "./auth.js";
 
 const $ = (sel, root = document) => root.querySelector(sel);
 
@@ -53,10 +58,14 @@ function renderStats(stats) {
 function renderList(docs) {
   const tbody = $("#kb-table tbody");
   tbody.innerHTML = "";
+  const isAdmin = !!getUser()?.is_admin;
   if (docs.length === 0) {
     const tr = document.createElement("tr");
     tr.className = "kb-empty";
-    tr.innerHTML = `<td colspan="6" class="kb-empty-cell">知识库为空。请上传文件或采集网页。</td>`;
+    const emptyMsg = isAdmin
+      ? "知识库为空。请上传文件或采集网页。"
+      : "知识库为空。需管理员入库后才有内容可查。";
+    tr.innerHTML = `<td colspan="6" class="kb-empty-cell">${emptyMsg}</td>`;
     tbody.appendChild(tr);
     return;
   }
@@ -70,6 +79,9 @@ function renderList(docs) {
       ? `<a href="${escapeAttr(d.source_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(d.title || d.source_name)}</a>`
       : escapeHtml(d.title || d.source_name);
     const cat = d.category ? `<span class="kb-cat">${escapeHtml(d.category)}</span>` : `<span class="kb-cat kb-cat-empty">—</span>`;
+    const actionCell = isAdmin
+      ? `<button class="btn btn-ghost kb-delete" title="删除该文档（连同所有 chunk）">删除</button>`
+      : `<span class="kb-action-muted">—</span>`;
 
     tr.innerHTML = `
       <td class="kb-col-type">${typeBadge}</td>
@@ -77,11 +89,12 @@ function renderList(docs) {
       <td class="kb-col-title">${titleHtml}</td>
       <td class="kb-col-cat">${cat}</td>
       <td class="kb-col-chunks">${d.chunk_count}</td>
-      <td class="kb-col-action">
-        <button class="btn btn-ghost kb-delete" title="删除该文档（连同所有 chunk）">删除</button>
-      </td>
+      <td class="kb-col-action">${actionCell}</td>
     `;
-    tr.querySelector(".kb-delete").addEventListener("click", () => onDelete(d.source_name, d.title || d.source_name));
+    const delBtn = tr.querySelector(".kb-delete");
+    if (delBtn) {
+      delBtn.addEventListener("click", () => onDelete(d.source_name, d.title || d.source_name));
+    }
     tbody.appendChild(tr);
   }
 }

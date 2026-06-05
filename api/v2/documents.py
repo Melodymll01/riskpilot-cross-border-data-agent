@@ -1,7 +1,8 @@
 """``/api/v2/documents/*`` 路由：知识库管理面（Step 016c）。
 
 设计要点：
-- 所有端点 admin-only（``make_require_admin``）；KB 是后台运维资源，不向普通用户暴露
+- 读端点（GET list / stats / detail）：``make_require_owner`` —— 任意登录用户可访问
+- 写端点（POST / DELETE）：``make_require_admin`` —— 仅管理员可修改
 - 业务编排走 ``container.kb_management``（Step 016b 装配的 use case）
 - 文件上传：UUID 重命名落到 ``settings.upload_dir`` → use case → finally 删除临时文件
 - 大小/后缀白名单沿用 v1 ``api/routes.py`` 语义；放在路由层做边界校验
@@ -26,7 +27,7 @@ from fastapi import (
     status,
 )
 
-from api.v2.deps import make_require_admin
+from api.v2.deps import make_require_admin, make_require_owner
 from api.v2.schemas import (
     DeleteDocumentResponse,
     KbDocumentListResponse,
@@ -68,9 +69,10 @@ def _to_ingest_response(result: KbIngestResult) -> KbIngestResponse:
 
 
 def build_documents_routes(container: AppContainer) -> APIRouter:
-    """构造 ``/documents`` 子 router；全部端点 admin-only。"""
+    """构造 ``/documents`` 子 router；读端点 login-only，写端点 admin-only。"""
 
     router = APIRouter(prefix="/documents", tags=["documents"])
+    require_owner = make_require_owner(container)
     require_admin = make_require_admin(container)
     upload_dir = Path(container.settings.upload_dir)
     max_upload_bytes = container.settings.max_upload_mb * 1024 * 1024
@@ -81,7 +83,7 @@ def build_documents_routes(container: AppContainer) -> APIRouter:
         summary="列出知识库所有文档（按 source_name 聚合）",
     )
     def list_documents(
-        _admin_id: str = Depends(require_admin),
+        _owner_id: str = Depends(require_owner),
     ) -> KbDocumentListResponse:
         docs = container.kb_management.list_documents()
         total = sum(d.chunk_count for d in docs)
@@ -96,7 +98,7 @@ def build_documents_routes(container: AppContainer) -> APIRouter:
         summary="知识库总览统计（文档数 + chunk 数）",
     )
     def get_stats(
-        _admin_id: str = Depends(require_admin),
+        _owner_id: str = Depends(require_owner),
     ) -> KbDocumentStatsResponse:
         # 调一次 list 即可拿到 doc_count；chunk_count 走 use case
         docs = container.kb_management.list_documents()
@@ -113,7 +115,7 @@ def build_documents_routes(container: AppContainer) -> APIRouter:
     )
     def get_document(
         source_name: str,
-        _admin_id: str = Depends(require_admin),
+        _owner_id: str = Depends(require_owner),
     ) -> KbDocumentOut:
         doc = container.kb_management.get_document(source_name)
         if doc is None:

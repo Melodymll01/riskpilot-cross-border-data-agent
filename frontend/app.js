@@ -28,7 +28,7 @@ let _currentView = "chat";
 
 function switchView(view) {
   if (view !== "chat" && view !== "kb") return;
-  if (view === "kb" && !getUser()?.is_admin) return;  // 守门：非 admin 不许进 KB
+  if (view === "kb" && !getUser()) return;  // 未登录不许进 KB
   _currentView = view;
 
   $("#chat-pane").classList.toggle("hidden", view !== "chat");
@@ -99,19 +99,33 @@ onUserChange((user) => {
   $("#user-name").textContent = name;
   $("#user-provider").textContent = provider;
 
-  // admin 才能看到知识库入口
-  applyAdminGate(!!user?.is_admin);
+  // KB 入口：任意登录用户可见（只读）；admin 额外看到 admin 标签 + 上传/删除 UI
+  applyKbGate(!!user, !!user?.is_admin);
 });
 
-// 当前 admin 状态下隐藏 KB 视图
-function applyAdminGate(isAdmin) {
+// 控制 KB 入口与写入 UI 的可见性
+function applyKbGate(isLoggedIn, isAdmin) {
   const navKb = $("#nav-kb");
   if (navKb) {
-    navKb.classList.toggle("hidden", !isAdmin);
-    navKb.hidden = !isAdmin;
+    navKb.classList.toggle("hidden", !isLoggedIn);
+    navKb.hidden = !isLoggedIn;
   }
-  // 非 admin 却停在 KB 视图：踢回对话
-  if (!isAdmin && _currentView === "kb") {
+  const tag = $("#nav-kb-tag");
+  if (tag) {
+    tag.classList.toggle("hidden", !isAdmin);
+    tag.hidden = !isAdmin;
+  }
+  // 上传/采集按钮只 admin 可见
+  const actions = $("#kb-actions");
+  if (actions) {
+    actions.classList.toggle("hidden", !isAdmin);
+  }
+  const banner = $("#kb-readonly-banner");
+  if (banner) {
+    banner.classList.toggle("hidden", isAdmin || !isLoggedIn);
+  }
+  // 未登录却停在 KB 视图：踢回对话
+  if (!isLoggedIn && _currentView === "kb") {
     switchView("chat");
   }
 }
