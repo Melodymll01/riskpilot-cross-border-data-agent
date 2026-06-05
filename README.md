@@ -1,5 +1,10 @@
 # 基于 RAG 的数据出境知识库问答系统
 
+[![CI](https://github.com/Melodymll01/riskpilot-cross-border-data-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Melodymll01/riskpilot-cross-border-data-agent/actions/workflows/ci.yml)
+[![tests](https://img.shields.io/badge/tests-483%20passed-brightgreen)](https://github.com/Melodymll01/riskpilot-cross-border-data-agent/actions/workflows/ci.yml)
+[![python](https://img.shields.io/badge/python-3.12-blue)](pyproject.toml)
+[![ruff](https://img.shields.io/badge/ruff-scoped--clean-46a)](.github/workflows/ci.yml)
+
 一个面向数据出境法规、政策、指南场景的知识库问答系统。支持本地文档导入和网页内容采集，将多种来源的知识统一处理、向量化存储，实现基于检索增强生成（RAG）的智能问答。
 
 ## 关键指标

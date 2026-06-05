@@ -1,8 +1,8 @@
 """全局配置模块，基于 pydantic-settings 加载环境变量。"""
 
 import os
-from typing import List, Literal, Optional
-from typing_extensions import Annotated
+from typing import Annotated, Literal
+
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode
 
@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     openai_api_key: str = "sk-placeholder"
     openai_api_base: str = "https://open.bigmodel.cn/api/paas/v4"
     embedding_model: str = "embedding-3"
-    embedding_dimensions: Optional[int] = Field(2048, description="Embedding 向量维度，智谱 embedding-3 支持 256/512/1024/2048，None 则使用模型默认值")
+    embedding_dimensions: int | None = Field(2048, description="Embedding 向量维度，智谱 embedding-3 支持 256/512/1024/2048，None 则使用模型默认值")
     chat_model: str = "glm-4-flash"
 
     # ── 本地 Ollama 配置 ──────────────────────────────────────────────────────
@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     text_overlap_threshold: float = Field(0.7, ge=0.0, le=1.0)  # 文本去重重叠率阈值
 
     # 领域关键词（用于混合检索精确匹配，可在 .env 中覆盖）
-    domain_terms: List[str] = [
+    domain_terms: list[str] = [
         "数据出境", "安全评估", "个人信息保护", "数据安全",
         "跨境传输", "标准合同", "保护认证", "关键信息基础设施",
         "网络安全审查", "重要数据", "敏感个人信息", "数据处理者",
@@ -81,7 +81,7 @@ class Settings(BaseSettings):
     stream_timeout: int = Field(600, ge=10, le=1800)  # SSE 流式生成总超时（秒）
 
     # CORS
-    cors_origins: List[str] = ["*"]
+    cors_origins: list[str] = ["*"]
 
     # 日志
     log_level: str = "INFO"
@@ -103,7 +103,7 @@ class Settings(BaseSettings):
     #   JSON 数组：ADMIN_USER_IDS=["github:foo","github:bar"]
     # 命中此列表的用户：UserOut.is_admin=True，可通过 require_admin 访问管理接口。
     # 允许逗号分隔 或 JSON 数组；NoDecode 跳过 pydantic-settings 默认的 JSON 预解析，走下面的 validator。
-    admin_user_ids: Annotated[List[str], NoDecode] = []
+    admin_user_ids: Annotated[list[str], NoDecode] = []
 
     @field_validator("admin_user_ids", mode="before")
     @classmethod

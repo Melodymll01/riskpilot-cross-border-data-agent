@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from fastapi import APIRouter, Depends, FastAPI
+from fastapi import APIRouter, Depends
 from fastapi.testclient import TestClient
 
 from api.v2.deps import make_require_admin
@@ -41,7 +41,6 @@ class TestWhoAmI:
         client, user = authed_client
         # 注：FakeAuth.create_anonymous() 返回的 User 还没 upsert 到 user_repo，
         # 所以 /me 看不到。手动 upsert 一下以走完真实流程。
-        from app.container import AppContainer
 
         app_state = client.app.state  # type: ignore[attr-defined]
         container: AppContainer = app_state.container

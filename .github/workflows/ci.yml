@@ -1,71 +1,79 @@
 name: CI
 
-# 暂时禁用：项目尚在重构阶段（ruff 红字未清、Python 版本与依赖未对齐）。
-# 仅保留 workflow_dispatch（GitHub UI 手动触发），不再随 push/PR 自动运行。
-# 等所有 step 完成、本地 ruff/mypy/pytest 全绿后，恢复 push + pull_request 触发即可。
+# CI 策略（Step 020 复活）：
+# - test job：跑 483 个全量 pytest（排除 eval / 重 IO smoke），强制必须绿
+# - lint job：scoped ruff check + format —— 仅覆盖 DDD 重构后的核心层
+#   （domain / app / infra/{auth,kb,risk_profile} / api/v2 / config / main / 对应 tests），
+#   遗留代码（service.py / api/routes.py / retrieval / processing / ingestion）暂不强制
+# - mypy 暂未接入：domain/app/infra 等核心层基线 0 错；
+#   全仓存量 ~46 错与 Step 016d 基线持平，留待后续 Step 单独清理
 on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  PYTHON_VERSION: "3.12"
+
 jobs:
   lint:
-    name: Lint (ruff)
+    name: Lint (ruff · scoped)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-      - run: pip install ruff
-      - run: ruff check .
-      - run: ruff format --check .
-
-  type-check:
-    name: Type check (mypy)
-    runs-on: ubuntu-latest
-    needs: lint
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: pip
-      - run: pip install -r requirements-dev.txt
-      - run: mypy domain app infra/auth || true   # lenient until those layers exist
-        continue-on-error: true
+      - name: Install ruff
+        run: pip install "ruff>=0.6.0"
+      - name: ruff check (scoped to refactored layers)
+        run: |
+          ruff check \
+            domain app \
+            infra/auth infra/kb infra/risk_profile \
+            api/v2 \
+            config.py main.py \
+            tests/api tests/app tests/domain tests/infra tests/fakes
+      # NOTE: ruff format --check 暂未启用 —— scoped 路径下仍有 33 个文件待
+      # reformat，留待独立 Step 单独做一次性 cleanup commit，避免污染 CI 复活
+      # 这一步的 diff（参考 ruff format --check . 输出）
 
   test:
-    name: Tests (offline)
+    name: Tests (pytest · offline fakes)
     runs-on: ubuntu-latest
-    needs: lint
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.10", "3.11"]
     env:
+      # 关闭一切真实外呼，全部走 Fake / mock
       OPENAI_API_KEY: sk-test-fake
       LLM_PROVIDER: api
       RISK_EVIDENCE_PROVIDER: mock
       ENABLE_RERANKER: "false"
+      # Auth：使用假的 OAuth 凭据让 AuthService 能装配，但不会真正调 GitHub
       AUTH_PROVIDERS_ENABLED: github,anonymous
-      GITHUB_CLIENT_ID: fake_id
-      GITHUB_CLIENT_SECRET: fake_secret
-      JWT_SECRET: ci_test_secret_change_me
+      GITHUB_CLIENT_ID: fake_ci_client_id
+      GITHUB_CLIENT_SECRET: fake_ci_client_secret
+      JWT_SECRET: ci-test-jwt-secret-do-not-use-in-prod-32chars-min
+      # admin baseline：留空 → 测试里要 admin 的用例自己 monkeypatch
+      ADMIN_USER_IDS: ""
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-      - run: pip install -r requirements-dev.txt
-      - run: pytest -ra --cov --cov-report=term-missing --cov-report=xml
-      - uses: actions/upload-artifact@v4
-        if: matrix.python-version == '3.11'
-        with:
-          name: coverage-xml
-          path: coverage.xml
-          if-no-files-found: ignore
+      - name: Install dependencies (with dev)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+      - name: Run pytest
+        # eval_ood.py 需要 LLM 真实调用；smoke_bm25_rrf.py 是重 IO 烟雾脚本，本地手动跑
+        run: |
+          pytest -q \
+            --ignore=tests/eval_ood.py \
+            --ignore=tests/smoke_bm25_rrf.py
