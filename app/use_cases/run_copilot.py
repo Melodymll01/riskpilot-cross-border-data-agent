@@ -4,6 +4,8 @@
 - 没有 task_id 就先 create_task
 - 把 attachment 信息塞进 user_message（让 Agent 知道有可用文档）
 - 委托 Agent 主循环流式产出 ``AgentEvent``
+- ``mode == "profile"`` 时跳过 agent，直接调 ``RiskProfilePort.assess()``，
+  把结果（或 ``RiskProfileNotReady``）格式化成 ``answer`` 事件返回
 
 API 层（Step 010）直接迭代 yield 出来的事件序列化成 SSE。
 """
@@ -14,11 +16,13 @@ from collections.abc import Iterator
 from typing import TYPE_CHECKING
 
 from app.agent.events import AgentEvent
+from domain.errors import RiskProfileNotReady
 
 if TYPE_CHECKING:
     from app.agent.copilot import ComplianceCopilotAgent
     from app.use_cases.task_management import TaskManagementUseCase
-    from domain.models import TaskMode
+    from domain.models import RiskProfile, TaskMode
+    from domain.ports import RiskProfilePort
 
 
 class RunCopilotUseCase:
@@ -27,9 +31,11 @@ class RunCopilotUseCase:
         *,
         agent: ComplianceCopilotAgent,
         task_management: TaskManagementUseCase,
+        risk_profile: RiskProfilePort | None = None,
     ) -> None:
         self._agent = agent
         self._task_uc = task_management
+        self._risk_profile = risk_profile
 
     def stream(
         self,
@@ -56,15 +62,85 @@ class RunCopilotUseCase:
             task_id = task.task_id
             yield AgentEvent.task_created(task_id)
 
-        # 2) 附件信息进 user_message
+        # 2) profile 模式：跳过 agent，直接走 RiskProfilePort
+        if mode == "profile":
+            yield from self._run_profile(target=user_message)
+            return
+
+        # 3) qa / research：附件信息进 user_message，再跑 Agent
         effective_message = user_message
         if attachment_doc_ids:
             ids = ", ".join(attachment_doc_ids)
             effective_message = f"{user_message}\n\n[已上传文档 ID: {ids}]"
 
-        # 3) 跑 Agent
         yield from self._agent.run(
             owner_id=owner_id,
             task_id=task_id,
             user_message=effective_message,
         )
+
+    # ─── profile 分支 ──────────────────────────────────────────────
+
+    def _run_profile(self, *, target: str) -> Iterator[AgentEvent]:
+        """profile 模式分流：调 RiskProfilePort，把结果或未就绪提示渲染成 answer。"""
+        if self._risk_profile is None:
+            yield AgentEvent.answer(
+                "⚠️ 风险画像服务未在容器中装配，请联系运维。"
+            )
+            return
+        try:
+            result = self._risk_profile.assess(target=target)
+        except RiskProfileNotReady as exc:
+            yield AgentEvent.answer(
+                "⏳ **风险画像模型尚未上线**\n\n"
+                f"{exc}\n\n"
+                "目前 `📊 风险画像` Tab 以接口预留形态运行；"
+                "`schema-evidence-risk-profiling` 仓库的 evidence-state v1 "
+                "模型完成训练后会自动接入此处。"
+            )
+            return
+        yield AgentEvent.answer(_format_risk_profile_md(result))
+
+
+# ─── 工具函数 ──────────────────────────────────────────────────────
+
+_STATE_EMOJI: dict[str, str] = {
+    "supported": "✅",
+    "contradicted": "❌",
+    "not_disclosed": "⚪",
+    "insufficiently_disclosed": "🟡",
+    "irrelevant": "⚫",
+}
+
+_STATE_LABEL: dict[str, str] = {
+    "supported": "supported（文档显式支持目标命题）",
+    "contradicted": "contradicted（文档反驳目标命题）",
+    "not_disclosed": "not_disclosed（文档未涉及该命题）",
+    "insufficiently_disclosed": "insufficiently_disclosed（涉及但信息不足）",
+    "irrelevant": "irrelevant（与命题无关）",
+}
+
+
+def _format_risk_profile_md(rp: RiskProfile) -> str:
+    """把 ``RiskProfile`` 渲染成 markdown，适配前端 marked 渲染。"""
+    state = rp.evidence_state
+    lines: list[str] = [
+        "## 风险画像评估",
+        "",
+        f"**目标命题**：{rp.target}",
+        "",
+        f"**证据状态**：{_STATE_EMOJI.get(state, '·')} {_STATE_LABEL.get(state, state)}",
+    ]
+    if rp.explanation:
+        lines += ["", f"**解释**：{rp.explanation}"]
+    if rp.evidence_spans:
+        lines += ["", "### 关键证据"]
+        for sp in rp.evidence_spans:
+            offset = (
+                f"（字符 {sp.start}-{sp.end}）"
+                if sp.start is not None and sp.end is not None
+                else ""
+            )
+            lines.append(f"- {sp.text}{offset}")
+    return "\n".join(lines)
+

@@ -118,6 +118,7 @@ class AppContainer:
         self.run_copilot = RunCopilotUseCase(
             agent=self.copilot_agent,
             task_management=self.task_management,
+            risk_profile=self.risk_profile,
         )
 
 
