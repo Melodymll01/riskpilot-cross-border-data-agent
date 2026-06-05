@@ -12,6 +12,7 @@
 | [003](step_003_gitignore_audit.md) | .gitignore Engineering Audit | Done | `.gitignore` | `git check-ignore -v docs/...` | 4 个 docs 文件均未被忽略 | 补齐 Python 标配缺项（.tox/.nox/.hypothesis/coverage.lcov/*.prof/.envrc/.python-version/*.orig/*.rej）；显式声明 docs/decisions / docs/process / docs/architecture / evaluations/**/datasets 为受跟踪 | Step 004 测试基线 |
 | [004](step_004_baseline.md) | Test & Lint Baseline | Done | — (env only) | `pytest -q --no-cov` + `ruff check . --statistics` | **88 passed** / 437 ruff errors（347 auto-fixable） | venv 补齐（chromadb 1.5.9 用 binary-only wheel）；存量绿基线 88/88；ruff 高频项 UP006(202)/I001(54)/F401(44) 留给后续模块 PR 清理 | Step 005 PR-2 domain 层 |
 | [005](step_005_pr2_domain_layer.md) | PR-2 Domain Layer | Done | `domain/{__init__,errors,models,ports}.py`, `tests/domain/test_models.py` | `pytest -q --no-cov` + `ruff check domain tests/domain` + `mypy domain` | **123 passed**（+35）/ ruff 0 / mypy 0 | 11 models + 9 Ports + 14 errors 全部落地；frozen + extra=forbid + JSON round-trip 不变量验证通过；不动业务代码、零回归 | Step 006 PR-3 infra 层 + 测试基建 |
+| [006](step_006_infra_layer.md) | PR-3 Infra Layer + Test Fakes | Done | `infra/{storage,chat,search,web,evidence}/*`, `tests/{fakes,infra}/*`, `requirements.txt` | `pytest -q --no-cov` + `ruff check infra tests/infra tests/fakes` + `mypy infra` | **175 passed**（+52）/ ruff 0 / mypy 0 | 7 个 Port 适配器（SqliteUserRepo/SqliteTaskRepo/OpenAIChat/Embedder/HybridRetriever/DuckDuckGo/MockEvidence）+ 7 个 Fake 全部落地；适配器 isinstance 契约校验通过；老 API 端到端 0 回归；requirements 与 venv 对齐 | Step 007 PR-4 Auth 层（GitHub OAuth + JWT + 匿名） |
 
 ## 写作规范
 
