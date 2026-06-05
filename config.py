@@ -93,6 +93,13 @@ class Settings(BaseSettings):
     github_client_secret: str = "dev-placeholder-client-secret"
     github_redirect_uri: str = "http://localhost:8000/api/auth/github/callback"
 
+    # ── API v2（Step 010 PR-6：FastAPI 路由 + SSE） ────────────────────────────
+    cookie_name: str = "copilot_session"
+    cookie_secure: bool = False  # 生产 https 下置 True
+    cookie_samesite: Literal["lax", "strict", "none"] = "lax"
+    # SSE 心跳间隔：长 SSE 流期间每 N 秒发一个注释行，防中间代理超时断开
+    sse_keepalive_seconds: int = Field(15, ge=5, le=120)
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",
