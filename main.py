@@ -5,22 +5,24 @@
     uvicorn main:app --host 127.0.0.1 --port 8004 --reload
 """
 
-import os
 import logging
-import uuid
 import time
-from pathlib import Path
+import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
+from api.routes import limiter, router, start_service_init
+from api.v2 import build_v2_router
+from api.v2.errors import install_exception_handlers
+from app.container import AppContainer
 from config import settings
-from api.routes import router, start_service_init, limiter
 
 # ===================== 日志配置 =====================
 
@@ -91,17 +93,33 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 # 注册 API 限流
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 
 # 注册 API 路由
 app.include_router(router)
 
+# ── Step 011：装配 api/v2（新六边形架构层）─────────────────────────────────
+# 容器在模块级构造（构造本身只装组件、不连外部服务），存到 app.state 方便测试取用。
+# 不要放进 lifespan：include_router 在 app 创建时就要拿到 router。
+container = AppContainer(settings)
+app.state.container = container
+app.include_router(build_v2_router(container), prefix="/api/v2")
+install_exception_handlers(app)
+logger.info(
+    "api/v2 routes mounted (tools=%s)",
+    sorted(container.tool_registry.keys()),
+)
+
 # CORS 允许前端跨域请求（origins 可在 .env 中通过 CORS_ORIGINS 配置）
+# 注意：cookie session 需要 allow_credentials=True；浏览器规定 credentials 模式下
+# 禁用 origin 通配符 "*"，生产环境必须把 CORS_ORIGINS 配成显式白名单。
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Request-ID"],
 )
 
 # 静态文件服务：前端页面 & 资源（CSS/JS）
