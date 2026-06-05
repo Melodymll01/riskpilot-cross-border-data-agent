@@ -18,9 +18,31 @@ import {
   setCurrentMode,
 } from "./chat.js";
 import { refresh as refreshTasks, onSelect as onTaskSelect, setActive as setActiveTask } from "./tasks.js";
+import * as kb from "./kb.js";
 import { health } from "./api.js";
 
 const $ = (sel) => document.querySelector(sel);
+
+// 当前主视图：chat | kb
+let _currentView = "chat";
+
+function switchView(view) {
+  if (view !== "chat" && view !== "kb") return;
+  if (view === "kb" && !getUser()?.is_admin) return;  // 守门：非 admin 不许进 KB
+  _currentView = view;
+
+  $("#chat-pane").classList.toggle("hidden", view !== "chat");
+  $("#kb-pane").classList.toggle("hidden", view !== "kb");
+
+  document.querySelectorAll(".side-nav-item").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.view === view);
+  });
+
+  if (view === "kb") {
+    kb.mount();
+    kb.refresh();
+  }
+}
 
 // ─────────── 启动 ───────────
 (async function bootstrap() {
@@ -76,7 +98,23 @@ onUserChange((user) => {
   }
   $("#user-name").textContent = name;
   $("#user-provider").textContent = provider;
+
+  // admin 才能看到知识库入口
+  applyAdminGate(!!user?.is_admin);
 });
+
+// 当前 admin 状态下隐藏 KB 视图
+function applyAdminGate(isAdmin) {
+  const navKb = $("#nav-kb");
+  if (navKb) {
+    navKb.classList.toggle("hidden", !isAdmin);
+    navKb.hidden = !isAdmin;
+  }
+  // 非 admin 却停在 KB 视图：踢回对话
+  if (!isAdmin && _currentView === "kb") {
+    switchView("chat");
+  }
+}
 
 // ─────────── 任务列表 ↔ 聊天联动 ───────────
 onTaskSelect(async (taskId) => {
@@ -98,8 +136,17 @@ onTaskUpdated(async () => {
 
 // ─────────── UI 事件绑定 ───────────
 function bindUI() {
+  // 侧边栏主导航：对话 / 知识库
+  document.querySelectorAll(".side-nav-item").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const v = btn.dataset.view;
+      if (v) switchView(v);
+    });
+  });
+
   // 新建任务
   $("#btn-new-task").addEventListener("click", () => {
+    if (_currentView !== "chat") switchView("chat");
     setActiveTask(null);
     newConversation();
     $("#composer-input").focus();

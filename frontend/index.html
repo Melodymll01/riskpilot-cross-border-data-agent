@@ -22,6 +22,17 @@
         <span class="ico">＋</span> 新建任务
       </button>
 
+      <!-- 主导航：对话 / 知识库；KB 入口仅 admin 可见 -->
+      <nav class="side-nav" aria-label="主导航">
+        <button class="side-nav-item active" data-view="chat" id="nav-chat">
+          <span class="ico">💬</span><span>对话</span>
+        </button>
+        <button class="side-nav-item hidden" data-view="kb" id="nav-kb" hidden>
+          <span class="ico">📚</span><span>知识库</span>
+          <span class="side-nav-tag">admin</span>
+        </button>
+      </nav>
+
       <div class="task-list-header">
         <span>历史任务</span>
         <span class="task-count" id="task-count">0</span>
@@ -45,7 +56,7 @@
     </aside>
 
     <!-- ─────────── 右侧主区：聊天 ─────────── -->
-    <main class="chat-pane">
+    <main class="chat-pane" id="chat-pane">
       <header class="chat-header">
         <!-- 模式切换：新建对话时决定走哪条业务路径 -->
         <nav class="mode-tabs" id="mode-tabs" role="tablist" aria-label="业务模式">
@@ -118,6 +129,70 @@
           答案基于法规检索 + 工具调用，可能仍有误，请以官方文本为准。
         </div>
       </footer>
+    </main>
+
+    <!-- ─────────── 右侧主区：知识库管理（admin-only） ─────────── -->
+    <main class="kb-pane hidden" id="kb-pane" aria-labelledby="kb-title">
+      <header class="kb-header">
+        <div class="kb-title-wrap">
+          <h1 class="kb-title" id="kb-title">📚 知识库管理</h1>
+          <p class="kb-subtitle">上传法规 / 政策 / 指南文件或采集网页；Agent 会在检索时引用这里的语料。</p>
+        </div>
+        <div class="kb-stats">
+          <div class="kb-stat">
+            <span class="kb-stat-num" id="kb-stat-docs">—</span>
+            <span class="kb-stat-label">文档</span>
+          </div>
+          <div class="kb-stat">
+            <span class="kb-stat-num" id="kb-stat-chunks">—</span>
+            <span class="kb-stat-label">chunk</span>
+          </div>
+          <button class="btn btn-ghost" id="kb-btn-refresh" title="刷新">↻</button>
+        </div>
+      </header>
+
+      <section class="kb-actions">
+        <div class="kb-action-card">
+          <div class="kb-action-title"><span>📄</span> 上传文件</div>
+          <div class="kb-action-hint">支持 PDF / TXT / DOCX；最大 50 MB</div>
+          <div class="kb-action-row">
+            <input type="text" id="kb-file-category" class="kb-input"
+                   placeholder="分类可选：法规 / 政策 / 指南" maxlength="100" />
+            <button class="btn btn-primary" id="kb-btn-upload">选择文件上传</button>
+            <input type="file" id="kb-file-input" hidden accept=".pdf,.txt,.docx" />
+          </div>
+        </div>
+
+        <div class="kb-action-card">
+          <div class="kb-action-title"><span>🌐</span> 采集网页</div>
+          <div class="kb-action-hint">仅支持 http / https 协议的公开页面</div>
+          <form class="kb-action-row" id="kb-form-web">
+            <input type="url" id="kb-web-url" class="kb-input kb-input-url"
+                   placeholder="https://example.com/article" required />
+            <input type="text" id="kb-web-category" class="kb-input"
+                   placeholder="分类可选" maxlength="100" />
+            <button type="submit" class="btn btn-primary">采集</button>
+          </form>
+        </div>
+      </section>
+
+      <div class="kb-status" id="kb-status" data-state="idle">准备就绪</div>
+
+      <section class="kb-table-wrap">
+        <table class="kb-table" id="kb-table">
+          <thead>
+            <tr>
+              <th class="kb-col-type">类型</th>
+              <th class="kb-col-source">source_name</th>
+              <th class="kb-col-title">标题</th>
+              <th class="kb-col-cat">分类</th>
+              <th class="kb-col-chunks">chunk 数</th>
+              <th class="kb-col-action">操作</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
     </main>
   </div>
 

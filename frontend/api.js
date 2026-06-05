@@ -64,6 +64,42 @@ export const copilot = {
   chat: (body) => request("POST", "/copilot/chat", body),
 };
 
+/* ─────────── documents (知识库管理 · admin-only) ─────────── */
+export const documents = {
+  list: () => request("GET", "/documents"),
+  stats: () => request("GET", "/documents/stats"),
+  get: (sourceName) => request("GET", `/documents/${encodeURIComponent(sourceName)}`),
+  remove: (sourceName) => request("DELETE", `/documents/${encodeURIComponent(sourceName)}`),
+  ingestWeb: (body) => request("POST", "/documents/web", body),
+  /**
+   * 上传文件（multipart/form-data，request() 不适配，这里单独走 fetch）。
+   * @param {File} file
+   * @param {string} category
+   */
+  ingestFile: async (file, category = "") => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const qs = category ? `?category=${encodeURIComponent(category)}` : "";
+    const resp = await fetch(`${BASE}/documents/file${qs}`, {
+      method: "POST",
+      credentials: "include",
+      headers: { Accept: "application/json" },
+      body: fd,
+    });
+    const text = await resp.text();
+    let data = null;
+    if (text) {
+      try { data = JSON.parse(text); } catch { data = { raw: text }; }
+    }
+    if (!resp.ok) {
+      const code = data?.error_code || data?.detail?.error_code || "HTTP_ERROR";
+      const msg = data?.message || data?.detail?.message || data?.detail || resp.statusText;
+      throw new ApiError(resp.status, code, msg);
+    }
+    return data;
+  },
+};
+
 /* ─────────── health ─────────── */
 export const health = {
   check: () => request("GET", "/health"),
