@@ -1,16 +1,37 @@
-# 基于 RAG 的数据出境知识库问答系统
+# 数智合规 · 基于 Agentic RAG 的数据出境合规问答系统
 
 [![CI](https://github.com/Melodymll01/riskpilot-cross-border-data-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Melodymll01/riskpilot-cross-border-data-agent/actions/workflows/ci.yml)
-[![tests](https://img.shields.io/badge/tests-483%20passed-brightgreen)](https://github.com/Melodymll01/riskpilot-cross-border-data-agent/actions/workflows/ci.yml)
+[![tests](https://img.shields.io/badge/tests-527%20passed-brightgreen)](https://github.com/Melodymll01/riskpilot-cross-border-data-agent/actions/workflows/ci.yml)
 [![python](https://img.shields.io/badge/python-3.12-blue)](pyproject.toml)
 [![ruff](https://img.shields.io/badge/ruff-scoped--clean-46a)](.github/workflows/ci.yml)
+[![arch](https://img.shields.io/badge/arch-DDD%204--layer-9b5bff)](docs/architecture/overview.md)
 
-一个面向数据出境法规、政策、指南场景的知识库问答系统。支持本地文档导入和网页内容采集，将多种来源的知识统一处理、向量化存储，实现基于检索增强生成（RAG）的智能问答。
+> 面向 **数据出境合规**（《个人信息保护法》《数据安全法》《网络安全法》三法 + 标准合同 / 安全评估 / 个保认证三路径）场景的对话式合规助手。
+>
+> 工程上从 v1 单体 Service 演进到 **v2 DDD 4 层架构（13 Port + 6 Use Case）**，两套 API 通过 Strangler Fig 模式并存，渐进迁移不停服。
+
+## 项目演进
+
+```text
+v1 (Step 001-007)              v2 重构 (Step 008-023)
+─────────────────              ─────────────────────────────────
+单体 service.py     ──┐        ┌── DDD 4 层：domain / infra / app / api
+api/routes.py         │        │
+单一前端 HTML/JS      │        │   13 Port + 6 Use Case
+                      │   ───▶ │   GitHub OAuth + JWT + admin 白名单
+评测脚本              │        │   KB 管理面（admin 写 / 用户读）
+ChromaDB + jieba BM25 │        │   admin 审计日志（写入 + UI 闭环）
+                      └────────┤   GitHub Actions CI（scoped ruff + pytest）
+                               │   13 ADR 全量索引
+                               └── ⇄ v1 API 共存（Strangler Fig，渐进迁移）
+```
 
 ## 关键指标
 
 | 维度 | 数值 | 来源 |
 | --- | --- | --- |
+| 测试用例 | **527 passed** | `pytest -q --ignore=evaluations/ood/eval_ood.py --ignore=tests/smoke_bm25_rrf.py` |
+| 代码质量 | scoped ruff 0 errors（14 路径） | [.github/workflows/ci.yml](.github/workflows/ci.yml) |
 | Top-K=2 检索命中率 | **93.3%** | [chunk_eval_latest.json](evaluations/chunk_params/reports/chunk_eval_latest.json)（chunk_size=300, overlap=60） |
 | Top-1 平均语义相似度 | **0.641** | 同上 |
 | OOD 误杀率（in-domain） | **0.0%** | [ood_eval_latest.md](evaluations/ood/reports/ood_eval_latest.md) |
@@ -19,46 +40,102 @@
 
 ## 系统架构
 
+### 4 层 DDD 视图（v2，主推荐）
+
+```mermaid
+flowchart TB
+    subgraph API[api/v2 · 入口层]
+        R1[auth.py] --- R2[copilot.py]
+        R2 --- R3[documents.py]
+        R3 --- R4[audit.py]
+        R4 --- R5[tasks.py / health.py / sse.py]
+    end
+
+    subgraph APP[app · 用例编排层]
+        C[AppContainer · 装配 13 Port]
+        U1[AuthLoginUseCase]
+        U2[RunCopilotUseCase]
+        U3[KbManagementUseCase]
+        U4[IngestionUseCase]
+        U5[RunQueryUseCase]
+        U6[TaskManagementUseCase]
+    end
+
+    subgraph DOMAIN[domain · 纯模型 + 端口]
+        P[13 Port Protocol<br/>AuthPort / RetrievePort / EvidencePort<br/>KbDocumentRepoPort / AuditLogPort ...]
+        M[Frozen Models<br/>User / Task / KbChunk / AuditEntry ...]
+    end
+
+    subgraph INFRA[infra · 适配器]
+        I1[infra/auth<br/>GitHubOAuth + JwtIssuer]
+        I2[infra/kb<br/>ChromaKbRepo]
+        I3[infra/storage<br/>SQLite Repos + Pool]
+        I4[infra/audit<br/>SqliteAuditLogRepo]
+        I5[infra/llm<br/>OpenAIChatPort]
+        I6[retrieval/<br/>HybridRetriever + ReAct Agent]
+    end
+
+    API --> APP
+    APP --> DOMAIN
+    INFRA -.实现.-> DOMAIN
+    APP -.通过 Container 装配.-> INFRA
+```
+
+依赖方向：`api → app → domain`，`infra` 反向依赖 `domain`（端口实现）。**domain 层不依赖任何外部框架**，保证可单元测试。详见 [docs/architecture/overview.md](docs/architecture/overview.md)。
+
+### Agentic RAG 决策环路
+
 ```mermaid
 flowchart LR
-    subgraph Ingest[知识接入层]
+    subgraph Ingest[知识接入]
         A1[PDF/TXT/DOCX] --> L[unified_loader]
         A2[URL 网页] --> L
         L --> C[cleaner] --> S[splitter] --> M[metadata]
-    end
-
-    subgraph Index[索引层]
         M --> E[Embedder<br/>智谱 embedding-3]
         M --> B[BM25 + jieba]
-        E --> V[(ChromaDB<br/>向量库)]
+        E --> V[(ChromaDB)]
     end
 
-    subgraph Agent[Agentic RAG 决策环路]
-        Q[用户问题] --> QC[问题分类器<br/>5 类]
+    subgraph Agent[ReAct 自反思环路]
+        Q[用户问题] --> QC[问题分类<br/>5 类]
         QC --> QT[查询变换<br/>改写/拆解/HyDE]
         QT --> R[混合检索<br/>Vector+BM25 RRF]
         V -.-> R
         B -.-> R
         R --> RR[Cross-Encoder<br/>bge-reranker-base]
-        RR --> EC{证据质量<br/>评估}
-        EC -- partial/insufficient --> QT
-        EC -- 知识库不足 --> WS[Web 搜索兜底]
+        RR --> EC{证据质量}
+        EC -- partial --> QT
+        EC -- insufficient --> WS[Web 搜索兜底]
         WS --> RR
         EC -- sufficient --> GEN[LLM 生成<br/>带引用溯源]
     end
 
-    GEN --> ANS[回答 + 引用]
+    GEN --> ANS[回答 + 引用 + AgentEvent 流]
 ```
 
-## 功能特性
+## 功能矩阵
 
-- **多源知识接入**：支持 PDF / TXT / DOCX 文件上传 + 网页 URL 采集
-- **统一处理链路**：所有数据源经过同一条「加载 → 清洗 → 切分 → 向量化 → 入库」链路
-- **混合检索**：向量检索 + BM25 + RRF 融合 + Cross-Encoder 重排序
-- **Agentic RAG**：问题分类 → 查询变换（HyDE/拆解）→ 检索 → 证据评估 → 反思迭代（最多 3 轮）→ 联网兜底
-- **RAG 问答**：基于检索结果生成回答，拒绝无据编造
-- **引用溯源**：回答附带引用来源（文档名/网页标题、原文片段）
-- **知识管理**：支持查看/删除已导入的知识来源
+| 能力 | 匿名用户 | 普通登录用户 | admin |
+| --- | :---: | :---: | :---: |
+| 对话式问答（QA 模式） | ✅ | ✅ | ✅ |
+| 深度研究（多轮检索 + 长报告） | ✅ | ✅ | ✅ |
+| 风险画像（接口预留） | ✅ | ✅ | ✅ |
+| 任务历史持久化 | ✅（匿名 ID） | ✅（GitHub user_id） | ✅ |
+| 知识库查看（list / stats / detail） | ❌ | ✅ | ✅ |
+| 知识库写入（上传 / 采集 / 删除） | ❌ | ❌ | ✅ |
+| 审计日志查看 | ❌ | ❌ | ✅ |
+| SSE 流式输出 | ✅ | ✅ | ✅ |
+
+身份模型：`AuthPort` 支持 **匿名兜底**（首访自动 POST `/auth/anonymous` 落 cookie）+ **GitHub OAuth**（state 防 CSRF + JWT 颁发）+ **admin 白名单**（`ADMIN_USER_IDS` 命中即 `is_admin=True`）。
+
+## 工程亮点
+
+- **DDD 4 层架构**：domain 纯 Python + 13 Port Protocol；infra 适配器；app 用例编排 + Container DI；api 入口（v1 + v2 双栈）
+- **Strangler Fig 渐进重构**：v1 `service.py` 不动，v2 路由通过闭包 `build_*_routes(container)` 注入依赖；旧端点逐步下线（Step 016d 已删 5 个 KB 写端点）
+- **审计副作用语义**：admin 在 KB 上的写操作（delete / ingest_file / ingest_web）成功失败都落 audit；audit 写失败仅 `logger.warning` 不影响主业务（[ADR-013](docs/decisions/ADR-013-audit-side-effect-semantics.md)）
+- **自实现 ReAct Agent**：不依赖 LangChain，纯 Python + LLM JSON 决策协议；9 类 `AgentEvent` 流式推送给前端（[ADR-001](docs/decisions/ADR-001-no-langchain.md) / [ADR-011](docs/decisions/ADR-011-react-agent-self-implemented.md)）
+- **混合检索**：向量 + BM25 + **RRF 融合** + Cross-Encoder 重排序，4 级检索增强
+- **CI 持续集成**：GitHub Actions 复活后 scoped ruff（14 路径）+ pytest 8 个 Fake 环境变量，每 push 自动跑
 
 ## 评测体系
 
@@ -79,44 +156,79 @@ flowchart LR
 
 ```
 RagDataOut/
-├── main.py                 # FastAPI 主入口（uvicorn main:app）
-├── service.py              # 知识服务层（纯 Python，供 HTTP 与 Agent 复用）
-├── config.py               # 全局配置（pydantic-settings，含启动期校验）
-├── pyproject.toml          # 项目元数据 & 测试配置
-├── requirements.txt        # Python 依赖
+├── main.py                 # FastAPI 主入口（v1 + v2 双路由挂载）
+├── config.py               # 全局配置（pydantic-settings + 启动期校验）
+├── service.py              # v1 单体服务层（保留，逐步收敛）
+├── pyproject.toml          # 项目元数据 & 测试/工具配置
+├── requirements.txt        # 运行时依赖
+├── requirements-dev.txt    # 开发依赖（ruff / mypy / pytest）
+├── pytest.ini              # pytest 配置
+├── Makefile                # 常用命令
 ├── .env.example            # 环境变量模板（提交）
-├── .env                    # 真实密钥（不提交，已在 .gitignore）
-├── Dockerfile              # 多阶段构建，CPU 版镜像
-├── .dockerignore           # 排除 venv / 数据 / .env 等
-├── docker-compose.yml      # 一键启动（数据卷 + env_file）
-├── LICENSE                 # MIT
-├── api/                    # FastAPI 路由层
-│   ├── routes.py
-│   └── schemas.py          # 请求/响应模型
-├── ingestion/              # 知识接入层（PDF/TXT/DOCX/URL）
-│   ├── unified_loader.py
-│   ├── file_loader.py
-│   ├── pdf_extractor.py
-│   └── web_loader.py
-├── processing/             # 文档处理层
-│   ├── cleaner.py
-│   ├── splitter.py
-│   └── metadata.py
-├── retrieval/              # 检索 + 生成 + Agentic RAG
-│   ├── search/             # embedder / vector_store / bm25 / fusion / reranker / retriever / query_rewriter
+├── .env                    # 真实密钥 + ADMIN_USER_IDS（不提交）
+├── Dockerfile              # 多阶段构建
+├── docker-compose.yml      # 一键启动
+├── .github/workflows/      # CI 流水线（scoped ruff + pytest）
+│
+├── domain/                 # ★ 纯模型 + Port Protocol（不依赖任何框架）
+│   ├── models.py           # User / Task / Message / KbChunk / AuditEntry ...（frozen）
+│   └── ports.py            # 13 个 Port Protocol（runtime_checkable）
+│
+├── app/                    # ★ 用例编排层
+│   ├── container.py        # AppContainer · 装配所有 Port
+│   ├── factories.py        # 各 Port 的默认 build_* 工厂
+│   └── use_cases/          # 6 个 Use Case（AuthLogin / RunCopilot / KbManagement ...）
+│
+├── infra/                  # ★ 适配器实现层
+│   ├── auth/               # GitHubOAuth + JwtIssuer + FakeAuth（测试）
+│   ├── kb/                 # ChromaKbRepo
+│   ├── storage/            # SQLite Pool + User/Task Repo
+│   ├── audit/              # SqliteAuditLogRepo（Step 021）
+│   ├── llm/                # OpenAIChatPort 适配
+│   ├── memory/             # 会话画像 + 事实抽取
+│   └── risk/               # RiskProfile Stub（接口预留）
+│
+├── api/                    # FastAPI 入口
+│   ├── routes.py           # v1（兼容老前端，逐步收敛）
+│   ├── schemas.py
+│   └── v2/                 # ★ v2 新栈（auth / copilot / documents / audit / tasks / sse / health）
+│
+├── retrieval/              # 检索 + 生成 + Agent
+│   ├── search/             # embedder / vector_store / bm25 / fusion / reranker / retriever
 │   ├── generation/         # qa_chain / chat_client / report_generator
-│   └── agent/              # agentic_rag / question_classifier / query_transformer / quality_grader / web_searcher
-├── data/                   # 数据层（持久化，不提交内容）
-│   ├── chat_db.py          # 聊天历史 SQLite 封装
-│   ├── chroma_db/          # 向量库（运行时生成）
+│   └── agent/              # agentic_rag · ReAct 自实现 + 9 类 AgentEvent
+│
+├── ingestion/              # PDF/TXT/DOCX/URL 接入
+├── processing/             # cleaner / splitter / metadata
+│
+├── frontend/               # 单页前端（ES module，无构建依赖）
+│   ├── index.html
+│   ├── app.js              # 入口 + view 切换（chat / kb / audit 三态）
+│   ├── api.js              # /api/v2/* REST 客户端
+│   ├── auth.js / chat.js / tasks.js / sse.js
+│   ├── kb.js               # KB 管理面板（admin 写 / 用户读）
+│   └── admin-audit.js      # 审计日志面板（admin-only，Step 023）
+│
+├── data/                   # 运行时数据（不提交内容）
+│   ├── chat_db.py          # 多表 SQLite 封装（user/task/message/kb/audit）
+│   ├── chroma_db/          # 向量库
 │   ├── embed_cache/        # embedding 缓存
 │   └── uploads/            # 用户上传文件
+│
 ├── evaluations/            # 评测脚本与报告
-│   ├── benchmark/run.py    # 端到端性能基准
-│   ├── chunk_params/run.py # 切块参数调优
-│   └── ood/                # OOD 分类（脚本在 tests/eval_ood.py）
-├── frontend/               # 单页前端
-├── tests/                  # pytest 测试
+│   ├── benchmark/run.py    # 端到端基准
+│   ├── chunk_params/run.py # 切块参数网格搜索
+│   └── ood/                # OOD 分类评测（脚本在 tests/eval_ood.py）
+│
+├── tests/                  # pytest（527 passed · DDD 分层布局）
+│   ├── domain/  app/  infra/  api/  fakes/
+│   └── conftest.py
+│
+├── docs/                   # ★ 工程文档
+│   ├── architecture/overview.md      # 4 层 + 13 Port 全景（推荐先读）
+│   ├── decisions/                    # 13 个 ADR（架构决策记录）
+│   └── process/                      # Step 001-023 演进日志（每个 Step 一篇）
+│
 └── logs/                   # 运行日志（不提交）
 ```
 
@@ -218,10 +330,16 @@ EMBEDDING_MODEL=embedding-3
 CHUNK_SIZE=400
 CHUNK_OVERLAP=80
 TOP_K=5
+
+# v2 鉴权（可选；不填则只能匿名 + 普通登录用户）
+GITHUB_CLIENT_ID=<在 https://github.com/settings/developers 申请>
+GITHUB_CLIENT_SECRET=<同上>
+GITHUB_REDIRECT_URI=http://localhost:8765/api/v2/auth/github/callback
+JWT_SECRET=<随机 32+ 字符>
+ADMIN_USER_IDS=github:your-github-login     # 逗号分隔多个；命中即 is_admin=True
 ```
 
-> ⚠️ **安全提示**：`.env` 已在 `.gitignore` 中，**严禁** `git add .env`；提交前用 `git status` 二次确认。
-> 如需切换到本地 Ollama 推理，将 `LLM_PROVIDER` / `EMBED_PROVIDER` 改为 `local`，并先执行 `ollama pull qwen2.5:7b && ollama pull nomic-embed-text`。
+> ⚠️ **安全提示**：`.env` 已在 `.gitignore` 中，**严禁** `git add .env`；提交前用 `git status` 二次确认。`ADMIN_USER_IDS` 同时支持逗号分隔与 JSON 数组两种写法（见 [Step 018 文档](docs/process/step_018_login_bugfix_port_admin.md)）。
 
 #### 5. （可选）运行测试，校验环境
 
@@ -246,37 +364,66 @@ uvicorn main:app --host 0.0.0.0 --port 8001 --workers 2
 
 ## 使用说明
 
-### 导入知识
+### 身份与登录
 
-1. **上传文档**：在左侧面板点击上传区域或拖拽文件（支持 PDF/TXT/DOCX）
-2. **采集网页**：在 URL 输入框粘贴网页地址，点击「采集」
+- **首访自动匿名**：进入页面会自动 POST `/auth/anonymous` 落 cookie，可以直接开聊。
+- **GitHub 登录**：点右下「使用 GitHub 登录」走 OAuth；登录后任务历史归到 GitHub user_id 名下。
+- **admin 角色**：`.env` 的 `ADMIN_USER_IDS` 命中即 `is_admin=True`；侧栏出现 📚 知识库 + 📜 审计日志 两个新入口。
 
-### 知识问答
+### 三种业务模式（顶部 Tab 切换，对话间不共享上下文）
 
-在右侧问答面板输入问题，点击「提问」或按 `Ctrl+Enter` 发送。系统将：
+1. **💬 知识问答**：日常合规查询，单轮检索 + 生成
+2. **🔬 深度研究**：多轮检索 + 长报告，适合综述 / 对比 / 方案设计类问题
+3. **📊 风险画像**：一句话命题 → 未来返回 evidence-state（接口已预留，模型部署前以普通对话形式回答）
 
-1. 在知识库中检索相关内容
-2. 基于检索结果生成回答
-3. 展示引用的来源和原文片段
+### 知识库（登录用户可读，admin 可写）
 
-### 知识管理
+- 在侧栏 📚 知识库 入口查看所有已入库文档（含 chunk 数、分类、来源类型）
+- admin 额外可见上传 / 网页采集 / 删除按钮；普通用户看到只读 banner
+- 写操作（delete / ingest_file / ingest_web）均落 audit_log（见下）
 
-在「知识来源」面板可以查看已导入的所有来源及其文本块数量，支持按来源删除。
+### 审计日志（admin-only）
+
+- 侧栏 📜 审计日志 入口（admin 可见）
+- 表格列：时间 / actor / action / resource / 状态徽章 / extra_json 摘要
+- 支持按 action 下拉 + actor_id 输入框过滤；下方分页（50/页，offset 模式）
+
+### Web 搜索兜底
+
+当知识库证据不足且配置了搜索引擎 API 时，Agent 自动触发 Web 搜索补充检索；不依赖外部 API 也能跑（仅退化为知识库内回答 + 拒答信号）。
 
 ## API 文档
 
-启动服务后访问 <http://localhost:8001/docs> 查看自动生成的 Swagger API 文档。
+启动服务后访问 <http://localhost:8001/docs> 查看自动生成的 Swagger API 文档（含 v1 + v2 全量端点）。
 
+### v2 端点（DDD 重构后的主推荐栈）
 
-### 核心接口
+| 方法 | 路径 | 权限 | 说明 |
+| --- | --- | --- | --- |
+| POST | `/api/v2/auth/anonymous` | 公开 | 创建匿名 session（cookie） |
+| GET | `/api/v2/auth/github/login` | 公开 | 拿 GitHub 授权 URL（含 state 防 CSRF） |
+| GET | `/api/v2/auth/github/callback` | 公开 | OAuth 回调（302 回前端 + JWT cookie） |
+| GET | `/api/v2/auth/me` | 公开 | 当前会话身份（含 `is_admin`） |
+| POST | `/api/v2/auth/logout` | 公开 | 清 cookie |
+| POST | `/api/v2/copilot/chat` | 登录 | 同步聚合对话 |
+| GET | `/api/v2/copilot/stream` | 登录 | **SSE 流式 + AgentEvent** |
+| GET / PATCH / DELETE | `/api/v2/tasks/*` | owner | 任务历史 CRUD（owner_id 隔离） |
+| GET | `/api/v2/documents` `/stats` `/{name}` | 登录 | KB 读取（任意登录用户） |
+| POST | `/api/v2/documents/file` `/web` | **admin** | KB 写入（上传 / 采集） |
+| DELETE | `/api/v2/documents/{name}` | **admin** | KB 删除 |
+| GET | `/api/v2/audit/logs` | **admin** | 审计日志查询（`limit/offset/action/actor_id` 过滤） |
+| GET | `/api/v2/health` `/health/ready` | 公开 | 健康检查 |
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/ingest/file` | 上传文件导入知识库 |
-| POST | `/api/ingest/web` | 采集网页导入知识库 |
-| POST | `/api/ask` | 知识库问答 |
-| GET | `/api/sources` | 获取知识来源列表 |
-| DELETE | `/api/sources/{name}` | 删除指定知识来源 |
+### v1 端点（保留，逐步收敛）
+
+| 方法 | 路径 | 状态 | 说明 |
+| --- | --- | --- | --- |
+| POST | `/api/ask` | 保留 | v1 同步问答（v2 推荐用 `/copilot/chat`） |
+| POST | `/api/chat/sse` | 保留 | v1 SSE 流（v2 推荐用 `/copilot/stream`） |
+| ~~POST `/api/ingest/file`~~ | ❌ Step 016d 删除 | 已迁移到 `/api/v2/documents/file` |
+| ~~POST `/api/ingest/web`~~ | ❌ Step 016d 删除 | 已迁移到 `/api/v2/documents/web` |
+| ~~GET `/api/sources`~~ | ❌ Step 016d 删除 | 已迁移到 `/api/v2/documents` |
+| ~~DELETE `/api/sources/{name}`~~ | ❌ Step 016d 删除 | 已迁移到 `DELETE /api/v2/documents/{name}` |
 
 ## 扩展指南
 
@@ -300,9 +447,27 @@ RERANKER_SCORE_THRESHOLD=0.0                      # 分数阈值过滤
 
 ## 技术栈
 
-- **后端**：FastAPI + Pydantic
-- **向量库**：ChromaDB
-- **LLM**：OpenAI 兼容接口
-- **文档解析**：PyPDF2 + python-docx
-- **网页解析**：BeautifulSoup4
-- **前端**：原生 HTML + CSS + JavaScript
+- **后端**：FastAPI + Pydantic v2 + pydantic-settings
+- **架构**：DDD 4 层 + 13 Port Protocol + AppContainer 依赖注入
+- **存储**：SQLite（user / task / message / audit）+ ChromaDB（向量库）
+- **鉴权**：GitHub OAuth + JWT（HS256）+ admin 白名单
+- **LLM**：OpenAI 兼容接口（智谱 GLM 默认，可换 Ollama / vLLM）
+- **检索**：ChromaDB（向量）+ jieba BM25 + RRF 融合 + bge-reranker-base 重排序
+- **Agent**：自实现 ReAct + LLM JSON 决策协议 + 9 类 AgentEvent
+- **文档解析**：PyPDF2 + python-docx + BeautifulSoup4
+- **前端**：原生 HTML + ES module + CSS（无构建依赖）
+- **质量**：pytest（527 passed）+ ruff（scoped-clean）+ GitHub Actions CI
+
+## 项目文档
+
+工程文档全部在 [`docs/`](docs/) 下，建议按下面顺序阅读：
+
+1. **架构全景**：[`docs/architecture/overview.md`](docs/architecture/overview.md) — 4 层 + 13 Port + 6 Use Case + 3 张时序图 + KB 权限矩阵 + CI 现状
+2. **架构决策**：[`docs/decisions/`](docs/decisions/) — 13 个 ADR（含演化标记 Augmented-by）
+   - [ADR-001 No LangChain](docs/decisions/ADR-001-no-langchain.md) · [ADR-006 4-layer Architecture](docs/decisions/ADR-006-4-layer-architecture.md) · [ADR-007 GitHub OAuth + Anonymous](docs/decisions/ADR-007-github-oauth-with-anonymous.md) · [ADR-008 Owner-ID Tenancy](docs/decisions/ADR-008-owner-id-tenancy.md)
+   - [ADR-009 Closure Router + Container DI](docs/decisions/ADR-009-closure-router-container-di.md) · [ADR-010 Strangler Fig v1/v2](docs/decisions/ADR-010-strangler-fig-v1-v2.md) · [ADR-011 ReAct 自实现](docs/decisions/ADR-011-react-agent-self-implemented.md) · [ADR-012 Admin RBAC 白名单](docs/decisions/ADR-012-admin-rbac-allowlist.md) · [ADR-013 审计副作用语义](docs/decisions/ADR-013-audit-side-effect-semantics.md)
+3. **演进日志**：[`docs/process/`](docs/process/) — Step 001-023 每步一篇，含改动清单 / 决策 / 验证 / 下一步候选
+
+## 协议
+
+[MIT](LICENSE)
