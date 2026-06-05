@@ -37,6 +37,7 @@ class UserOut(BaseModel):
     display_name: str | None = None
     email: str | None = None
     avatar_url: str | None = None
+    is_admin: bool = False  # 命中 settings.admin_user_ids 时为 True；前端据此渲染管理入口
 
 
 class WhoAmIResponse(BaseModel):
@@ -65,6 +66,7 @@ class TaskOut(BaseModel):
     owner_id: str
     title: str
     state: Literal["planning", "gathering", "evaluating", "answering", "done"]
+    mode: Literal["qa", "research", "profile"] = "qa"
     user_goal: str
     collected_facts: dict[str, Any]
     created_at: float
@@ -114,6 +116,8 @@ class ChatRequest(BaseModel):
     task_id: str | None = None
     message: str = Field(min_length=1, max_length=8000)
     attachment_doc_ids: list[str] = Field(default_factory=list, max_length=20)
+    # 仅在首条消息创建新 task 时生效；后续轮次服从已有 task.mode。
+    mode: Literal["qa", "research", "profile"] = "qa"
 
 
 class ChatEventOut(BaseModel):

@@ -54,6 +54,45 @@ def make_require_owner(container: AppContainer) -> Callable[[Request], str]:
     return _require
 
 
+def make_require_admin(container: AppContainer) -> Callable[[Request], str]:
+    """构造 ``require_admin`` Depends：要求 owner 命中 ``settings.admin_user_ids``。
+
+    返回 owner_id（已通过管理员校验）。失败规则：
+    - 未登录 → 401（语义同 ``require_owner``）
+    - 已登录但非管理员 → 403（``ADMIN_REQUIRED``）
+
+    使用：
+        admin_dep = make_require_admin(container)
+        @router.delete("/documents/{id}")
+        def remove(id: str, admin_id: str = Depends(admin_dep)): ...
+    """
+    cookie_name = container.settings.cookie_name
+    admin_set = set(container.settings.admin_user_ids)
+
+    def _require_admin(request: Request) -> str:
+        token = request.cookies.get(cookie_name)
+        uid = container.auth_login.identify(token)
+        if uid is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail={
+                    "error_code": "AUTH_REQUIRED",
+                    "message": "需要登录或先调用 /api/v2/auth/anonymous 获得身份",
+                },
+            )
+        if uid not in admin_set:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error_code": "ADMIN_REQUIRED",
+                    "message": "该操作仅限管理员",
+                },
+            )
+        return uid
+
+    return _require_admin
+
+
 def set_session_cookie(
     response: Response, token: str, settings: Settings
 ) -> None:

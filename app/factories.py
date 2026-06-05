@@ -19,6 +19,7 @@ from domain.ports import (
     EmbedPort,
     EvidencePort,
     RetrievePort,
+    RiskProfilePort,
     TaskRepoPort,
     UserRepoPort,
     WebSearchPort,
@@ -26,6 +27,7 @@ from domain.ports import (
 from infra.auth import AnonymousProvider, AuthService, GitHubOAuthProvider, JwtIssuer
 from infra.chat import OpenAIChatAdapter
 from infra.evidence import MockEvidenceClient
+from infra.risk_profile import StubRiskProfileService
 from infra.search import EmbedderAdapter, HybridRetrieverAdapter
 from infra.storage import SqliteTaskRepo, SqliteUserRepo
 from infra.storage._db import SqliteConnectionPool
@@ -72,6 +74,11 @@ def build_evidence(_settings: Settings) -> EvidencePort:
     return MockEvidenceClient()
 
 
+def build_risk_profile(_settings: Settings) -> RiskProfilePort:
+    """默认返回占位实现：evidence-state 模型部署后在此切到 HTTP client。"""
+    return StubRiskProfileService(mode="raise")
+
+
 def build_auth(settings: Settings, user_repo: UserRepoPort) -> AuthPort:
     """组合 JwtIssuer + GitHubOAuthProvider + AnonymousProvider 为 AuthService。"""
     jwt_issuer = JwtIssuer(
@@ -99,6 +106,7 @@ __all__ = [
     "build_embedder",
     "build_evidence",
     "build_retriever",
+    "build_risk_profile",
     "build_sqlite_pool",
     "build_task_repo",
     "build_user_repo",

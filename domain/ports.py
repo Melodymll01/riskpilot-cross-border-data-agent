@@ -22,6 +22,7 @@ from domain.models import (
     EvidenceJudgement,
     Fact,
     Message,
+    RiskProfile,
     SessionProfile,
     Task,
     ToolCall,
@@ -133,6 +134,27 @@ class EvidencePort(Protocol):
     """风险画像 evidence 服务（schema-evidence-risk-profiling）。"""
 
     def judge(self, factor_id: str, context: dict[str, str]) -> EvidenceJudgement: ...
+
+
+@runtime_checkable
+class RiskProfilePort(Protocol):
+    """风险画像评估端口（schema-evidence v1 接口预留）。
+
+    与 ``EvidencePort.judge`` 不同：本端口承接「自然语言目标命题 → evidence_state」
+    的 sample-level 评估，对齐 ``schema-evidence-risk-profiling`` 仓库当前阶段输出
+    （`evidence_v1/sample_schema_v1.json`）。
+
+    在 evidence-state 模型完成训练并部署前，所有适配器实现应以占位方式返回明确
+    的"模型未就绪"信号（参见 ``infra/risk_profile/StubRiskProfileService``）。
+    """
+
+    def assess(
+        self,
+        target: str,
+        document: str | None = None,
+        *,
+        language: str = "zh",
+    ) -> RiskProfile: ...
 
 
 @runtime_checkable

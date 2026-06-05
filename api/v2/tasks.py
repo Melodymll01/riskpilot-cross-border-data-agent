@@ -31,6 +31,7 @@ def _to_task_out(task: Task) -> TaskOut:
         owner_id=task.owner_id,
         title=task.title,
         state=task.state,
+        mode=task.mode,
         user_goal=task.user_goal,
         collected_facts=dict(task.collected_facts),
         created_at=task.created_at,

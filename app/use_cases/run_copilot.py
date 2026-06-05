@@ -18,6 +18,7 @@ from app.agent.events import AgentEvent
 if TYPE_CHECKING:
     from app.agent.copilot import ComplianceCopilotAgent
     from app.use_cases.task_management import TaskManagementUseCase
+    from domain.models import TaskMode
 
 
 class RunCopilotUseCase:
@@ -37,6 +38,7 @@ class RunCopilotUseCase:
         task_id: str | None,
         user_message: str,
         attachment_doc_ids: list[str] | None = None,
+        mode: TaskMode = "qa",
     ) -> Iterator[AgentEvent]:
         if not owner_id:
             msg = "owner_id 必填"
@@ -49,7 +51,7 @@ class RunCopilotUseCase:
         if task_id is None:
             title = (user_message[:30] + "…") if len(user_message) > 30 else user_message
             task = self._task_uc.create_task(
-                owner_id, title=title, user_goal=user_message
+                owner_id, title=title, user_goal=user_message, mode=mode
             )
             task_id = task.task_id
             yield AgentEvent.task_created(task_id)

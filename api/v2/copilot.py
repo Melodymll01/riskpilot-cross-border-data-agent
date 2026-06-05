@@ -37,6 +37,7 @@ def build_copilot_routes(container: AppContainer) -> APIRouter:
             task_id=body.task_id,
             user_message=body.message,
             attachment_doc_ids=body.attachment_doc_ids,
+            mode=body.mode,
         )
         collected: list[ChatEventOut] = []
         resolved_task_id = body.task_id or ""
@@ -67,6 +68,7 @@ def build_copilot_routes(container: AppContainer) -> APIRouter:
             task_id=body.task_id,
             user_message=body.message,
             attachment_doc_ids=body.attachment_doc_ids,
+            mode=body.mode,
         )
         async_stream = stream_with_keepalive(
             events_iter,

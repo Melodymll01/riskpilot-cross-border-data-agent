@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     owner_id         TEXT NOT NULL,
     title            TEXT NOT NULL DEFAULT '',
     state            TEXT NOT NULL DEFAULT 'planning',
+    mode             TEXT NOT NULL DEFAULT 'qa',
     user_goal        TEXT NOT NULL DEFAULT '',
     collected_facts  TEXT NOT NULL DEFAULT '{}',
     created_at       REAL NOT NULL,
@@ -112,6 +113,7 @@ class SqliteConnectionPool:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA foreign_keys=ON")
             conn.executescript(_SCHEMA)
+            _apply_incremental_migrations(conn)
             conn.commit()
             self._local.conn = conn
         return conn
@@ -121,3 +123,17 @@ class SqliteConnectionPool:
         if conn is not None:
             conn.close()
             self._local.conn = None
+
+
+# ── 轻量幂等 migration ──────────────────────────────────────────────────
+# `CREATE TABLE IF NOT EXISTS` 对存在的表不会补列，因此后续新增字段需要在这里
+# 显式 ALTER。每段都做 PRAGMA 检查，已存在则跳过。
+
+
+def _apply_incremental_migrations(conn: sqlite3.Connection) -> None:
+    # tasks.mode（Step 012-tail：三业务模式）
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(tasks)").fetchall()}
+    if "mode" not in cols:
+        conn.execute(
+            "ALTER TABLE tasks ADD COLUMN mode TEXT NOT NULL DEFAULT 'qa'"
+        )

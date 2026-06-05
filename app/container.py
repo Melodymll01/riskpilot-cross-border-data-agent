@@ -27,6 +27,7 @@ from app.factories import (
     build_embedder,
     build_evidence,
     build_retriever,
+    build_risk_profile,
     build_sqlite_pool,
     build_task_repo,
     build_user_repo,
@@ -48,6 +49,7 @@ if TYPE_CHECKING:
         EmbedPort,
         EvidencePort,
         RetrievePort,
+        RiskProfilePort,
         TaskRepoPort,
         UserRepoPort,
         WebSearchPort,
@@ -68,6 +70,7 @@ class AppContainer:
         retriever: RetrievePort | None = None,
         web_search: WebSearchPort | None = None,
         evidence: EvidencePort | None = None,
+        risk_profile: RiskProfilePort | None = None,
         auth: AuthPort | None = None,
     ) -> None:
         self.settings = settings
@@ -91,6 +94,9 @@ class AppContainer:
         self.retriever: RetrievePort = retriever or build_retriever(settings)
         self.web_search: WebSearchPort = web_search or build_web_search(settings)
         self.evidence: EvidencePort = evidence or build_evidence(settings)
+        self.risk_profile: RiskProfilePort = risk_profile or build_risk_profile(
+            settings
+        )
 
         # ── 鉴权（依赖 user_repo） ────────────────────────────────────
         self.auth: AuthPort = auth or build_auth(settings, self.user_repo)

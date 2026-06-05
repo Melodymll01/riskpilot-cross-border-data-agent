@@ -171,6 +171,61 @@ class TestEvidenceJudgement:
             EvidenceJudgement(factor_id="F1", label="x", confidence=1.5)
 
 
+class TestEvidenceSpan:
+    def test_minimal(self) -> None:
+        from domain.models import EvidenceSpan
+
+        s = EvidenceSpan(text="某条款片段")
+        assert s.text == "某条款片段"
+        assert s.start is None and s.end is None
+
+    def test_with_offsets(self) -> None:
+        from domain.models import EvidenceSpan
+
+        s = EvidenceSpan(text="片段", start=12, end=16)
+        assert s.start == 12 and s.end == 16
+
+    def test_empty_text_rejected(self) -> None:
+        from domain.models import EvidenceSpan
+
+        with pytest.raises(ValidationError):
+            EvidenceSpan(text="")
+
+
+class TestRiskProfile:
+    def test_minimal_supported(self) -> None:
+        from domain.models import EvidenceSpan, RiskProfile
+
+        rp = RiskProfile(
+            target="个人信息出境标准合同备案的适用条件",
+            evidence_state="supported",
+            evidence_spans=[EvidenceSpan(text="非关基/非重要数据/低于阈值")],
+            explanation="文档显式列出三类适用条件",
+        )
+        assert rp.evidence_state == "supported"
+        assert len(rp.evidence_spans) == 1
+
+    def test_default_spans_and_explanation(self) -> None:
+        from domain.models import RiskProfile
+
+        rp = RiskProfile(target="某命题", evidence_state="not_disclosed")
+        assert rp.evidence_spans == []
+        assert rp.explanation == ""
+        assert rp.metadata == {}
+
+    def test_invalid_evidence_state_rejected(self) -> None:
+        from domain.models import RiskProfile
+
+        with pytest.raises(ValidationError):
+            RiskProfile(target="x", evidence_state="bogus")  # type: ignore[arg-type]
+
+    def test_empty_target_rejected(self) -> None:
+        from domain.models import RiskProfile
+
+        with pytest.raises(ValidationError):
+            RiskProfile(target="", evidence_state="supported")
+
+
 class TestWebResult:
     def test_minimal(self) -> None:
         w = WebResult(title="t", url="https://example.com", snippet="s")

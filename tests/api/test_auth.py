@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+from fastapi import APIRouter, Depends, FastAPI
 from fastapi.testclient import TestClient
+
+from api.v2.deps import make_require_admin
+from app.container import AppContainer
 
 
 class TestAnonymousLogin:
@@ -97,10 +102,11 @@ class TestGithubLogin:
         resp = client.get(
             "/api/v2/auth/github/callback",
             params={"code": "fake-code", "state": state},
+            follow_redirects=False,
         )
-        assert resp.status_code == 200, resp.text
-        body = resp.json()
-        assert body["user"]["user_id"].startswith("github:")
+        # 303 重定向回首页，cookie 随 Set-Cookie 下发
+        assert resp.status_code == 303, resp.text
+        assert resp.headers["location"] == "/"
         assert "copilot_session" in client.cookies
 
     def test_callback_invalid_state_returns_400(self, client: TestClient) -> None:
@@ -129,3 +135,142 @@ class TestRequireOwnerDep:
         client.cookies.set("copilot_session", "bogus")
         resp = client.get("/api/v2/tasks")
         assert resp.status_code == 401
+
+
+# ── Step 012-tail: 管理员权限基线 ─────────────────────────────────────
+
+
+class TestUserOutIsAdmin:
+    """``UserOut.is_admin`` 字段：默认 False；命中 ``admin_user_ids`` 时 True。"""
+
+    def test_default_anonymous_is_not_admin(
+        self, client: TestClient
+    ) -> None:
+        """默认 admin_user_ids 为空 → 任何用户都不是管理员。"""
+        resp = client.post("/api/v2/auth/anonymous")
+        assert resp.status_code == 201
+        assert resp.json()["user"]["is_admin"] is False
+
+    def test_me_returns_is_admin_false_by_default(
+        self, authed_client: tuple[TestClient, dict[str, Any]]
+    ) -> None:
+        client, user = authed_client
+        container: AppContainer = client.app.state.container  # type: ignore[attr-defined]
+        from domain.models import User as DomainUser
+
+        container.user_repo.upsert(
+            DomainUser(
+                user_id=user["user_id"],
+                provider=user["provider"],
+                provider_id=user["user_id"].split(":", 1)[1],
+                email=None,
+                display_name=user.get("display_name") or "匿名用户",
+                avatar_url=None,
+                created_at=1.0,
+                last_active_at=1.0,
+            )
+        )
+        body = client.get("/api/v2/auth/me").json()
+        assert body["user"]["is_admin"] is False
+
+
+class TestUserOutIsAdminWhenConfigured:
+    """配置 admin_user_ids=[github:alice] 后，GitHub 登录用户应为管理员。"""
+
+    @pytest.fixture
+    def admin_user_ids(self) -> list[str]:
+        return ["github:alice"]  # FakeOAuthProvider 固定返回 github:alice
+
+    def test_github_callback_user_is_admin(self, client: TestClient) -> None:
+        # 先 begin 拿合法 state
+        state = client.get("/api/v2/auth/github/login").json()["state"]
+        # callback 303 重定向回 /；cookie 已下发
+        client.get(
+            "/api/v2/auth/github/callback",
+            params={"code": "fake-code", "state": state},
+            follow_redirects=False,
+        )
+        # FakeAuth.complete_oauth 不会自动 upsert（同匹匿名登录测试的约定），手动补上
+        container: AppContainer = client.app.state.container  # type: ignore[attr-defined]
+        from domain.models import User as DomainUser
+
+        container.user_repo.upsert(
+            DomainUser(
+                user_id="github:alice",
+                provider="github",
+                provider_id="1001",
+                email="alice@example.com",
+                display_name="Alice",
+                avatar_url=None,
+                created_at=1.0,
+                last_active_at=1.0,
+            )
+        )
+        body = client.get("/api/v2/auth/me").json()
+        assert body["authenticated"] is True
+        assert body["user"]["user_id"] == "github:alice"
+        assert body["user"]["is_admin"] is True
+
+
+class TestRequireAdminDep:
+    """``make_require_admin``：未登录 401 / 非管理员 403 / 管理员 200。"""
+
+    # 挂在 /api/v2 前缀下，走 v2 的 ErrorResponse handler（拍平 detail）
+    _ADMIN_PATH = "/api/v2/_test/admin-only"
+
+    @classmethod
+    def _mount_admin_route(cls, client: TestClient) -> None:
+        container: AppContainer = client.app.state.container  # type: ignore[attr-defined]
+        admin_dep = make_require_admin(container)
+        router = APIRouter()
+
+        @router.get("/api/v2/_test/admin-only")
+        def admin_only(uid: str = Depends(admin_dep)) -> dict[str, str]:
+            return {"uid": uid}
+
+        client.app.include_router(router)  # type: ignore[attr-defined]
+
+    def test_missing_cookie_returns_401(self, client: TestClient) -> None:
+        self._mount_admin_route(client)
+        resp = client.get(self._ADMIN_PATH)
+        assert resp.status_code == 401
+        assert resp.json()["error_code"] == "AUTH_REQUIRED"
+
+    def test_logged_in_but_non_admin_returns_403(
+        self, authed_client: tuple[TestClient, dict[str, Any]]
+    ) -> None:
+        client, _ = authed_client
+        self._mount_admin_route(client)
+        resp = client.get(self._ADMIN_PATH)
+        assert resp.status_code == 403
+        assert resp.json()["error_code"] == "ADMIN_REQUIRED"
+
+
+class TestRequireAdminDepAsAdmin:
+    """admin_user_ids 含当前用户时，require_admin 放行。"""
+
+    @pytest.fixture
+    def admin_user_ids(self) -> list[str]:
+        return ["github:alice"]
+
+    def test_admin_request_returns_200(self, client: TestClient) -> None:
+        # 完成 GitHub 登录 → 拿到 github:alice cookie
+        state = client.get("/api/v2/auth/github/login").json()["state"]
+        client.get(
+            "/api/v2/auth/github/callback",
+            params={"code": "fake-code", "state": state},
+            follow_redirects=False,
+        )
+        # 挂临时管理员路由（同样走 /api/v2 前缀以享受 v2 error handler）
+        container: AppContainer = client.app.state.container  # type: ignore[attr-defined]
+        admin_dep = make_require_admin(container)
+        router = APIRouter()
+
+        @router.get("/api/v2/_test/admin-only")
+        def admin_only(uid: str = Depends(admin_dep)) -> dict[str, str]:
+            return {"uid": uid}
+
+        client.app.include_router(router)  # type: ignore[attr-defined]
+        resp = client.get("/api/v2/_test/admin-only")
+        assert resp.status_code == 200
+        assert resp.json() == {"uid": "github:alice"}

@@ -91,7 +91,15 @@ class Settings(BaseSettings):
     jwt_ttl_seconds: int = Field(86400, ge=60, le=30 * 86400)  # 1min-30day
     github_client_id: str = "dev-placeholder-client-id"
     github_client_secret: str = "dev-placeholder-client-secret"
-    github_redirect_uri: str = "http://localhost:8000/api/auth/github/callback"
+    # 默认匹配本地 uvicorn 端口 8765 + Step 010 新路由前缀 /api/v2
+    # 生产可通过环境变量 GITHUB_REDIRECT_URI 覆盖
+    github_redirect_uri: str = "http://127.0.0.1:8765/api/v2/auth/github/callback"
+
+    # ── 管理员（Step 012-tail：权限基线） ─────────────────────────────────────
+    # 命名空间需与 User.user_id 一致，例如 "github:melody-rabbit"。
+    # .env 用逗号分隔：ADMIN_USER_IDS=github:foo,github:bar
+    # 命中此列表的用户：UserOut.is_admin=True，可通过 require_admin 访问管理接口。
+    admin_user_ids: List[str] = []
 
     # ── API v2（Step 010 PR-6：FastAPI 路由 + SSE） ────────────────────────────
     cookie_name: str = "copilot_session"

@@ -11,6 +11,7 @@ from domain.models import (
     Message,
     MessageRole,
     Task,
+    TaskMode,
     TaskState,
     ToolCall,
     ToolCallStatus,
@@ -31,15 +32,16 @@ class SqliteTaskRepo:
         conn.execute(
             """
             INSERT INTO tasks
-                (task_id, owner_id, title, state, user_goal,
+                (task_id, owner_id, title, state, mode, user_goal,
                  collected_facts, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 task.task_id,
                 task.owner_id,
                 task.title,
                 task.state,
+                task.mode,
                 task.user_goal,
                 json.dumps(task.collected_facts, ensure_ascii=False),
                 task.created_at,
@@ -74,6 +76,7 @@ class SqliteTaskRepo:
             UPDATE tasks SET
                 title           = ?,
                 state           = ?,
+                mode            = ?,
                 user_goal       = ?,
                 collected_facts = ?,
                 updated_at      = ?
@@ -82,6 +85,7 @@ class SqliteTaskRepo:
             (
                 task.title,
                 task.state,
+                task.mode,
                 task.user_goal,
                 json.dumps(task.collected_facts, ensure_ascii=False),
                 task.updated_at,
@@ -191,11 +195,15 @@ class SqliteTaskRepo:
 
 
 def _row_to_task(row: Any) -> Task:
+    # mode 在老库迁移后不会为 NULL（DEFAULT 'qa'）；充作防御。
+    raw_mode = row["mode"] if "mode" in row.keys() else "qa"
+    mode = _validate_mode(raw_mode or "qa")
     return Task(
         task_id=row["task_id"],
         owner_id=row["owner_id"],
         title=row["title"],
         state=_validate_state(row["state"]),
+        mode=mode,
         user_goal=row["user_goal"],
         collected_facts=json.loads(row["collected_facts"]),
         created_at=row["created_at"],
@@ -219,6 +227,13 @@ def _row_to_message(row: Any) -> Message:
 def _validate_state(value: str) -> TaskState:
     if value not in ("planning", "gathering", "evaluating", "answering", "done"):
         msg = f"invalid task state in DB: {value!r}"
+        raise ValueError(msg)
+    return value  # type: ignore[return-value]
+
+
+def _validate_mode(value: str) -> TaskMode:
+    if value not in ("qa", "research", "profile"):
+        msg = f"invalid task mode in DB: {value!r}"
         raise ValueError(msg)
     return value  # type: ignore[return-value]
 

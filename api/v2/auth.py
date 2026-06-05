@@ -5,9 +5,10 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Iterable
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi.responses import RedirectResponse
 
 from api.v2.deps import clear_session_cookie, make_identify_owner, set_session_cookie
 from api.v2.schemas import (
@@ -24,19 +25,21 @@ if TYPE_CHECKING:
     from domain.models import User
 
 
-def _to_user_out(user: User) -> UserOut:
+def _to_user_out(user: User, admin_ids: Iterable[str]) -> UserOut:
     return UserOut(
         user_id=user.user_id,
         provider=user.provider,
         display_name=user.display_name,
         email=user.email,
         avatar_url=user.avatar_url,
+        is_admin=user.user_id in set(admin_ids),
     )
 
 
 def build_auth_routes(container: AppContainer) -> APIRouter:
     router = APIRouter(prefix="/auth", tags=["auth"])
     identify = make_identify_owner(container)
+    admin_ids = container.settings.admin_user_ids
 
     # ── 匿名登录 ──────────────────────────────────────────────────────
     @router.post(
@@ -48,7 +51,7 @@ def build_auth_routes(container: AppContainer) -> APIRouter:
     def login_anonymous(response: Response) -> AnonymousLoginResponse:
         user, token = container.auth_login.login_anonymous()
         set_session_cookie(response, token, container.settings)
-        return AnonymousLoginResponse(user=_to_user_out(user))
+        return AnonymousLoginResponse(user=_to_user_out(user, admin_ids))
 
     # ── GitHub OAuth：begin ───────────────────────────────────────────
     @router.get(
@@ -72,14 +75,12 @@ def build_auth_routes(container: AppContainer) -> APIRouter:
     # ── GitHub OAuth：callback ────────────────────────────────────────
     @router.get(
         "/github/callback",
-        response_model=AnonymousLoginResponse,
-        summary="GitHub 回调；换 token + 用户信息，颁发 session cookie",
+        summary="GitHub 回调；换 token + 颁发 session cookie，并 303 重定向回首页",
     )
     def github_callback(
-        response: Response,
         code: str = Query(..., min_length=1),
         state: str = Query(..., min_length=1),
-    ) -> AnonymousLoginResponse:
+    ) -> RedirectResponse:
         try:
             user, token = container.auth_login.complete("github", code, state)
         except AuthError as exc:
@@ -90,8 +91,11 @@ def build_auth_routes(container: AppContainer) -> APIRouter:
                     "message": str(exc),
                 },
             ) from exc
-        set_session_cookie(response, token, container.settings)
-        return AnonymousLoginResponse(user=_to_user_out(user))
+        # 303 See Other：浏览器以 GET 跳回首页，cookie 随 Set-Cookie 一并下发
+        redirect = RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+        set_session_cookie(redirect, token, container.settings)
+        _ = user  # 仅为 set cookie；user 详情前端刷新后通过 /auth/me 重新拉取
+        return redirect
 
     # ── 当前身份 ──────────────────────────────────────────────────────
     @router.get(
@@ -109,7 +113,7 @@ def build_auth_routes(container: AppContainer) -> APIRouter:
         if user is None:
             # cookie 有效但用户已被删 —— 视作未登录
             return WhoAmIResponse(authenticated=False, user=None)
-        return WhoAmIResponse(authenticated=True, user=_to_user_out(user))
+        return WhoAmIResponse(authenticated=True, user=_to_user_out(user, admin_ids))
 
     # ── 登出 ──────────────────────────────────────────────────────────
     @router.post(

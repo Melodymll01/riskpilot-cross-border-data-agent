@@ -140,3 +140,63 @@ class TestChatToolLoop:
             "thought",
             "answer",
         ]
+
+
+# ── Step 012-tail: Task.mode 透传 ──────────────────────────────────────
+
+
+class TestChatMode:
+    """ChatRequest.mode 应在新建 Task 时被持久化。"""
+
+    @pytest.fixture
+    def chat_script(self) -> list[str]:
+        return [_FINAL]
+
+    def test_default_mode_is_qa(
+        self, authed_client: tuple[TestClient, dict[str, Any]]
+    ) -> None:
+        client, _ = authed_client
+        resp = client.post(
+            "/api/v2/copilot/chat",
+            json={"message": "什么是个保法"},
+        )
+        assert resp.status_code == 200
+        task_id = resp.json()["task_id"]
+        detail = client.get(f"/api/v2/tasks/{task_id}").json()
+        assert detail["task"]["mode"] == "qa"
+
+    def test_explicit_research_mode_persisted(
+        self, authed_client: tuple[TestClient, dict[str, Any]]
+    ) -> None:
+        client, _ = authed_client
+        resp = client.post(
+            "/api/v2/copilot/chat",
+            json={"message": "分析中美数据出境监管差异", "mode": "research"},
+        )
+        assert resp.status_code == 200
+        task_id = resp.json()["task_id"]
+        detail = client.get(f"/api/v2/tasks/{task_id}").json()
+        assert detail["task"]["mode"] == "research"
+
+    def test_explicit_profile_mode_persisted(
+        self, authed_client: tuple[TestClient, dict[str, Any]]
+    ) -> None:
+        client, _ = authed_client
+        resp = client.post(
+            "/api/v2/copilot/chat",
+            json={"message": "我司想做风险画像", "mode": "profile"},
+        )
+        assert resp.status_code == 200
+        task_id = resp.json()["task_id"]
+        detail = client.get(f"/api/v2/tasks/{task_id}").json()
+        assert detail["task"]["mode"] == "profile"
+
+    def test_invalid_mode_returns_422(
+        self, authed_client: tuple[TestClient, dict[str, Any]]
+    ) -> None:
+        client, _ = authed_client
+        resp = client.post(
+            "/api/v2/copilot/chat",
+            json={"message": "x", "mode": "weather"},
+        )
+        assert resp.status_code == 422

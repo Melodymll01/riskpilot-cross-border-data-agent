@@ -16,6 +16,7 @@ from domain.ports import (
     EmbedPort,
     EvidencePort,
     RetrievePort,
+    RiskProfilePort,
     TaskRepoPort,
     UserRepoPort,
     WebSearchPort,
@@ -58,6 +59,7 @@ class TestPortConformance:
         assert isinstance(c.retriever, RetrievePort)
         assert isinstance(c.web_search, WebSearchPort)
         assert isinstance(c.evidence, EvidencePort)
+        assert isinstance(c.risk_profile, RiskProfilePort)
         assert isinstance(c.auth, AuthPort)
 
 

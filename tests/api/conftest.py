@@ -34,9 +34,15 @@ _FINAL_JSON = json.dumps({"thought": "", "action": "final_answer", "answer": "do
 
 
 @pytest.fixture
-def test_settings() -> Settings:
+def admin_user_ids() -> list[str]:
+    """允许测试类用同名 fixture override 注入 admin 列表。默认空。"""
+    return []
+
+
+@pytest.fixture
+def test_settings(admin_user_ids: list[str]) -> Settings:
     """构造测试用 Settings；用 _env_file=None 防止读项目里的 .env。"""
-    return Settings(_env_file=None)  # type: ignore[call-arg]
+    return Settings(_env_file=None, admin_user_ids=admin_user_ids)  # type: ignore[call-arg]
 
 
 @pytest.fixture

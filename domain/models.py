@@ -20,6 +20,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 Provider = Literal["github", "google", "magic_link", "anonymous"]
 TaskState = Literal["planning", "gathering", "evaluating", "answering", "done"]
+TaskMode = Literal["qa", "research", "profile"]
+"""Task 业务模式：
+- ``qa``       简单合规知识问答（默认；走 qa_chain 或 agent 浅路径）
+- ``research`` 深度研究（agentic_rag + report_generator 长报告）
+- ``profile``  企业风险画像（表单引导 → 结构化合规评估报告）
+"""
 MessageRole = Literal["user", "assistant", "tool", "system"]
 ToolCallStatus = Literal["pending", "success", "failed", "timeout"]
 Corpus = Literal["law", "user_docs"]
@@ -88,12 +94,14 @@ class Task(BaseDomainModel):
     """对话任务（取代 v1.0 的 conversation 概念）。
 
     一个 Task 对应一个完整的合规咨询主题，跨多轮消息；`owner_id` 必填用于权属过滤。
+    `mode` 决定该 Task 走哪条业务路径；首次创建时确定，之后不再切换。
     """
 
     task_id: str = Field(min_length=1)
     owner_id: str = Field(min_length=1)
     title: str = ""
     state: TaskState = "planning"
+    mode: TaskMode = "qa"
     user_goal: str = ""
     collected_facts: dict[str, Any] = Field(default_factory=dict)
     created_at: float
@@ -166,6 +174,52 @@ class EvidenceJudgement(BaseDomainModel):
     label: str = Field(min_length=1)
     rationale: str = ""
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
+# === 风险画像（schema-evidence-risk-profiling v1 接口预留） ===
+
+EvidenceState = Literal[
+    "supported",
+    "contradicted",
+    "not_disclosed",
+    "insufficiently_disclosed",
+    "irrelevant",
+]
+"""evidence-state 五分类（与 schemas/evidence_v1/sample_schema_v1.json 对齐）。
+
+- ``supported``                  文档显式支持目标命题
+- ``contradicted``               文档反驳目标命题
+- ``not_disclosed``              文档未涉及（≠ 事实为假）
+- ``insufficiently_disclosed``   文档涉及但信息不足
+- ``irrelevant``                 文档与目标命题无关
+"""
+
+
+class EvidenceSpan(BaseDomainModel):
+    """证据 span：text 必填，start/end 可空（PrivacyQA 等无字符级偏移的来源）。"""
+
+    text: str = Field(min_length=1)
+    start: int | None = Field(default=None, ge=0)
+    end: int | None = Field(default=None, ge=0)
+
+
+class RiskProfile(BaseDomainModel):
+    """风险画像评估结果（按 evidence-state v1 形态输出）。
+
+    输入语义：``target`` 是用户提出的命题/问题/场景描述，``document`` 是可选的
+    待对照文档（缺省时由上游检索器先拉证据再调用，或由模型直接返回 not_disclosed）。
+
+    输出语义：
+    - ``evidence_state`` 取自 ``EvidenceState`` 五分类
+    - ``evidence_spans`` 支持文档证据时非空；其余分类可为空
+    - ``explanation`` 是模型生成的中文解释，面向终端用户
+    """
+
+    target: str = Field(min_length=1)
+    evidence_state: EvidenceState
+    evidence_spans: list[EvidenceSpan] = Field(default_factory=list)
+    explanation: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 # === 记忆 ===

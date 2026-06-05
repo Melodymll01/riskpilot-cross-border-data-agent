@@ -251,3 +251,85 @@ class TestTaskRepo:
         )
         task_repo.delete("t1", "github:alice")
         assert task_repo.list_messages("t1") == []
+
+
+# ── Step 012-tail: Task.mode 字段 ──────────────────────────────────────
+
+
+class TestTaskMode:
+    def test_default_mode_is_qa(self, task_repo: SqliteTaskRepo) -> None:
+        task_repo.create(_task("t1", "github:alice"))  # _task 不传 mode
+        loaded = task_repo.get("t1", "github:alice")
+        assert loaded is not None
+        assert loaded.mode == "qa"
+
+    def test_create_with_research_mode_persists(
+        self, task_repo: SqliteTaskRepo
+    ) -> None:
+        t = _task("t1", "github:alice").model_copy(update={"mode": "research"})
+        task_repo.create(t)
+        loaded = task_repo.get("t1", "github:alice")
+        assert loaded is not None
+        assert loaded.mode == "research"
+
+    def test_create_with_profile_mode_persists(
+        self, task_repo: SqliteTaskRepo
+    ) -> None:
+        t = _task("t1", "github:alice").model_copy(update={"mode": "profile"})
+        task_repo.create(t)
+        loaded = task_repo.get("t1", "github:alice")
+        assert loaded is not None
+        assert loaded.mode == "profile"
+
+    def test_update_changes_mode(self, task_repo: SqliteTaskRepo) -> None:
+        task_repo.create(_task("t1", "github:alice"))
+        loaded = task_repo.get("t1", "github:alice")
+        assert loaded is not None
+        updated = loaded.model_copy(
+            update={"mode": "research", "updated_at": _now()}
+        )
+        task_repo.update(updated)
+        again = task_repo.get("t1", "github:alice")
+        assert again is not None and again.mode == "research"
+
+
+class TestTaskModeMigration:
+    """验证老库（无 mode 列）打开时自动 ALTER。"""
+
+    def test_legacy_db_without_mode_column_gets_migrated(
+        self, tmp_path: Path
+    ) -> None:
+        import sqlite3
+
+        db_path = tmp_path / "legacy.db"
+        # 1) 手工建一个不含 mode 列的 tasks 表（模拟老库）
+        conn = sqlite3.connect(str(db_path))
+        conn.executescript(
+            """
+            CREATE TABLE tasks (
+                task_id          TEXT PRIMARY KEY,
+                owner_id         TEXT NOT NULL,
+                title            TEXT NOT NULL DEFAULT '',
+                state            TEXT NOT NULL DEFAULT 'planning',
+                user_goal        TEXT NOT NULL DEFAULT '',
+                collected_facts  TEXT NOT NULL DEFAULT '{}',
+                created_at       REAL NOT NULL,
+                updated_at       REAL NOT NULL
+            );
+            """
+        )
+        now = _now()
+        conn.execute(
+            "INSERT INTO tasks (task_id, owner_id, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?)",
+            ("legacy-t1", "github:alice", now, now),
+        )
+        conn.commit()
+        conn.close()
+
+        # 2) 通过 SqliteConnectionPool 打开：应自动 ALTER 加 mode 列，老数据默认 'qa'
+        pool = SqliteConnectionPool(str(db_path))
+        repo = SqliteTaskRepo(pool)
+        loaded = repo.get("legacy-t1", "github:alice")
+        assert loaded is not None
+        assert loaded.mode == "qa"

@@ -12,7 +12,7 @@ import time
 import uuid
 from typing import TYPE_CHECKING, Any
 
-from domain.models import Citation, Message, Task
+from domain.models import Citation, Message, Task, TaskMode
 
 if TYPE_CHECKING:
     from domain.ports import TaskRepoPort
@@ -32,6 +32,7 @@ class TaskManagementUseCase:
         *,
         title: str = "",
         user_goal: str = "",
+        mode: TaskMode = "qa",
     ) -> Task:
         if not owner_id:
             msg = "owner_id 必填"
@@ -42,6 +43,7 @@ class TaskManagementUseCase:
             owner_id=owner_id,
             title=title,
             state="planning",
+            mode=mode,
             user_goal=user_goal,
             collected_facts={},
             created_at=now,
