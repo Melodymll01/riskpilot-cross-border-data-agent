@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 from domain.ports import (
     AuthPort,
     ChatPort,
+    DocumentLoaderPort,
     EmbedPort,
     EvidencePort,
     KbDocumentRepoPort,
@@ -28,7 +29,7 @@ from domain.ports import (
 from infra.auth import AnonymousProvider, AuthService, GitHubOAuthProvider, JwtIssuer
 from infra.chat import OpenAIChatAdapter
 from infra.evidence import MockEvidenceClient
-from infra.kb import ChromaKbRepo
+from infra.kb import ChromaKbRepo, UnifiedLoaderAdapter
 from infra.risk_profile import StubRiskProfileService
 from infra.search import EmbedderAdapter, HybridRetrieverAdapter
 from infra.storage import SqliteTaskRepo, SqliteUserRepo
@@ -93,6 +94,15 @@ def build_kb_repo(_settings: Settings) -> KbDocumentRepoPort:
     return ChromaKbRepo(vector_store=VectorStore())
 
 
+def build_document_loader(_settings: Settings) -> DocumentLoaderPort:
+    """构造 ``DocumentLoaderPort`` 实现：当前默认 ``UnifiedLoaderAdapter``。
+
+    包 v1 ``ingestion.UnifiedLoader`` + v1 ``processing.metadata.build_chunks``，
+    对外只暴露 ``list[KbChunk]`` 返回值。
+    """
+    return UnifiedLoaderAdapter()
+
+
 def build_auth(settings: Settings, user_repo: UserRepoPort) -> AuthPort:
     """组合 JwtIssuer + GitHubOAuthProvider + AnonymousProvider 为 AuthService。"""
     jwt_issuer = JwtIssuer(
@@ -117,6 +127,7 @@ def build_auth(settings: Settings, user_repo: UserRepoPort) -> AuthPort:
 __all__ = [
     "build_auth",
     "build_chat",
+    "build_document_loader",
     "build_embedder",
     "build_evidence",
     "build_kb_repo",

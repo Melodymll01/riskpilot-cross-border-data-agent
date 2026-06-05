@@ -1,4 +1,4 @@
-"""AppContainer 装配测试：注入全 fake，断言 9 个 port + 4 个 use case 就位。"""
+"""AppContainer 装配测试：注入全 fake，断言 10 个 port + 5 个 use case 就位。"""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from app.container import AppContainer
 from app.use_cases import (
     AuthLoginUseCase,
     IngestionUseCase,
+    KbManagementUseCase,
     RunQueryUseCase,
     TaskManagementUseCase,
 )
@@ -13,6 +14,7 @@ from config import settings
 from domain.ports import (
     AuthPort,
     ChatPort,
+    DocumentLoaderPort,
     EmbedPort,
     EvidencePort,
     KbDocumentRepoPort,
@@ -25,6 +27,7 @@ from domain.ports import (
 from tests.fakes import (
     FakeAuth,
     FakeChat,
+    FakeDocumentLoader,
     FakeEmbed,
     FakeEvidence,
     FakeKbRepo,
@@ -46,6 +49,7 @@ def _full_fake_container() -> AppContainer:
         web_search=FakeWebSearch(),
         evidence=FakeEvidence(),
         kb_repo=FakeKbRepo(),
+        document_loader=FakeDocumentLoader(),
         auth=FakeAuth(),
     )
 
@@ -64,11 +68,12 @@ class TestPortConformance:
         assert isinstance(c.evidence, EvidencePort)
         assert isinstance(c.risk_profile, RiskProfilePort)
         assert isinstance(c.kb_repo, KbDocumentRepoPort)
+        assert isinstance(c.document_loader, DocumentLoaderPort)
         assert isinstance(c.auth, AuthPort)
 
 
 class TestUseCaseWiring:
-    """4 个 use case 都按预期挂在 self 上，且引用同一份依赖实例。"""
+    """5 个 use case 都按预期挂在 self 上，且引用同一份依赖实例。"""
 
     def test_use_cases_assembled(self) -> None:
         c = _full_fake_container()
@@ -76,6 +81,7 @@ class TestUseCaseWiring:
         assert isinstance(c.task_management, TaskManagementUseCase)
         assert isinstance(c.ingest, IngestionUseCase)
         assert isinstance(c.run_query, RunQueryUseCase)
+        assert isinstance(c.kb_management, KbManagementUseCase)
 
     def test_use_cases_share_container_instances(self) -> None:
         """auth_login._auth is container.auth，避免无意中建第二个实例。"""
@@ -85,6 +91,9 @@ class TestUseCaseWiring:
         assert c.ingest._embedder is c.embedder
         assert c.run_query._chat is c.chat
         assert c.run_query._retriever is c.retriever
+        assert c.kb_management._repo is c.kb_repo
+        assert c.kb_management._loader is c.document_loader
+        assert c.kb_management._embedder is c.embedder
 
 
 class TestPartialInjection:
@@ -102,6 +111,7 @@ class TestPartialInjection:
             web_search=FakeWebSearch(),
             evidence=FakeEvidence(),
             kb_repo=FakeKbRepo(),
+            document_loader=FakeDocumentLoader(),
             auth=FakeAuth(),
         )
         assert isinstance(c.chat, ChatPort)

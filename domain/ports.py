@@ -198,6 +198,39 @@ class KbDocumentRepoPort(Protocol):
 
 
 @runtime_checkable
+class DocumentLoaderPort(Protocol):
+    """文档加载 + 切分一体端口（Step 016b）：把外部资源转成 ``list[KbChunk]``。
+
+    职责边界：
+    - **承担** I/O（读文件 / 抓网页）+ 清洗 + 切分 + 元数据组装四件事；
+    - **不承担** embedding（走 ``EmbedPort``）；
+    - **不承担** 写库（走 ``KbDocumentRepoPort``）。
+
+    返回的 chunks 必须满足 ``KbChunk`` 的所有约束（text 非空、chunk_index >= 0、
+    source_type ∈ {"file", "web"}）。空文档（无可入库内容）返回空列表，**不抛**。
+
+    设计取舍：之所以把"加载 + 切分"打包，是为了 ``KbManagementUseCase`` 编排时
+    只面对 3 个 Port（loader / embedder / repo），避免把 ``processing.metadata``
+    /``ingestion.unified_loader`` 这类基础设施模块直接渗到 app 层。
+    """
+
+    def load_file(
+        self,
+        file_path: str,
+        *,
+        original_filename: str | None = None,
+        category: str | None = None,
+    ) -> list[KbChunk]: ...
+
+    def load_web(
+        self,
+        url: str,
+        *,
+        category: str | None = None,
+    ) -> list[KbChunk]: ...
+
+
+@runtime_checkable
 class WebSearchPort(Protocol):
     def search(self, query: str, max_results: int = 3) -> list[WebResult]: ...
 

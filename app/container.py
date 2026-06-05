@@ -1,9 +1,9 @@
 """``AppContainer``：DI 装配中心。
 
 职责：
-- 一次性把 9 个 Port 装好，所有 use case 共享同一组实例（保证 SQLite 单连接池）
+- 一次性把 10 个 Port 装好，所有 use case 共享同一组实例（保证 SQLite 单连接池）
 - 支持"全工厂"模式（生产）与"全注入"模式（测试）混用
-- 同步装配 4 个 use case，挂在 self 上
+- 同步装配 5 个 use case，挂在 self 上
 
 用法：
     >>> from config import settings
@@ -24,6 +24,7 @@ from app.agent import ComplianceCopilotAgent, register_default_tools
 from app.factories import (
     build_auth,
     build_chat,
+    build_document_loader,
     build_embedder,
     build_evidence,
     build_kb_repo,
@@ -37,6 +38,7 @@ from app.factories import (
 from app.use_cases import (
     AuthLoginUseCase,
     IngestionUseCase,
+    KbManagementUseCase,
     RunQueryUseCase,
     TaskManagementUseCase,
 )
@@ -47,6 +49,7 @@ if TYPE_CHECKING:
     from domain.ports import (
         AuthPort,
         ChatPort,
+        DocumentLoaderPort,
         EmbedPort,
         EvidencePort,
         KbDocumentRepoPort,
@@ -59,7 +62,7 @@ if TYPE_CHECKING:
 
 
 class AppContainer:
-    """9 个 Port + 4 个 use case 的中央配电盘。"""
+    """10 个 Port + 5 个 use case 的中央配电盘。"""
 
     def __init__(
         self,
@@ -74,6 +77,7 @@ class AppContainer:
         evidence: EvidencePort | None = None,
         risk_profile: RiskProfilePort | None = None,
         kb_repo: KbDocumentRepoPort | None = None,
+        document_loader: DocumentLoaderPort | None = None,
         auth: AuthPort | None = None,
     ) -> None:
         self.settings = settings
@@ -101,6 +105,9 @@ class AppContainer:
             settings
         )
         self.kb_repo: KbDocumentRepoPort = kb_repo or build_kb_repo(settings)
+        self.document_loader: DocumentLoaderPort = document_loader or build_document_loader(
+            settings
+        )
 
         # ── 鉴权（依赖 user_repo） ────────────────────────────────────
         self.auth: AuthPort = auth or build_auth(settings, self.user_repo)
@@ -110,7 +117,11 @@ class AppContainer:
         self.task_management = TaskManagementUseCase(self.task_repo)
         self.ingest = IngestionUseCase(self.embedder)
         self.run_query = RunQueryUseCase(retriever=self.retriever, chat=self.chat)
-
+        self.kb_management = KbManagementUseCase(
+            kb_repo=self.kb_repo,
+            loader=self.document_loader,
+            embedder=self.embedder,
+        )
         # ── Agent 层（Step 009 PR-5b）─────────────────────────────────
         # 工具注册表必须晚于所有 port 初始化，因为 handler 闭包持有 self.* 引用
         self.tool_registry = register_default_tools(self)

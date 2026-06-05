@@ -50,6 +50,7 @@ from domain.models import (
 from domain.ports import (
     AuthPort,
     ChatPort,
+    DocumentLoaderPort,
     EmbedPort,
     EvidencePort,
     KbDocumentRepoPort,
@@ -112,6 +113,7 @@ __all__ = [
     "EvidencePort",
     "RiskProfilePort",
     "KbDocumentRepoPort",
+    "DocumentLoaderPort",
     "WebSearchPort",
     "MemoryPort",
 ]
