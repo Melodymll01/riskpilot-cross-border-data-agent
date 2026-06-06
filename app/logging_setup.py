@@ -23,26 +23,34 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterable
 
-from app.request_context import get_request_id
+from app.request_context import get_request_id, get_user_id
 
-DEFAULT_FORMAT = "%(asctime)s [%(levelname)s] [%(request_id)s] %(name)s: %(message)s"
-"""默认 logging 格式串：在 levelname 与 logger name 之间插入 ``[request_id]``。"""
+DEFAULT_FORMAT = (
+    "%(asctime)s [%(levelname)s] [%(request_id)s] [uid:%(user_id)s] "
+    "%(name)s: %(message)s"
+)
+"""默认 logging 格式串：在 levelname 与 logger name 之间插入
+``[request_id]`` 与 ``[uid:user_id]`` 两段（Step 025f / 025g）。"""
 
 _FILTER_MARKER = "_step025f_request_id_filter"
 """handler 上挂的属性名，用于幂等检测（同一 handler 不重复加 filter）。"""
 
 
 class RequestIdLogFilter(logging.Filter):
-    """从 ``request_id_var`` contextvar 拉值写入 ``LogRecord.request_id``。
+    """从 contextvar 拉 ``request_id`` 与 ``user_id`` 写入 ``LogRecord``。
+
+    名字历史原因叫 ``RequestIdLogFilter``（Step 025f 创建时只有
+    request_id）；Step 025g 扩展为同时注入 user_id。保留名字以
+    免破坏现有导入，其职责是「把请求上下文字段注入 record」。
 
     永远返回 ``True``——这是注入而非过滤。
     """
 
     def filter(self, record: logging.LogRecord) -> bool:  # noqa: A003 - stdlib API
-        rid = get_request_id()
         # logging 在 Formatter 拼字符串时如果属性缺失会抛 KeyError；
         # 这里保证一定有值，缺省 "-" 与 Apache combined log 约定一致
-        record.request_id = rid or "-"
+        record.request_id = get_request_id() or "-"
+        record.user_id = get_user_id() or "-"
         return True
 
 

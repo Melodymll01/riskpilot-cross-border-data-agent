@@ -1,14 +1,18 @@
-"""Request-scoped 上下文（Step 025d）。
+"""Request-scoped 上下文（Step 025d / 025g）。
 
-只放一个 ``ContextVar``：``request_id_var``。HTTP middleware 在请求进入时
-``set(...)``、退出时 ``reset(...)``；use case 通过 ``get_request_id()`` 读取，
-让审计条目自动带上 request id，而不需要每个调用点都改签名透传。
+放两个 ``ContextVar``：``request_id_var`` 与 ``user_id_var``。HTTP middleware
+在请求进入时 ``set(...)``、退出时 ``reset(...)``；use case 通过
+``get_request_id()`` / ``get_user_id()`` 读取，让审计条目和 log 行自动带上
+两个字段，而不需要每个调用点都改签名透传。
 
 设计要点：
 - ``request_id`` 在 use case 显式形参里仍然保留（命令行/后台任务可以显式给）；
   实际语义为"显式形参优先 > contextvar > None"，由 use case 内部的
   ``_record_audit`` 合并。
-- ``ContextVar`` 默认值为 ``None``，绝不抛 ``LookupError``。
+- ``user_id`` 只走 contextvar 一条路（API 层通过 cookie 解析后 set；离线
+  脚本不设即 ``None``）。审计写入时仍然显式传 ``actor_id``，contextvar 仅
+  用于 logging filter 注入 ``record.user_id``。
+- 两个 ``ContextVar`` 默认值都是 ``None``，绝不抛 ``LookupError``。
 - ``anyio.to_thread.run_sync`` / ``asyncio.to_thread`` 在 Python 3.9+ 会用
   ``contextvars.copy_context().run(...)`` 透传，所以 use case 用线程池
   跑同步代码（如 chroma 写）时也能读到。
@@ -27,6 +31,7 @@ if TYPE_CHECKING:
 
 # 默认 None：在 middleware 之外的调用方（命令行、后台任务、单测）不会拿到陈旧值。
 request_id_var: ContextVar[str | None] = ContextVar("request_id_var", default=None)
+user_id_var: ContextVar[str | None] = ContextVar("user_id_var", default=None)
 
 
 def get_request_id() -> str | None:
@@ -47,18 +52,42 @@ def reset_request_id(token: object) -> None:
     request_id_var.reset(token)  # type: ignore[arg-type]
 
 
+def get_user_id() -> str | None:
+    """读取当前 user_id；middleware 外或未登录时返回 ``None``。"""
+    return user_id_var.get()
+
+
+def set_user_id(value: str | None) -> object:
+    """设置 user_id，返回 reset token（与 ``set_request_id`` 对称）。"""
+    return user_id_var.set(value)
+
+
+def reset_user_id(token: object) -> None:
+    """根据 ``set_user_id`` 返回的 token 还原上一层值。"""
+    user_id_var.reset(token)  # type: ignore[arg-type]
+
+
 @contextmanager
-def request_context(value: str | None) -> Iterator[None]:
-    """便利 contextmanager：``with request_context("req-x"): ...``。
+def request_context(
+    request_id: str | None,
+    *,
+    user_id: str | None = None,
+) -> Iterator[None]:
+    """便利 contextmanager：``with request_context("req-x", user_id="u1"): ...``。
 
     primarily 给测试和命令行场景用；HTTP middleware 仍走 set/reset 因为
     生命周期跨 ``await call_next``，contextmanager 形式不直观。
+
+    ``user_id`` 默认 ``None``——只设 request_id 不设 user_id，与 Step 025d
+    既有签名向后兼容（位置参数仍是 request_id）。
     """
-    token = set_request_id(value)
+    rid_token = set_request_id(request_id)
+    uid_token = set_user_id(user_id)
     try:
         yield
     finally:
-        reset_request_id(token)
+        reset_user_id(uid_token)
+        reset_request_id(rid_token)
 
 
 def install_request_id_middleware(app: FastAPI) -> None:

@@ -27,7 +27,12 @@ from api.v2 import build_v2_router
 from api.v2.errors import install_exception_handlers
 from app.container import AppContainer
 from app.logging_setup import configure_logging
-from app.request_context import reset_request_id, set_request_id
+from app.request_context import (
+    reset_request_id,
+    reset_user_id,
+    set_request_id,
+    set_user_id,
+)
 from config import settings
 
 # ===================== 日志配置 =====================
@@ -99,26 +104,54 @@ app = FastAPI(
 
 @app.middleware("http")
 async def request_context_middleware(request: Request, call_next):
-    """为每个请求注入 request_id，记录请求耗时。
+    """为每个请求注入 request_id + user_id，记录请求耗时。
 
-    Step 025d：同时把 request_id 写入 ``app.request_context.request_id_var``
+    Step 025d：把 request_id 写入 ``app.request_context.request_id_var``
     contextvar，让 use case（如 ``_record_audit``）不需要 API 层逐层透传
     就能拿到当前请求 id，落到 ``AuditEntry.request_id`` 字段。
+
+    Step 025g：在解析 request_id 之后再尝试从 cookie 解出 user_id 一并写到
+    ``user_id_var``。这样 access log 行（行末 logger.info）和后续路由内的
+    任何 logger 调用都会自动带 ``[uid:xxx]`` 段。注意：
+    - identify 失败 / 无 cookie / 路径非 ``/api/`` 都会让 user_id 保持 ``None``
+      （filter 出 ``[uid:-]``），不抛
+    - 在 lifespan 之前的请求（理论上不存在，FastAPI 启动后才接请求）拿不到
+      ``app.state.container``，``getattr`` 兜底为 ``None``
     """
     request_id = request.headers.get("X-Request-ID", uuid.uuid4().hex[:12])
     request.state.request_id = request_id
-    token = set_request_id(request_id)
+    rid_token = set_request_id(request_id)
+
+    # Step 025g：尝试从 cookie 解析 user_id；只对 /api/ 路径解（静态文件、
+    # /docs 等无认证语义的请求不必每次解 JWT）
+    user_id: str | None = None
+    if request.url.path.startswith("/api/"):
+        container_ref = getattr(request.app.state, "container", None)
+        if container_ref is not None:
+            cookie_name = container_ref.settings.cookie_name
+            token_str = request.cookies.get(cookie_name)
+            if token_str:
+                try:
+                    user_id = container_ref.auth_login.identify(token_str)
+                except Exception:
+                    # identify 内部已吞 jwt 异常返回 None；这里多一层保险，
+                    # 避免任何意外异常把整个请求带崩
+                    user_id = None
+    request.state.user_id = user_id
+    uid_token = set_user_id(user_id)
+
     start = time.perf_counter()
     try:
         response = await call_next(request)
     finally:
-        reset_request_id(token)
+        reset_user_id(uid_token)
+        reset_request_id(rid_token)
 
     elapsed_ms = (time.perf_counter() - start) * 1000
     response.headers["X-Request-ID"] = request_id
     if request.url.path.startswith("/api/"):
-        # Step 025f：request_id 由 RequestIdLogFilter 自动拼到 [%(request_id)s] 段；
-        # 不再手工拼接
+        # Step 025f / 025g：request_id 与 user_id 由 RequestIdLogFilter 自动
+        # 拼到 [%(request_id)s] [uid:%(user_id)s] 段，不再手工拼接
         logger.info(
             "%s %s → %s (%.0fms)",
             request.method,

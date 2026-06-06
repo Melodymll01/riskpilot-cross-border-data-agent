@@ -1,7 +1,8 @@
-"""``app.logging_setup`` 单测（Step 025f）。
+"""``app.logging_setup`` 单测（Step 025f / 025g）。
 
 测点：
-- ``RequestIdLogFilter`` 在 ``request_context`` 内/外注入正确的 ``record.request_id``
+- ``RequestIdLogFilter`` 在 ``request_context`` 内/外注入正确的
+  ``record.request_id`` 与 ``record.user_id``
 - ``configure_logging`` 让 root logger 上 handler 都带上 filter（缺省 ``"-"``）
 - 缺省占位符与 contextvar 值在 format 输出里实际可见
 - 幂等：重复 ``configure_logging`` 不会让同一类型 handler 翻倍
@@ -60,12 +61,22 @@ class TestRequestIdLogFilter:
         rec = _make_record()
         assert RequestIdLogFilter().filter(rec) is True
         assert rec.request_id == "-"
+        assert rec.user_id == "-"
 
     def test_picks_up_contextvar(self) -> None:
         rec = _make_record()
-        with request_context("req-log-1"):
+        with request_context("req-log-1", user_id="gh:42"):
             assert RequestIdLogFilter().filter(rec) is True
             assert rec.request_id == "req-log-1"
+            assert rec.user_id == "gh:42"
+
+    def test_user_id_independent_of_request_id(self) -> None:
+        # 只设 request_id 不设 user_id：user_id 退到哨兵
+        rec = _make_record()
+        with request_context("req-only"):
+            assert RequestIdLogFilter().filter(rec) is True
+            assert rec.request_id == "req-only"
+            assert rec.user_id == "-"
 
     def test_returns_true_always(self) -> None:
         # filter 是注入而非过滤；无论有没有 contextvar 都不丢 record
@@ -73,7 +84,7 @@ class TestRequestIdLogFilter:
         rec1 = _make_record()
         rec2 = _make_record()
         assert f.filter(rec1) is True
-        with request_context("rid"):
+        with request_context("rid", user_id="u1"):
             assert f.filter(rec2) is True
 
 
@@ -94,16 +105,18 @@ class TestConfigureLogging:
         mem = MemoryHandler(capacity=100)
         configure_logging(level=logging.INFO, log_file=None, extra_handlers=[mem])
 
-        with request_context("req-fmt-1"):
+        with request_context("req-fmt-1", user_id="gh:99"):
             isolated_root_logger.info("hello world")
 
         assert mem.buffer, "应至少收到一条 record"
         rec = mem.buffer[-1]
-        # filter 注入了 request_id 属性
+        # filter 注入了 request_id 与 user_id 属性
         assert rec.request_id == "req-fmt-1"
-        # formatter 拼出来含 request_id 段
+        assert rec.user_id == "gh:99"
+        # formatter 拼出来含两段
         formatted = logging.Formatter(DEFAULT_FORMAT).format(rec)
         assert "[req-fmt-1]" in formatted
+        assert "[uid:gh:99]" in formatted
         assert "hello world" in formatted
 
     def test_dash_appears_when_outside_context(
@@ -116,8 +129,10 @@ class TestConfigureLogging:
 
         rec = mem.buffer[-1]
         assert rec.request_id == "-"
+        assert rec.user_id == "-"
         formatted = logging.Formatter(DEFAULT_FORMAT).format(rec)
-        assert "[-]" in formatted
+        assert "[-]" in formatted  # request_id 哨兵
+        assert "[uid:-]" in formatted  # user_id 哨兵
 
     def test_idempotent_does_not_duplicate_handlers(
         self, isolated_root_logger: logging.Logger
@@ -146,10 +161,15 @@ class TestConfigureLogging:
         mem = MemoryHandler(capacity=100)
         configure_logging(level=logging.INFO, log_file=None, extra_handlers=[mem])
 
-        with request_context("outer"):
+        with request_context("outer", user_id="u-outer"):
             isolated_root_logger.info("a")
-            with request_context("inner"):
+            with request_context("inner", user_id="u-inner"):
                 isolated_root_logger.info("b")
             isolated_root_logger.info("c")
 
         assert [r.request_id for r in mem.buffer] == ["outer", "inner", "outer"]
+        assert [r.user_id for r in mem.buffer] == [
+            "u-outer",
+            "u-inner",
+            "u-outer",
+        ]
