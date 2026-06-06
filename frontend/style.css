@@ -482,6 +482,81 @@ a:hover { text-decoration: underline; }
   color: var(--fg);
 }
 
+/* ─────────── 推理过程折叠卡（GPT 风格）─────────── */
+/* 流式期间默认展开 + spinner；answer 落地后自动折叠为单行 summary，可点击展开复看。*/
+.process {
+  margin: 4px 0 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg);
+  overflow: hidden;
+}
+.process-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12.5px;
+  color: var(--fg-mute);
+  list-style: none;  /* 隐藏 <details> 默认三角 */
+  background: var(--bg-elev);
+  transition: background .12s;
+}
+.process-summary::-webkit-details-marker { display: none; }
+.process-summary:hover { background: var(--bg-elev2); }
+.process-title { font-weight: 500; }
+.process-count {
+  font-size: 11px;
+  color: var(--fg-faint);
+  padding: 1px 7px;
+  background: var(--bg);
+  border-radius: 10px;
+}
+.process-chevron {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--fg-faint);
+  transition: transform .15s;
+}
+.process[open] .process-chevron { transform: rotate(180deg); }
+.process-body {
+  padding: 8px 12px 10px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+/* 运行中：展示旋转 spinner 替代 chevron 的"活动感" */
+.process-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--line-strong);
+  border-top-color: var(--brand);
+  border-radius: 50%;
+  animation: process-spin .8s linear infinite;
+  flex-shrink: 0;
+}
+.process.done .process-spinner {
+  /* 完成后变成一个静态对勾色圆点，与 chevron 形成"过程已沉淀"的视觉对比 */
+  animation: none;
+  border: none;
+  background: var(--ok);
+  width: 8px;
+  height: 8px;
+  margin: 2px 0;
+}
+@keyframes process-spin {
+  to { transform: rotate(360deg); }
+}
+/* 折叠后 process-body 自然隐藏；卡片自身留 1px 边以便用户认得"这里能展开"*/
+.process.done { border-color: var(--line); }
+
+/* 过程内 trace / tool-card 留浅一点的左边线，避免和外层卡片边重 */
+.process-body .trace { border-left-color: var(--line); margin: 0; }
+.process-body .tool-card { margin: 0; }
+
 /* ─────────── 引用 ─────────── */
 .citations {
   margin-top: 10px;

@@ -95,12 +95,62 @@ function appendTyping(parent) {
   return t;
 }
 
+// ─────────── 过程容器（thought / tool_call / tool_result 的折叠卡片）───────────
+/**
+ * 懒创建当前 assistant body 内的 process 容器。answer 出现时折叠。
+ * 使用 <details> 让浏览器原生处理展开/收起 + 键盘可访问。
+ */
+function ensureProcess(body) {
+  let proc = body.querySelector(":scope > .process");
+  if (proc) return proc;
+  proc = document.createElement("details");
+  proc.className = "process running";
+  proc.open = true;
+  proc.innerHTML = `
+    <summary class="process-summary">
+      <span class="process-spinner" aria-hidden="true"></span>
+      <span class="process-title">推理中…</span>
+      <span class="process-count"></span>
+      <span class="process-chevron" aria-hidden="true">▾</span>
+    </summary>
+    <div class="process-body"></div>
+  `;
+  body.appendChild(proc);
+  return proc;
+}
+
+function processBodyOf(body) {
+  return ensureProcess(body).querySelector(".process-body");
+}
+
+function bumpProcessCount(body) {
+  const proc = body.querySelector(":scope > .process");
+  if (!proc) return;
+  const steps = proc.querySelectorAll(":scope > .process-body > .trace, :scope > .process-body > .tool-card").length;
+  proc.querySelector(".process-count").textContent = `${steps} 步`;
+}
+
+/**
+ * answer 落地后调用：把 process 卡片折叠并标记为已完成。
+ * 不删 DOM——用户仍可点 summary 展开复看推理过程。
+ */
+function finalizeProcess(body) {
+  const proc = body.querySelector(":scope > .process");
+  if (!proc) return;
+  proc.open = false;
+  proc.classList.remove("running");
+  proc.classList.add("done");
+  const title = proc.querySelector(".process-title");
+  if (title) title.textContent = "推理过程";
+}
+
 // ─────────── 事件 → DOM ───────────
 function renderThought(body, text) {
   const el = document.createElement("div");
   el.className = "trace thought";
   el.textContent = text;
-  body.appendChild(el);
+  processBodyOf(body).appendChild(el);
+  bumpProcessCount(body);
   scrollToBottom();
 }
 
@@ -117,14 +167,16 @@ function renderToolCall(body, payload) {
   `;
   card.querySelector(".tool-args").textContent =
     JSON.stringify(payload.tool_args || {}, null, 2);
-  body.appendChild(card);
+  processBodyOf(body).appendChild(card);
+  bumpProcessCount(body);
   scrollToBottom();
   return card;
 }
 
 function renderToolResult(body, payload) {
-  // 找到匹配 tool_name 的最后一张未完成卡片
-  const cards = body.querySelectorAll(`.tool-card[data-tool-name="${cssEscape(payload.tool_name)}"]`);
+  // 在 process 容器内找匹配 tool_name 的最后一张未完成卡片
+  const scope = body.querySelector(":scope > .process .process-body") || body;
+  const cards = scope.querySelectorAll(`.tool-card[data-tool-name="${cssEscape(payload.tool_name)}"]`);
   let card = null;
   for (const c of cards) {
     if (!c.querySelector(".tool-result")) card = c;
@@ -146,6 +198,9 @@ function renderToolResult(body, payload) {
 }
 
 function renderAnswer(body, payload) {
+  // answer 落地 → 折叠推理过程卡片
+  finalizeProcess(body);
+
   const wrap = document.createElement("div");
   wrap.className = "answer";
   const md = (payload.text || "").trim();
@@ -161,6 +216,8 @@ function renderAnswer(body, payload) {
 }
 
 function renderAskUser(body, payload) {
+  // 需要用户确认 → 推理告一段落，折叠过程卡片
+  finalizeProcess(body);
   const el = document.createElement("div");
   el.className = "trace";
   el.innerHTML = `🙋 <strong>需要你确认</strong>：${escapeHtml(payload.question || "")}`;
@@ -228,9 +285,12 @@ export function sendMessage(text) {
     },
     onError: (err) => {
       if (typing.parentNode) typing.remove();
+      finalizeProcess(assistantBody);
       appendNotice(`流式中断：${err.message}`);
     },
     onDone: () => {
+      // 免防后端只发 thought 不发 answer 时 spinner 永久转。
+      finalizeProcess(assistantBody);
       _abortCurrent = null;
       _onTaskUpdated?.(_currentTaskId);
     },
@@ -336,4 +396,15 @@ function formatToolResult(r) {
   if (r == null) return "(no result)";
   if (typeof r === "string") return r;
   try { return JSON.stringify(r, null, 2); } catch { return String(r); }
+}
+
+// ─────────── Dev 钩子（仅用于 Playwright / 手动验证 process UI）───────────
+// 生产路径不依赖这些函数；挂到 window 便于在浏览器里注入合成事件序列回放。
+if (typeof window !== "undefined") {
+  window.__chatDevHooks__ = {
+    appendMsg,
+    handleEvent,
+    finalizeProcess,
+    ensureProcess,
+  };
 }
