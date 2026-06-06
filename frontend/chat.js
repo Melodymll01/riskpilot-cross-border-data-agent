@@ -54,7 +54,13 @@ function hideWelcome() {
 
 function scrollToBottom() {
   const el = messagesEl();
-  el.scrollTop = el.scrollHeight;
+  // 仅当用户已贴近底部时才 auto-follow，避免他往上读历史时被流式事件拽回底部。
+  // 阈值 80px：留出一行的容忍度，鼠标轻微往上滚就算"脱离底部"。
+  const STICK_THRESHOLD = 80;
+  const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+  if (distanceFromBottom <= STICK_THRESHOLD) {
+    el.scrollTop = el.scrollHeight;
+  }
 }
 
 function appendMsg(role) {
@@ -170,11 +176,20 @@ function renderCitations(citations) {
   label.textContent = `引用 · ${citations.length}`;
   box.appendChild(label);
   for (const c of citations) {
+    // 后端规范字段：source_name / title / source_url / text_snippet / source_type；
+    // 为兼容 LLM 不遵 prompt 的变体填法，允许 source/source_title/name + snippet/text 作为回退。
+    const title = c.title || c.source_name || c.source_title || c.source || c.name || "未命名来源";
+    const snippet = c.text_snippet || c.snippet || c.text || "";
+    const url = typeof c.source_url === "string" && c.source_url.startsWith("http") ? c.source_url : null;
+
     const item = document.createElement("div");
     item.className = "citation";
+    const titleHtml = url
+      ? `<a class="citation-link" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(title)}</a>`
+      : escapeHtml(title);
     item.innerHTML = `
-      <div class="citation-source">${escapeHtml(c.source_title || c.source || "未命名来源")}</div>
-      <div class="citation-snippet">${escapeHtml(c.snippet || "")}</div>
+      <div class="citation-source">${titleHtml}</div>
+      <div class="citation-snippet">${escapeHtml(snippet)}</div>
     `;
     box.appendChild(item);
   }

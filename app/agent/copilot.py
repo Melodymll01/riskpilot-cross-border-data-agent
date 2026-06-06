@@ -56,7 +56,15 @@ def _system_prompt(tools: dict[str, ToolSpec]) -> str:
   "question": "<追问>",             // action=ask_user 时必填
   "missing_facts": ["..."],         // 可选
   "answer": "<最终回复>",           // action=final_answer 时必填
-  "citations": [{{...}}]             // 可选，answer 时建议附上
+  "citations": [                     // 可选，action=final_answer 时建议附上
+    {{
+      "source_type": "law" | "web" | "file",   // 来源类型
+      "source_name": "<文档/法规名>",            // 必填，供 UI 展示
+      "title": "<章节标题或网页标题>",         // 可选
+      "source_url": "<原文 URL，若有>",        // 可选，仅在 web/有链接时填
+      "text_snippet": "<原文片段 ≤500 字>"     // 建议填，供用户核查
+    }}
+  ]
 }}
 
 【行为约束】

@@ -260,6 +260,7 @@ a:hover { text-decoration: underline; }
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;  /* grid 子项默认 min-height:auto，会被超长内容撑爆 → 让 .messages 的 flex:1+overflow:auto 失效。必须显式归零。 */
   background: var(--bg);
 }
 
@@ -269,6 +270,7 @@ a:hover { text-decoration: underline; }
   padding: 0;
   border-bottom: 1px solid var(--line);
   background: var(--bg-elev);
+  flex-shrink: 0;  /* 不被 .messages 的 flex-grow 挤压 */
 }
 .chat-toolbar {
   display: flex;
@@ -357,7 +359,8 @@ a:hover { text-decoration: underline; }
 
 /* ─────────── 消息流 ─────────── */
 .messages {
-  flex: 1;
+  flex: 1 1 0;       /* 1 1 0：基准 0，按剩余空间分配；避免被内容尺寸主导 */
+  min-height: 0;     /* flex 子项默认 min-height:auto，会被超长内容撑爆，必须显式归零 */
   overflow-y: auto;
   padding: 24px;
   display: flex;
@@ -503,6 +506,8 @@ a:hover { text-decoration: underline; }
   border-left: 2px solid var(--brand);
 }
 .citation-source { color: var(--brand); font-weight: 500; }
+.citation-link { color: inherit; text-decoration: none; }
+.citation-link:hover { text-decoration: underline; }
 .citation-snippet {
   margin-top: 3px;
   color: var(--fg);
@@ -576,6 +581,7 @@ a:hover { text-decoration: underline; }
   border-top: 1px solid var(--line);
   background: var(--bg-elev);
   padding: 14px 24px 16px;
+  flex-shrink: 0;  /* 输入框区固定在底部，不被 .messages 挤压 */
 }
 #composer-form {
   display: flex;
