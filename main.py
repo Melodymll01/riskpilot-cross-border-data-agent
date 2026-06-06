@@ -26,18 +26,17 @@ from api.routes import limiter, router, start_service_init
 from api.v2 import build_v2_router
 from api.v2.errors import install_exception_handlers
 from app.container import AppContainer
+from app.logging_setup import configure_logging
 from app.request_context import reset_request_id, set_request_id
 from config import settings
 
 # ===================== 日志配置 =====================
 
-logging.basicConfig(
+# Step 025f：用 ``configure_logging`` 替代裸 basicConfig，让所有 LogRecord
+# 自动带 ``[request_id]`` 字段（contextvar 缺省时显示 ``[-]``）
+configure_logging(
     level=getattr(logging, settings.log_level.upper(), logging.INFO),
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("logs/app.log", encoding="utf-8"),
-    ],
+    log_file="logs/app.log",
 )
 
 logger = logging.getLogger(__name__)
@@ -118,9 +117,14 @@ async def request_context_middleware(request: Request, call_next):
     elapsed_ms = (time.perf_counter() - start) * 1000
     response.headers["X-Request-ID"] = request_id
     if request.url.path.startswith("/api/"):
+        # Step 025f：request_id 由 RequestIdLogFilter 自动拼到 [%(request_id)s] 段；
+        # 不再手工拼接
         logger.info(
-            f"[{request_id}] {request.method} {request.url.path} "
-            f"→ {response.status_code} ({elapsed_ms:.0f}ms)"
+            "%s %s → %s (%.0fms)",
+            request.method,
+            request.url.path,
+            response.status_code,
+            elapsed_ms,
         )
     return response
 
@@ -129,7 +133,9 @@ async def request_context_middleware(request: Request, call_next):
 async def global_exception_handler(request: Request, exc: Exception):
     """全局异常兜底：防止未捕获异常泄露堆栈信息到客户端。"""
     request_id = getattr(request.state, "request_id", "unknown")
-    logger.exception(f"[{request_id}] 未捕获异常: {exc}")
+    # Step 025f：request_id 仍作为 JSON body 返回以供客户端反馈；log 行由
+    # formatter 自动拼上，不再手工 f"[{request_id}]"
+    logger.exception("未捕获异常: %s", exc)
     return JSONResponse(
         status_code=500,
         content={"detail": "服务器内部错误，请稍后重试", "request_id": request_id},
