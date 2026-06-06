@@ -196,4 +196,23 @@ function bindUI() {
     _state.page += 1;
     refresh();
   });
+
+  const exportBtn = $("#audit-btn-export");
+  if (exportBtn) {
+    exportBtn.addEventListener("click", () => {
+      // 用 <a download> 触发浏览器原生下载流（避免把 CSV 全读进 JS 内存）；
+      // 服务端 Content-Disposition 决定文件名，前端只给一个兜底 fallback。
+      const url = audit.exportCsvUrl({
+        action: _state.actionFilter,
+        actor_id: _state.actorFilter,
+      });
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "";  // 让浏览器尊重服务端的 filename
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    });
+  }
 }

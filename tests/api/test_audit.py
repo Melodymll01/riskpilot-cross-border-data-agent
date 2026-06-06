@@ -223,3 +223,133 @@ class TestPagination(_AdminBase):
             "/api/v2/audit/logs", params={"offset": -1}
         )
         assert resp.status_code == 422
+
+
+# ────────────────────────── CSV 导出（Step 026a） ──────────────────────────
+
+
+class TestExportCsv(_AdminBase):
+    """``GET /audit/export.csv``：admin-only · 流式 CSV 下载。"""
+
+    _CSV_PATH = "/api/v2/audit/export.csv"
+
+    def _seed_three(self, client: TestClient) -> None:
+        _seed(
+            client,
+            AuditEntry(
+                actor_id="github:alice",
+                action=AuditAction.KB_DELETE,
+                resource="d1.pdf",
+                timestamp=100.0,
+                request_id="req-1",
+                success=True,
+                extra_json={"size": 12},
+            ),
+            AuditEntry(
+                actor_id="github:alice",
+                action=AuditAction.KB_INGEST_FILE,
+                resource="f1.pdf",
+                timestamp=200.0,
+                request_id="req-2",
+                success=True,
+                extra_json={},
+            ),
+            AuditEntry(
+                actor_id="github:bob",
+                action=AuditAction.KB_DELETE,
+                resource="d2.pdf",
+                timestamp=300.0,
+                request_id=None,
+                success=False,
+                error="boom",
+                extra_json={"reason": "中文"},
+            ),
+        )
+
+    def test_unauthed_returns_401(self, client: TestClient) -> None:
+        resp = client.get(self._CSV_PATH)
+        assert resp.status_code == 401
+        assert resp.json()["error_code"] == "AUTH_REQUIRED"
+
+    def test_non_admin_returns_403(
+        self, authed_client: tuple[TestClient, dict[str, Any]]
+    ) -> None:
+        client, _ = authed_client
+        resp = client.get(self._CSV_PATH)
+        assert resp.status_code == 403
+        assert resp.json()["error_code"] == "ADMIN_REQUIRED"
+
+    def test_admin_returns_csv_with_headers(
+        self, admin_client: TestClient
+    ) -> None:
+        self._seed_three(admin_client)
+        resp = admin_client.get(self._CSV_PATH)
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/csv")
+        cd = resp.headers["content-disposition"]
+        assert cd.startswith("attachment;")
+        assert "audit_export_" in cd and ".csv" in cd
+        assert resp.headers.get("cache-control") == "no-store"
+
+        body = resp.content
+        # BOM 起头
+        assert body.startswith(b"\xef\xbb\xbf")
+        text = body.decode("utf-8-sig")
+        lines = text.strip().splitlines()
+        # 表头 + 3 行
+        assert len(lines) == 4
+        header = lines[0]
+        assert header.startswith("timestamp_iso,timestamp_epoch,actor_id,")
+        assert header.endswith(",extra_json")
+        # 倒序：bob 在最前
+        first_data = lines[1]
+        assert "github:bob" in first_data
+        assert "d2.pdf" in first_data
+        # success=False → "0"；error 字段被填
+        assert ",0,boom," in first_data
+        # 中文 extra_json 不乱码
+        assert "中文" in first_data
+
+    def test_filter_by_action(self, admin_client: TestClient) -> None:
+        self._seed_three(admin_client)
+        resp = admin_client.get(
+            self._CSV_PATH, params={"action": "kb.delete"}
+        )
+        assert resp.status_code == 200
+        text = resp.content.decode("utf-8-sig")
+        lines = text.strip().splitlines()
+        # 表头 + 2 行（d1 / d2）
+        assert len(lines) == 3
+        joined = "\n".join(lines[1:])
+        assert "d1.pdf" in joined and "d2.pdf" in joined
+        assert "f1.pdf" not in joined
+
+    def test_filter_by_actor(self, admin_client: TestClient) -> None:
+        self._seed_three(admin_client)
+        resp = admin_client.get(
+            self._CSV_PATH, params={"actor_id": "github:alice"}
+        )
+        assert resp.status_code == 200
+        text = resp.content.decode("utf-8-sig")
+        lines = text.strip().splitlines()
+        assert len(lines) == 3  # alice 名下 2 条
+        joined = "\n".join(lines[1:])
+        assert "d1.pdf" in joined and "f1.pdf" in joined
+        assert "d2.pdf" not in joined
+
+    def test_empty_returns_header_only(
+        self, admin_client: TestClient
+    ) -> None:
+        resp = admin_client.get(self._CSV_PATH)
+        assert resp.status_code == 200
+        text = resp.content.decode("utf-8-sig")
+        lines = text.strip().splitlines()
+        assert len(lines) == 1
+        assert lines[0].startswith("timestamp_iso,")
+
+    def test_max_rows_validation(self, admin_client: TestClient) -> None:
+        # 0 / 上限+1 都应 422
+        resp = admin_client.get(self._CSV_PATH, params={"max_rows": 0})
+        assert resp.status_code == 422
+        resp2 = admin_client.get(self._CSV_PATH, params={"max_rows": 99999})
+        assert resp2.status_code == 422

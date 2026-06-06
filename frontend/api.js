@@ -143,4 +143,19 @@ export const audit = {
     if (actor_id) qs.set("actor_id", actor_id);
     return request("GET", `/audit/logs?${qs.toString()}`);
   },
+
+  /**
+   * 构造 CSV 导出端点 URL（Step 026a）。
+   * 返回字符串而非 fetch；前端用 `<a download>` 或 location.href 触发浏览器下载，
+   * 避开把整个 CSV 读到 JS 内存的开销。
+   * @param {{action?: string, actor_id?: string, max_rows?: number}} params
+   * @returns {string}
+   */
+  exportCsvUrl: ({ action = "", actor_id = "", max_rows = 10000 } = {}) => {
+    const qs = new URLSearchParams();
+    if (action) qs.set("action", action);
+    if (actor_id) qs.set("actor_id", actor_id);
+    qs.set("max_rows", String(max_rows));
+    return `${BASE}/audit/export.csv?${qs.toString()}`;
+  },
 };
