@@ -10,16 +10,16 @@
 """
 
 import logging
-from typing import Generator, List, Dict, Optional, Tuple, Type
+from collections.abc import Generator
 
-from openai import APITimeoutError, APIConnectionError, OpenAI, RateLimitError
+from openai import APIConnectionError, APITimeoutError, OpenAI, RateLimitError
 
 from config import settings
 
 logger = logging.getLogger(__name__)
 
 # 可重试的异常类型
-RETRYABLE_ERRORS: Tuple[Type[Exception], ...] = (
+RETRYABLE_ERRORS: tuple[type[Exception], ...] = (
     APITimeoutError, APIConnectionError, RateLimitError,
 )
 
@@ -29,26 +29,21 @@ class ChatClient:
 
     def __init__(self):
         self.provider = settings.llm_provider
-
-        if self.provider == "local":
-            self.client = OpenAI(
-                api_key="ollama",
-                base_url=settings.ollama_api_base,
-            )
-            self.model = settings.local_chat_model
-        else:
-            self.client = OpenAI(
-                api_key=settings.openai_api_key,
-                base_url=settings.openai_api_base,
-            )
-            self.model = settings.chat_model
+        # Step 026b：统一走 effective_chat_*，让 .env 里可单独设
+        # CHAT_API_KEY / CHAT_API_BASE 把 chat 通道指向另一家 provider
+        # （例如 embedding 留智谱、chat 走百炼 GLM-5），不影响 embedding。
+        self.client = OpenAI(
+            api_key=settings.effective_chat_api_key,
+            base_url=settings.effective_chat_base_url,
+        )
+        self.model = settings.effective_chat_model
 
     def complete(
         self,
-        messages: List[Dict[str, str]],
-        model: Optional[str] = None,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        messages: list[dict[str, str]],
+        model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
     ) -> str:
         """非流式补全，返回文本内容。"""
         model = model or self.model
@@ -56,10 +51,10 @@ class ChatClient:
 
     def complete_stream(
         self,
-        messages: List[Dict[str, str]],
-        model: Optional[str] = None,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        messages: list[dict[str, str]],
+        model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
     ) -> Generator[str, None, None]:
         """流式补全，yield 文本片段。"""
         model = model or self.model

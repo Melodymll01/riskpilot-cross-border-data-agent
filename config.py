@@ -21,6 +21,13 @@ class Settings(BaseSettings):
     embedding_dimensions: int | None = Field(2048, description="Embedding 向量维度，智谱 embedding-3 支持 256/512/1024/2048，None 则使用模型默认值")
     chat_model: str = "glm-4-flash"
 
+    # ── Chat 通道单独覆盖（Step 026b）────────────────────────────────────────
+    # 留空 → chat 走 openai_api_key/openai_api_base（向后兼容）
+    # 设置 → chat 走 chat_api_key/chat_api_base；embedding 仍走 openai_*
+    # 典型场景：embedding 留智谱、chat 换百炼 GLM-5 / 通义 Qwen 拿免费额度
+    chat_api_key: str | None = None
+    chat_api_base: str | None = None
+
     # ── 本地 Ollama 配置 ──────────────────────────────────────────────────────
     ollama_api_base: str = "http://localhost:11434/v1"
     local_embedding_model: str = "nomic-embed-text"
@@ -136,11 +143,16 @@ class Settings(BaseSettings):
     # ── 运行时读取有效配置（根据 provider 自动选择） ───────────────────────────
     @property
     def effective_chat_base_url(self) -> str:
-        return self.ollama_api_base if self.llm_provider == "local" else self.openai_api_base
+        if self.llm_provider == "local":
+            return self.ollama_api_base
+        # chat 通道单独覆盖优先（Step 026b）
+        return self.chat_api_base or self.openai_api_base
 
     @property
     def effective_chat_api_key(self) -> str:
-        return "ollama" if self.llm_provider == "local" else self.openai_api_key
+        if self.llm_provider == "local":
+            return "ollama"
+        return self.chat_api_key or self.openai_api_key
 
     @property
     def effective_chat_model(self) -> str:
