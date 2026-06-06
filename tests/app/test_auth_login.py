@@ -6,7 +6,8 @@ import pytest
 
 from app.use_cases.auth_login import AuthLoginUseCase
 from domain.errors import InvalidToken, OAuthFlowError
-from tests.fakes import FakeAuth
+from domain.models import AuditAction
+from tests.fakes import FakeAuditLogRepo, FakeAuth
 
 
 class TestBeginComplete:
@@ -74,3 +75,88 @@ class TestIdentifyAndRequire:
         uc = AuthLoginUseCase(auth)
         _, token = uc.login_anonymous()
         assert uc.require(token).startswith("anon:")
+
+
+# ─────────────────────────── Step 025c：审计 hook ────────────────────────
+
+
+def _make_uc_with_audit() -> tuple[AuthLoginUseCase, FakeAuth, FakeAuditLogRepo]:
+    auth = FakeAuth()
+    audit = FakeAuditLogRepo()
+    uc = AuthLoginUseCase(auth, audit_log=audit)
+    return uc, auth, audit
+
+
+class TestAuditHooks:
+    def test_audit_log_none_bypasses_hook(self) -> None:
+        # 旧调用方式（无 audit_log）必须依旧工作，不能崩
+        uc = AuthLoginUseCase(FakeAuth())
+        _, state = uc.begin("github")
+        user, token = uc.complete("github", code="abc", state=state)
+        assert user.user_id == "github:alice"
+        assert token
+
+    def test_complete_success_records_audit(self) -> None:
+        uc, _auth, audit = _make_uc_with_audit()
+        _, state = uc.begin("github")
+        assert audit.entries == []  # begin 不应落审计
+
+        user, _token = uc.complete("github", code="abc", state=state)
+
+        assert len(audit.entries) == 1
+        e = audit.entries[0]
+        assert e.action == AuditAction.AUTH_LOGIN_SUCCESS
+        assert e.actor_id == user.user_id == "github:alice"
+        assert e.resource == "oauth:github"
+        assert e.success is True
+        assert e.error is None
+        assert e.extra_json == {"provider": "github"}
+
+    def test_complete_failure_records_audit(self) -> None:
+        uc, _auth, audit = _make_uc_with_audit()
+        with pytest.raises(OAuthFlowError):
+            uc.complete("github", code="abc", state="never_issued")
+
+        assert len(audit.entries) == 1
+        e = audit.entries[0]
+        assert e.action == AuditAction.AUTH_LOGIN_FAILURE
+        assert e.actor_id == "system:unknown"
+        assert e.resource == "oauth:github"
+        assert e.success is False
+        assert e.error  # 非空 error 字符串
+        assert e.extra_json["provider"] == "github"
+        assert "reason" in e.extra_json
+
+    def test_login_anonymous_records_audit(self) -> None:
+        uc, _auth, audit = _make_uc_with_audit()
+        user, _token = uc.login_anonymous()
+
+        assert len(audit.entries) == 1
+        e = audit.entries[0]
+        assert e.action == AuditAction.AUTH_ANONYMOUS_CREATE
+        assert e.actor_id == user.user_id
+        assert e.actor_id.startswith("anon:")
+        assert e.resource == "anonymous"
+        assert e.success is True
+        assert e.extra_json == {"provider": "anonymous"}
+
+    def test_request_id_propagates_when_provided(self) -> None:
+        uc, _auth, audit = _make_uc_with_audit()
+        _, state = uc.begin("github")
+        uc.complete("github", code="abc", state=state, request_id="req-xyz")
+        uc.login_anonymous(request_id="req-anon")
+
+        assert [e.request_id for e in audit.entries] == ["req-xyz", "req-anon"]
+
+    def test_identify_and_require_do_not_audit(self) -> None:
+        uc, _auth, audit = _make_uc_with_audit()
+        _, token = uc.login_anonymous()
+        audit.entries.clear()  # 清掉 anonymous 创建的审计
+
+        uc.identify(token)
+        uc.identify(None)
+        uc.require(token)
+        with pytest.raises(InvalidToken):
+            uc.require(None)
+
+        assert audit.entries == []  # 只读路径不应落审计

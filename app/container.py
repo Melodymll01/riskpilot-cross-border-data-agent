@@ -119,7 +119,7 @@ class AppContainer:
         self.auth: AuthPort = auth or build_auth(settings, self.user_repo)
 
         # ── use case 装配 ─────────────────────────────────────────────
-        self.auth_login = AuthLoginUseCase(self.auth)
+        self.auth_login = AuthLoginUseCase(self.auth, audit_log=self.audit_log)
         self.task_management = TaskManagementUseCase(self.task_repo)
         self.ingest = IngestionUseCase(self.embedder)
         self.run_query = RunQueryUseCase(retriever=self.retriever, chat=self.chat)

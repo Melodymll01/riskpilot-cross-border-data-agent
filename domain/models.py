@@ -337,3 +337,7 @@ class AuditAction:
     KB_DELETE = "kb.delete"
     KB_INGEST_FILE = "kb.ingest_file"
     KB_INGEST_WEB = "kb.ingest_web"
+    # ── Step 025c：登录侧 ────────────────────────────────────────────
+    AUTH_LOGIN_SUCCESS = "auth.login_success"
+    AUTH_LOGIN_FAILURE = "auth.login_failure"
+    AUTH_ANONYMOUS_CREATE = "auth.anonymous_create"

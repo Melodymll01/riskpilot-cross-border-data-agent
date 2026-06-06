@@ -64,6 +64,10 @@ class _AdminBase:
     @pytest.fixture
     def admin_client(self, client: TestClient) -> TestClient:
         _login_as_admin(client)
+        # Step 025c：清除登录本身写入的 ``auth.login_success`` 条目，
+        # 让后续测试只断言显式 ``_seed`` 的内容。
+        container: AppContainer = client.app.state.container  # type: ignore[attr-defined]
+        container.audit_log.entries.clear()  # type: ignore[attr-defined]
         return client
 
 
