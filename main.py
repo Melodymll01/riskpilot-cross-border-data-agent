@@ -143,23 +143,26 @@ async def request_context_middleware(request: Request, call_next):
     start = time.perf_counter()
     try:
         response = await call_next(request)
+
+        # Step 025g bug fix：access log + header 必须在 reset 之前调用，
+        # 否则 RequestIdLogFilter 取 contextvar 时拿到的是 None（reset 后
+        # 回到 default），log 行就只会出 [-] [uid:-] 而非真实值
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        response.headers["X-Request-ID"] = request_id
+        if request.url.path.startswith("/api/"):
+            # Step 025f / 025g：request_id 与 user_id 由 RequestIdLogFilter 自动
+            # 拼到 [%(request_id)s] [uid:%(user_id)s] 段，不再手工拼接
+            logger.info(
+                "%s %s → %s (%.0fms)",
+                request.method,
+                request.url.path,
+                response.status_code,
+                elapsed_ms,
+            )
+        return response
     finally:
         reset_user_id(uid_token)
         reset_request_id(rid_token)
-
-    elapsed_ms = (time.perf_counter() - start) * 1000
-    response.headers["X-Request-ID"] = request_id
-    if request.url.path.startswith("/api/"):
-        # Step 025f / 025g：request_id 与 user_id 由 RequestIdLogFilter 自动
-        # 拼到 [%(request_id)s] [uid:%(user_id)s] 段，不再手工拼接
-        logger.info(
-            "%s %s → %s (%.0fms)",
-            request.method,
-            request.url.path,
-            response.status_code,
-            elapsed_ms,
-        )
-    return response
 
 
 @app.exception_handler(Exception)

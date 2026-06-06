@@ -87,6 +87,48 @@ class TestRequestIdLogFilter:
         with request_context("rid", user_id="u1"):
             assert f.filter(rec2) is True
 
+    def test_emit_after_reset_loses_context(
+        self, isolated_root_logger: logging.Logger
+    ) -> None:
+        """契约固化：``reset_*`` 之后调 logger 会拿到哨兵 ``-``。
+
+        Step 025g 真实 bug：main.py middleware 把 access log 放在
+        ``finally: reset_*()`` 之后，导致 request_id / user_id 全部回退
+        到 contextvar 默认 None，filter 输出 ``[-]`` 而非真实值。
+
+        本测试把这一陷阱明确写成契约：reset 之后的 emit 必然拿到 ``-``。
+        将来若有人重构 middleware 把 logger 调用挪到 reset 之后，本测
+        试会立刻提示同样的 trap 又回来了。
+        """
+        mem = MemoryHandler(capacity=10)
+        configure_logging(level=logging.INFO, log_file=None, extra_handlers=[mem])
+
+        from app.request_context import (
+            reset_request_id,
+            reset_user_id,
+            set_request_id,
+            set_user_id,
+        )
+
+        rid_token = set_request_id("req-inside")
+        uid_token = set_user_id("u-inside")
+        try:
+            isolated_root_logger.info("inside")
+        finally:
+            reset_user_id(uid_token)
+            reset_request_id(rid_token)
+
+        # 关键断言：reset 之后立刻 emit，contextvar 已回 None，filter 出 "-"
+        isolated_root_logger.info("after-reset")
+
+        assert len(mem.buffer) == 2
+        inside, after = mem.buffer
+        assert (inside.request_id, inside.user_id) == ("req-inside", "u-inside")
+        assert (after.request_id, after.user_id) == ("-", "-"), (
+            "若两条都拿到 'req-inside'/'u-inside' 说明 contextvar 没 reset；"
+            "若 inside 也拿到 '-' 说明 emit 顺序与 set/reset 顺序错配"
+        )
+
 
 class TestConfigureLogging:
     def test_attaches_filter_to_handlers(
