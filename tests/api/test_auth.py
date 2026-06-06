@@ -85,6 +85,45 @@ class TestLogout:
         # cookie 已被服务端要求清空（TestClient 解析 Set-Cookie 后会删除）
         assert "copilot_session" not in client.cookies
 
+    def test_records_audit_when_session_active(
+        self, authed_client: tuple[TestClient, dict[str, Any]]
+    ) -> None:
+        # Step 025e：登录态下 logout 应落 AUTH_LOGOUT 审计
+        from domain.models import AuditAction
+
+        client, user = authed_client
+        container: AppContainer = client.app.state.container  # type: ignore[attr-defined]
+        # 清掉 anonymous_create 的痕迹，只盯 logout
+        container.audit_log.entries.clear()  # type: ignore[attr-defined]
+
+        resp = client.post("/api/v2/auth/logout", headers={"X-Request-ID": "req-bye"})
+        assert resp.status_code == 200
+
+        entries = container.audit_log.entries  # type: ignore[attr-defined]
+        logout_entries = [e for e in entries if e.action == AuditAction.AUTH_LOGOUT]
+        assert len(logout_entries) == 1
+        e = logout_entries[0]
+        assert e.actor_id == user["user_id"]
+        assert e.resource == "session"
+        assert e.success is True
+        assert e.request_id == "req-bye"  # Step 025d contextvar 透传
+
+    def test_logout_without_session_is_silent(self, client: TestClient) -> None:
+        # 未登录直接 logout：仍然 200，但不写审计（D2：避免噪音）
+        from domain.models import AuditAction
+
+        container: AppContainer = client.app.state.container  # type: ignore[attr-defined]
+        before = len(container.audit_log.entries)  # type: ignore[attr-defined]
+
+        resp = client.post("/api/v2/auth/logout")
+        assert resp.status_code == 200
+
+        after = len(container.audit_log.entries)  # type: ignore[attr-defined]
+        # 0 条 logout 审计写入
+        new_entries = container.audit_log.entries[before:]  # type: ignore[attr-defined]
+        assert all(e.action != AuditAction.AUTH_LOGOUT for e in new_entries)
+        assert after == before  # 整体一条都没多
+
 
 class TestGithubLogin:
     def test_returns_authorize_url_and_state(self, client: TestClient) -> None:

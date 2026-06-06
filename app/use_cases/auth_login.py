@@ -99,6 +99,36 @@ class AuthLoginUseCase:
         )
         return user, token
 
+    def logout(
+        self,
+        token: str | None,
+        *,
+        request_id: str | None = None,
+    ) -> str | None:
+        """注销当前会话：解码 token 拿 user_id 并落审计；token 无效/缺失视作 no-op。
+
+        cookie 清理由 API 层负责（清 cookie 是传输层关切）。本方法只负责"如果
+        当前确实是登录态，给审计表写一条 AUTH_LOGOUT"。
+
+        - token 为空或解码失败 → 返回 ``None``，**不**落审计（避免审计表里堆
+          匿名 logout 噪音；与 D2 决策一致）
+        - 解出 user_id → 写 AUTH_LOGOUT + actor_id=user_id + resource="session"，
+          返回 user_id
+        """
+        user_id = self.identify(token)
+        if user_id is None:
+            return None
+        self._record_audit(
+            action=AuditAction.AUTH_LOGOUT,
+            resource="session",
+            actor_id=user_id,
+            request_id=request_id,
+            success=True,
+            error=None,
+            extra={},
+        )
+        return user_id
+
     def identify(self, token: str | None) -> str | None:
         """解码 token → user_id；空 / 无效一律返回 None。"""
         if not token:

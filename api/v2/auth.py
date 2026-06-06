@@ -122,7 +122,11 @@ def build_auth_routes(container: AppContainer) -> APIRouter:
         response_model=OkResponse,
         summary="清除 session cookie；客户端可立即调 /auth/anonymous 拿新匿名身份",
     )
-    def logout(response: Response) -> OkResponse:
+    def logout(request: Request, response: Response) -> OkResponse:
+        # Step 025e：cookie 拿到的 token 给 use case 落审计；无 cookie / 无效
+        # token 时 use case 返回 None 视为 no-op，不写审计
+        token = request.cookies.get(container.settings.cookie_name)
+        container.auth_login.logout(token)
         clear_session_cookie(response, container.settings)
         return OkResponse()
 

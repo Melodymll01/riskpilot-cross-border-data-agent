@@ -341,3 +341,5 @@ class AuditAction:
     AUTH_LOGIN_SUCCESS = "auth.login_success"
     AUTH_LOGIN_FAILURE = "auth.login_failure"
     AUTH_ANONYMOUS_CREATE = "auth.anonymous_create"
+    # ── Step 025e：登出侧 ────────────────────────────────────────────
+    AUTH_LOGOUT = "auth.logout"

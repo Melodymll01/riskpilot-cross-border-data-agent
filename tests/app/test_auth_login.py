@@ -160,3 +160,75 @@ class TestAuditHooks:
             uc.require(None)
 
         assert audit.entries == []  # 只读路径不应落审计
+
+
+# ─────────────────────────── Step 025e：登出 ────────────────────────────
+
+
+class TestLogout:
+    def _uc(self) -> tuple[AuthLoginUseCase, FakeAuth, FakeAuditLogRepo]:
+        auth = FakeAuth()
+        audit = FakeAuditLogRepo()
+        uc = AuthLoginUseCase(auth, audit_log=audit)
+        return uc, auth, audit
+
+    def test_logout_with_valid_token_records_audit(self) -> None:
+        uc, _auth, audit = self._uc()
+        _, token = uc.login_anonymous()
+        audit.entries.clear()  # 清掉 anonymous_create 这条
+
+        result = uc.logout(token)
+
+        assert result is not None and result.startswith("anon:")
+        assert len(audit.entries) == 1
+        e = audit.entries[0]
+        assert e.action == AuditAction.AUTH_LOGOUT
+        assert e.actor_id == result
+        assert e.resource == "session"
+        assert e.success is True
+        assert e.error is None
+        assert e.extra_json == {}
+
+    def test_logout_none_token_is_noop(self) -> None:
+        uc, _auth, audit = self._uc()
+        result = uc.logout(None)
+        assert result is None
+        assert audit.entries == []  # 未登录 logout 不落审计
+
+    def test_logout_empty_token_is_noop(self) -> None:
+        uc, _auth, audit = self._uc()
+        result = uc.logout("")
+        assert result is None
+        assert audit.entries == []
+
+    def test_logout_invalid_token_is_noop(self) -> None:
+        uc, _auth, audit = self._uc()
+        result = uc.logout("garbage-token")
+        assert result is None
+        assert audit.entries == []
+
+    def test_logout_audit_log_none_safe(self) -> None:
+        # 旧 audit_log=None 调用方式仍兼容
+        uc = AuthLoginUseCase(FakeAuth())  # audit_log 默认 None
+        _, token = uc.login_anonymous()
+        assert uc.logout(token) is not None  # 不抛
+
+    def test_logout_request_id_propagates(self) -> None:
+        uc, _auth, audit = self._uc()
+        _, token = uc.login_anonymous()
+        audit.entries.clear()
+
+        uc.logout(token, request_id="req-logout-1")
+        assert len(audit.entries) == 1
+        assert audit.entries[0].request_id == "req-logout-1"
+
+    def test_logout_after_github_login(self) -> None:
+        uc, _auth, audit = self._uc()
+        _, state = uc.begin("github")
+        _user, token = uc.complete("github", code="abc", state=state)
+        audit.entries.clear()
+
+        result = uc.logout(token)
+        assert result == "github:alice"
+        assert audit.entries[0].action == AuditAction.AUTH_LOGOUT
+        assert audit.entries[0].actor_id == "github:alice"
