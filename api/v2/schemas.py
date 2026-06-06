@@ -145,6 +145,7 @@ class KbDocumentOut(BaseModel):
     source_url: str | None = None
     chunk_count: int = Field(ge=0)
     category: str = ""
+    owner_id: str | None = None  # Step 025a: None=公共，非空=私人
 
 
 class KbDocumentListResponse(BaseModel):

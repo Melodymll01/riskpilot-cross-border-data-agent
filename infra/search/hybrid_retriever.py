@@ -4,22 +4,31 @@
 1. 把已经组合好的 BM25 + 向量 + RRF + Reranker 流水线统一暴露为单一入口。
 2. 把旧 `dict` 形式的检索结果转换为 domain `Chunk`（统一方向：score 越大越相关）。
 
-注意：当前 `Retriever.retrieve` 没有 `corpus / owner_id / filters` 参数；这些字段在 PR-3
-阶段先做 no-op 透传或日志记录，等 PR-5 应用层接入时再细化（用户文档语料 / 权属过滤）。
+Step 025a 多租户：``owner_id`` 翻译为 ``viewers``：
+- ``owner_id=None``（匿名）→ ``viewers=[None]``，仅看公共
+- ``owner_id="<uid>"`` → ``viewers=[None, "<uid>"]``，公共 ∪ 自己
+不引入 ``viewer_is_admin``：admin 检索默认也走"公共∪自己"视角，避免越权拼装。
 """
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from typing import Any, Protocol
 
 from domain.models import Chunk, Corpus
+from processing.metadata import PUBLIC_OWNER_MARKER
 
 logger = logging.getLogger(__name__)
 
 
 class _RetrieverLike(Protocol):
-    def retrieve(self, query: str, top_k: int = ...) -> list[dict[str, Any]]: ...
+    def retrieve(
+        self,
+        query: str,
+        top_k: int = ...,
+        viewers: Iterable[str | None] | None = ...,
+    ) -> list[dict[str, Any]]: ...
 
 
 class HybridRetrieverAdapter:
@@ -51,14 +60,18 @@ class HybridRetrieverAdapter:
                 "HybridRetrieverAdapter: corpus=%s 当前未支持，已退化为 law",
                 corpus,
             )
-        if owner_id is not None or filters is not None:
+        if filters is not None:
             logger.debug(
-                "HybridRetrieverAdapter: owner_id/filters 暂未下推（owner=%s, filters=%s）",
-                owner_id,
+                "HybridRetrieverAdapter: filters 暂未下推（filters=%s）",
                 filters,
             )
 
-        raw = self._retriever.retrieve(query, top_k=top_k)
+        # Step 025a: owner_id → viewers（公共∪自己；匿名仅公共）
+        viewers: list[str | None] = [None]
+        if owner_id:
+            viewers.append(owner_id)
+
+        raw = self._retriever.retrieve(query, top_k=top_k, viewers=viewers)
         return [_dict_to_chunk(item) for item in raw]
 
 
@@ -78,6 +91,11 @@ def _dict_to_chunk(item: dict[str, Any]) -> Chunk:
     title = meta_in.get("title") or ""
     source_url = meta_in.get("source_url") or None
     category = meta_in.get("category") or ""
+    # Step 025a：owner_id 从 metadata 提升；PUBLIC_OWNER_MARKER 折回 None
+    raw_owner = meta_in.get("owner_id")
+    owner_id_norm: str | None = (
+        None if raw_owner in ("", None, PUBLIC_OWNER_MARKER) else str(raw_owner)
+    )
 
     # score：优先 rerank_score → rrf_score → 1-distance
     if "rerank_score" in item:
@@ -100,6 +118,7 @@ def _dict_to_chunk(item: dict[str, Any]) -> Chunk:
             "title",
             "source_url",
             "category",
+            "owner_id",
         }
     }
     # 保留检索辅助字段（chunk_index / context_expanded / fused_from / match_type 等）
@@ -115,6 +134,7 @@ def _dict_to_chunk(item: dict[str, Any]) -> Chunk:
         title=str(title),
         source_url=source_url,
         category=str(category),
+        owner_id=owner_id_norm,
         score=score,
         metadata=metadata_out,
     )

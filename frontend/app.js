@@ -121,14 +121,15 @@ function applyKbGate(isLoggedIn, isAdmin) {
     tag.classList.toggle("hidden", !isAdmin);
     tag.hidden = !isAdmin;
   }
-  // 上传/采集按钮只 admin 可见
+  // Step 025a：写入 UI 对所有登录用户开放（普通用户入私人，admin 可选公共）
   const actions = $("#kb-actions");
   if (actions) {
-    actions.classList.toggle("hidden", !isAdmin);
+    actions.classList.toggle("hidden", !isLoggedIn);
   }
+  // 「只读」banner 不再使用：所有登录用户都可写入
   const banner = $("#kb-readonly-banner");
   if (banner) {
-    banner.classList.toggle("hidden", isAdmin || !isLoggedIn);
+    banner.classList.add("hidden");
   }
   // 未登录却停在 KB 视图：踢回对话
   if (!isLoggedIn && _currentView === "kb") {

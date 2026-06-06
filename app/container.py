@@ -143,5 +143,36 @@ class AppContainer:
             risk_profile=self.risk_profile,
         )
 
+    # ─── 启动钩子（main.py lifespan 调用） ───────────────────────────
+
+    def startup_migrations(self) -> int:
+        """启动时一次性迁移：把缺 ``owner_id`` 的旧 chunk 标记为公共库。
+
+        Step 025a 引入 ``owner_id`` 多租户隔离。已有 ChromaDB 数据无此字段，
+        需要懒迁移：扫一次全集合，把 metadata 缺字段的标为 ``__public__``。
+        幂等：迁移后再次调用为空操作。失败仅打 warning，不影响启动。
+
+        Returns:
+            本次迁移的 chunk 数；0 表示无需迁移或失败
+        """
+        import logging
+
+        log = logging.getLogger(__name__)
+        repo = self.kb_repo
+        migrate = getattr(repo, "migrate_owner_id_legacy", None)
+        if migrate is None:
+            log.debug("kb_repo 未提供 migrate_owner_id_legacy，跳过启动迁移")
+            return 0
+        try:
+            n = migrate()
+            if n > 0:
+                log.info("[Step 025a] owner_id 启动迁移完成：%d 个 chunk 标记为公共", n)
+            else:
+                log.debug("[Step 025a] owner_id 启动迁移：无需迁移")
+            return n
+        except Exception:
+            log.warning("[Step 025a] owner_id 启动迁移失败（不影响启动）", exc_info=True)
+            return 0
+
 
 __all__ = ["AppContainer"]

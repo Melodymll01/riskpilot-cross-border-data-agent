@@ -1,9 +1,10 @@
 # ADR-008: 采用 owner_id 作为统一身份键与数据隔离边界
 
-- 状态: accepted（augmented by ADR-012）
+- 状态: accepted（augmented by ADR-012；KB 域落地见 Step 025a）
 - 日期: 2026-06-04
 - 后续补充：
   - [ADR-012: Admin RBAC](ADR-012-admin-rbac-allowlist.md)（admin 白名单是 owner_id 体系之上的第二轴守门）
+  - [Step 025a](../process/step_025a_owner_id_tenancy.md)（KB 域多租户落地：单 collection + metadata.owner_id 过滤 + `?scope=` 三态视图 + 启动幂等迁移）
 
 ## 背景
 

@@ -35,18 +35,24 @@ class FakeDocumentLoader:
         *,
         original_filename: str | None = None,
         category: str | None = None,
+        owner_id: str | None = None,
     ) -> list[KbChunk]:
         self.calls.append(
             (
                 "load_file",
                 (file_path,),
-                {"original_filename": original_filename, "category": category},
+                {
+                    "original_filename": original_filename,
+                    "category": category,
+                    "owner_id": owner_id,
+                },
             )
         )
         if self._empty:
             return []
         if self._preset_chunks is not None:
-            return list(self._preset_chunks)
+            # 按调用参数覆盖 owner_id，以避免预置样本与参数不一致
+            return [c.model_copy(update={"owner_id": owner_id}) for c in self._preset_chunks]
         # 默认：返回 2 个简单 chunk
         source = original_filename or file_path or "fake.txt"
         return self._make_default_chunks(
@@ -55,6 +61,7 @@ class FakeDocumentLoader:
             title=source,
             url=None,
             category=category or "",
+            owner_id=owner_id,
         )
 
     def load_web(
@@ -62,18 +69,22 @@ class FakeDocumentLoader:
         url: str,
         *,
         category: str | None = None,
+        owner_id: str | None = None,
     ) -> list[KbChunk]:
-        self.calls.append(("load_web", (url,), {"category": category}))
+        self.calls.append(
+            ("load_web", (url,), {"category": category, "owner_id": owner_id})
+        )
         if self._empty:
             return []
         if self._preset_chunks is not None:
-            return list(self._preset_chunks)
+            return [c.model_copy(update={"owner_id": owner_id}) for c in self._preset_chunks]
         return self._make_default_chunks(
             source_name=url,
             source_type="web",
             title=f"Fake page @ {url}",
             url=url,
             category=category or "",
+            owner_id=owner_id,
         )
 
     # ─── helpers ─────────────────────────────────────────────────────
@@ -86,6 +97,7 @@ class FakeDocumentLoader:
         title: str,
         url: str | None,
         category: str,
+        owner_id: str | None = None,
     ) -> list[KbChunk]:
         return [
             KbChunk(
@@ -97,6 +109,7 @@ class FakeDocumentLoader:
                 source_url=url,
                 chunk_index=i,
                 category=category,
+                owner_id=owner_id,
             )
             for i in range(2)
         ]

@@ -64,22 +64,45 @@ export const copilot = {
   chat: (body) => request("POST", "/copilot/chat", body),
 };
 
-/* ─────────── documents (知识库管理 · admin-only) ─────────── */
+/* ─────────── documents (知识库管理 · Step 025a 多租户) ─────────── */
 export const documents = {
-  list: () => request("GET", "/documents"),
-  stats: () => request("GET", "/documents/stats"),
-  get: (sourceName) => request("GET", `/documents/${encodeURIComponent(sourceName)}`),
-  remove: (sourceName) => request("DELETE", `/documents/${encodeURIComponent(sourceName)}`),
-  ingestWeb: (body) => request("POST", "/documents/web", body),
+  /**
+   * 列出文档。scope: "public" | "mine" | "all"（默认 all = 公共 ∪ 自己）
+   */
+  list: (scope = "all") => {
+    const qs = scope ? `?scope=${encodeURIComponent(scope)}` : "";
+    return request("GET", `/documents${qs}`);
+  },
+  stats: (scope = "all") => {
+    const qs = scope ? `?scope=${encodeURIComponent(scope)}` : "";
+    return request("GET", `/documents/stats${qs}`);
+  },
+  get: (sourceName, scope = "all") => {
+    const qs = scope ? `?scope=${encodeURIComponent(scope)}` : "";
+    return request("GET", `/documents/${encodeURIComponent(sourceName)}${qs}`);
+  },
+  remove: (sourceName) =>
+    request("DELETE", `/documents/${encodeURIComponent(sourceName)}`),
+  /**
+   * 网页入库。``asPublic`` 仅 admin 生效（true 入公共，false 入私人）。
+   */
+  ingestWeb: (body, { asPublic = false } = {}) => {
+    const qs = asPublic ? "?as_public=true" : "";
+    return request("POST", `/documents/web${qs}`, body);
+  },
   /**
    * 上传文件（multipart/form-data，request() 不适配，这里单独走 fetch）。
    * @param {File} file
    * @param {string} category
+   * @param {{asPublic?: boolean}} opts asPublic 仅 admin 生效
    */
-  ingestFile: async (file, category = "") => {
+  ingestFile: async (file, category = "", { asPublic = false } = {}) => {
     const fd = new FormData();
     fd.append("file", file);
-    const qs = category ? `?category=${encodeURIComponent(category)}` : "";
+    const params = new URLSearchParams();
+    if (category) params.set("category", category);
+    if (asPublic) params.set("as_public", "true");
+    const qs = params.toString() ? `?${params.toString()}` : "";
     const resp = await fetch(`${BASE}/documents/file${qs}`, {
       method: "POST",
       credentials: "include",

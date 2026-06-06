@@ -14,9 +14,17 @@ class _StubRetriever:
     def __init__(self, results: list[dict[str, Any]] | None = None) -> None:
         self.results = list(results) if results else []
         self.calls: list[tuple[str, int]] = []
+        self.viewers_calls: list[Any] = []
 
-    def retrieve(self, query: str, top_k: int = 5) -> list[dict[str, Any]]:
+    def retrieve(
+        self,
+        query: str,
+        top_k: int = 5,
+        *,
+        viewers: Any = None,
+    ) -> list[dict[str, Any]]:
         self.calls.append((query, top_k))
+        self.viewers_calls.append(viewers)
         return self.results[:top_k]
 
 

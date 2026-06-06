@@ -39,24 +39,26 @@ class UnifiedLoaderAdapter:
         *,
         original_filename: str | None = None,
         category: str | None = None,
+        owner_id: str | None = None,
     ) -> list[KbChunk]:
         if not file_path:
             msg = "file_path 不能为空"
             raise ValueError(msg)
         raw = self._loader.load_file(file_path, original_filename)
-        return self._raw_to_kb_chunks(raw, category=category)
+        return self._raw_to_kb_chunks(raw, category=category, owner_id=owner_id)
 
     def load_web(
         self,
         url: str,
         *,
         category: str | None = None,
+        owner_id: str | None = None,
     ) -> list[KbChunk]:
         if not url:
             msg = "url 不能为空"
             raise ValueError(msg)
         raw = self._loader.load_web(url)
-        return self._raw_to_kb_chunks(raw, category=category)
+        return self._raw_to_kb_chunks(raw, category=category, owner_id=owner_id)
 
     # ─── 内部转换 ────────────────────────────────────────────────────
 
@@ -74,6 +76,7 @@ class UnifiedLoaderAdapter:
         raw: RawDocument,
         *,
         category: str | None,
+        owner_id: str | None = None,
     ) -> list[KbChunk]:
         cwm_list: list[ChunkWithMetadata] = build_chunks(raw)
         if not cwm_list:
@@ -92,6 +95,7 @@ class UnifiedLoaderAdapter:
                 source_url=url,
                 chunk_index=cwm.chunk_index,
                 category=resolved_category or (cwm.category or ""),
+                owner_id=owner_id,
             )
             for cwm in cwm_list
         ]

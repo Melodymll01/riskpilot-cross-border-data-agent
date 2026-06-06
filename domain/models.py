@@ -142,6 +142,7 @@ class Chunk(BaseDomainModel):
 
     `score` 越大越相关（已统一方向，infra 层负责把"距离"翻译为"相似度"）。
     `metadata` 用于附挂 source_url / category / chunk_index 等可选信息，不强 schema。
+    `owner_id` 为 Step 025a 多租户隔离字段：None 表示公共语料（admin 入库），非空表示仅该 owner 可见。
     """
 
     chunk_id: str = Field(min_length=1)
@@ -151,6 +152,7 @@ class Chunk(BaseDomainModel):
     title: str = ""
     source_url: str | None = None
     category: str = ""
+    owner_id: str | None = None
     score: float = 0.0
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -237,6 +239,8 @@ class KbDocument(BaseDomainModel):
 
     字段语义对齐现有 ``retrieval/search/vector_store.py:VectorStore.get_all_sources``
     输出，仅做 frozen + extra=forbid 的 schema 收紧。
+
+    Step 025a 加 ``owner_id``：None 表示公共文档（admin 入库），非空表示私人文档。
     """
 
     source_name: str = Field(min_length=1)
@@ -245,6 +249,7 @@ class KbDocument(BaseDomainModel):
     source_url: str | None = None
     chunk_count: int = Field(ge=0)
     category: str = ""
+    owner_id: str | None = None
 
 
 class KbChunk(BaseDomainModel):
@@ -253,6 +258,8 @@ class KbChunk(BaseDomainModel):
     与 ``Chunk`` 区别：本模型只用于写侧（入库），不带 ``score`` / ``metadata``
     自由字段；字段集合与 ``processing/metadata.py:ChunkWithMetadata`` 一一对齐，
     由 ``infra/kb/chroma_kb_repo.py`` 做形态转换。
+
+    Step 025a 加 ``owner_id``：与 KbDocument 语义一致。
     """
 
     chunk_id: str = Field(min_length=1)
@@ -263,7 +270,7 @@ class KbChunk(BaseDomainModel):
     source_url: str | None = None
     chunk_index: int = Field(ge=0)
     category: str = ""
-
+    owner_id: str | None = None
 
 # === 记忆 ===
 

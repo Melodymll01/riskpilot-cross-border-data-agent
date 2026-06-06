@@ -7,17 +7,18 @@
 4. 结果去重：基于中文 bigram 的文本去重，消除 overlap 和多查询带来的重复
 """
 
-import re
 import logging
-from typing import List, Dict, Any
+import re
+from collections.abc import Iterable
+from typing import Any
 
 from config import settings
-from retrieval.search.embedder import Embedder
-from retrieval.search.vector_store import VectorStore
-from retrieval.search.reranker import BaseReranker, DistanceThresholdReranker
-from retrieval.search.query_rewriter import QueryRewriter
 from retrieval.search.bm25_index import BM25Index
+from retrieval.search.embedder import Embedder
 from retrieval.search.fusion import rrf_fuse
+from retrieval.search.query_rewriter import QueryRewriter
+from retrieval.search.reranker import BaseReranker, DistanceThresholdReranker
+from retrieval.search.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,12 @@ class Retriever:
         if self.bm25_index is not None:
             self.vector_store.register_change_listener(self.bm25_index.mark_dirty)
 
-    def retrieve(self, query: str, top_k: int = settings.top_k) -> List[Dict[str, Any]]:
+    def retrieve(
+        self,
+        query: str,
+        top_k: int = settings.top_k,
+        viewers: Iterable[str | None] | None = None,
+    ) -> list[dict[str, Any]]:
         """
         根据用户问题检索最相关的 chunk。
 
@@ -53,8 +59,13 @@ class Retriever:
         3. 合并去重 → 消除多查询/overlap 带来的重复内容
         4. 重排序 → 过滤低相关结果
         5. 上下文扩展 → 为每个 chunk 补充相邻 chunk 的内容
+
+        Step 025a：``viewers`` = 可见 owner_id 集合（含 ``None`` 表示公共）；
+        ``None`` = 不限（admin 全库视角）。该参数透传给所有 vector / BM25 调用。
         """
         logger.info(f"检索中: {query[:80]}...")
+        # viewers 收敛成 list（Iterable 不可重复消费）
+        viewers_list: list | None = list(viewers) if viewers is not None else None
 
         # 1. 查询改写（多查询）
         queries = self.query_rewriter.rewrite(query)
@@ -64,11 +75,13 @@ class Retriever:
             queries.insert(0, query)
 
         # 2. 多查询向量检索（保留排名供 RRF 融合使用）
-        vector_ranking: List[Dict[str, Any]] = []
+        vector_ranking: list[dict[str, Any]] = []
         seen_vec_ids = set()
         for q in queries:
             q_embedding = self.embedder.embed_query(q)
-            results = self.vector_store.query(q_embedding, top_k=top_k)
+            results = self.vector_store.query(
+                q_embedding, top_k=top_k, owners=viewers_list
+            )
             for r in results:
                 if r["id"] not in seen_vec_ids:
                     seen_vec_ids.add(r["id"])
@@ -81,7 +94,9 @@ class Retriever:
         # 3. 混合检索融合
         if settings.enable_bm25_rrf and self.bm25_index is not None:
             # 3a. BM25 全文检索（基于词频的加权打分）
-            bm25_ranking = self.bm25_index.search(query, top_k=top_k * 3)
+            bm25_ranking = self.bm25_index.search(
+                query, top_k=top_k * 3, viewers=viewers_list
+            )
             logger.debug(f"BM25 检索: {len(bm25_ranking)} 条结果")
 
             # 3b. RRF 融合（Reciprocal Rank Fusion）
@@ -97,7 +112,9 @@ class Retriever:
             seen_ids = set(seen_vec_ids)
             keywords = self._extract_keywords(query)
             if keywords:
-                kw_results = self.vector_store.keyword_search(keywords, top_k=top_k)
+                kw_results = self.vector_store.keyword_search(
+                    keywords, top_k=top_k, owners=viewers_list
+                )
                 before = len(all_results)
                 for r in kw_results:
                     if r["id"] not in seen_ids:
@@ -119,12 +136,12 @@ class Retriever:
 
         # 8. 上下文窗口扩展
         if settings.context_window_size > 0:
-            all_results = self._expand_context(all_results)
+            all_results = self._expand_context(all_results, viewers=viewers_list)
 
         return all_results
 
     @staticmethod
-    def _extract_keywords(query: str) -> List[str]:
+    def _extract_keywords(query: str) -> list[str]:
         """从用户查询中提取关键短语，用于关键词精确匹配。
 
         不依赖分词库，使用规则提取法规文本中的典型模式：
@@ -150,7 +167,7 @@ class Retriever:
         # 去重
         return list(dict.fromkeys(keywords))
 
-    def _deduplicate(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _deduplicate(self, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """基于文本内容去重，消除 overlap 和多查询导致的高度重叠结果。"""
         if len(results) <= 1:
             return results
@@ -196,10 +213,16 @@ class Retriever:
         intersection = set_a & set_b
         return len(intersection) / min(len(set_a), len(set_b))
 
-    def _expand_context(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _expand_context(
+        self,
+        results: list[dict[str, Any]],
+        viewers: list | None = None,
+    ) -> list[dict[str, Any]]:
         """
         上下文窗口扩展：根据 chunk_index 拉取相邻 chunk，
         将前后 N 个 chunk 的文本拼接到当前 chunk，增强上下文完整性。
+
+        Step 025a：相邻 chunk 也按 ``viewers`` 过滤（避免越权拼出他人内容）。
         """
         window = settings.context_window_size
         if window <= 0:
@@ -220,6 +243,7 @@ class Retriever:
                 source_name=source_name,
                 chunk_index=chunk_index,
                 window=window,
+                owners=viewers,
             )
 
             if neighbor_texts:

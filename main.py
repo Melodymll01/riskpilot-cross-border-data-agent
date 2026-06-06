@@ -8,6 +8,7 @@
 OAuth 回调才能落到本地服务。
 """
 
+import asyncio
 import logging
 import time
 import uuid
@@ -73,6 +74,13 @@ async def lifespan(app: FastAPI):
     """应用生命周期管理：启动时初始化服务，关闭时释放资源。"""
     logger.info("数据出境知识库问答系统正在启动...")
     start_service_init()
+    # Step 025a 启动迁移：把缺 owner_id 的旧 chunk 标为公共库（幂等）
+    container_ref = getattr(app.state, "container", None)
+    if container_ref is not None:
+        try:
+            await asyncio.to_thread(container_ref.startup_migrations)
+        except Exception:
+            logger.warning("Step 025a 启动迁移异常（已吞掉）", exc_info=True)
     yield
     logger.info("数据出境知识库问答系统正在关闭...")
 

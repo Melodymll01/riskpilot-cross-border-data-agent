@@ -27,9 +27,12 @@ class _StubVectorStore:
         self._sources = sources or []
         self._total = total
         self.add_calls: list[tuple[list[Any], list[list[float]]]] = []
-        self.delete_calls: list[str] = []
+        self.delete_calls: list[tuple[str, Any]] = []
+        self.last_owners: Any = None
+        self.migrate_calls = 0
 
-    def get_all_sources(self) -> list[dict[str, Any]]:
+    def get_all_sources(self, *, owners: Any = None) -> list[dict[str, Any]]:
+        self.last_owners = owners
         return list(self._sources)
 
     def get_total_count(self) -> int:
@@ -38,8 +41,8 @@ class _StubVectorStore:
     def add_chunks(self, chunks: list[Any], embeddings: list[list[float]]) -> None:
         self.add_calls.append((list(chunks), list(embeddings)))
 
-    def delete_by_source(self, source_name: str) -> int:
-        self.delete_calls.append(source_name)
+    def delete_by_source(self, source_name: str, *, owner_id: Any = ...) -> int:
+        self.delete_calls.append((source_name, owner_id))
         return sum(1 for s in self._sources if s.get("source_name") == source_name)
 
 
@@ -126,7 +129,9 @@ class TestWrite:
         vs = _StubVectorStore(sources=[{"source_type": "file", "source_name": "x", "chunk_count": 5}])
         repo = ChromaKbRepo(vs)  # type: ignore[arg-type]
         repo.delete_document("x")
-        assert vs.delete_calls == ["x"]
+        # Step 025a：repo.delete_document() 默认不传 owner_id → _UNSET，透传给 vs 后底层不限 owner
+        assert len(vs.delete_calls) == 1
+        assert vs.delete_calls[0][0] == "x"
 
     def test_add_chunks_length_mismatch_raises(self) -> None:
         repo = ChromaKbRepo(_StubVectorStore())  # type: ignore[arg-type]
@@ -145,8 +150,8 @@ class TestWrite:
         repo = ChromaKbRepo(vs)  # type: ignore[arg-type]
         chunks = self._make_chunks("PIPL", 3)
         repo.add_chunks(chunks, [[0.1]] * 3)
-        # 先删
-        assert vs.delete_calls == ["PIPL"]
+        # 先删：Step 025a 按 (source_name, owner_id) 删；chunk 未设 owner_id → None
+        assert vs.delete_calls == [("PIPL", None)]
         # 后插
         assert len(vs.add_calls) == 1
         cwm_list, embs = vs.add_calls[0]
@@ -165,4 +170,5 @@ class TestWrite:
         repo = ChromaKbRepo(vs)  # type: ignore[arg-type]
         chunks = self._make_chunks("PIPL", 2) + self._make_chunks("DSL", 2)
         repo.add_chunks(chunks, [[0.1]] * 4)
-        assert set(vs.delete_calls) == {"PIPL", "DSL"}
+        # Step 025a：按 (source_name, owner_id) 删，未设 owner_id → None
+        assert set(vs.delete_calls) == {("PIPL", None), ("DSL", None)}

@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from typing import Literal, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, runtime_checkable
 
 from domain.models import (
     Artifact,
@@ -173,16 +173,38 @@ class KbDocumentRepoPort(Protocol):
 
     与 v1 ``service.py:KnowledgeService.list_sources/delete_source`` 的老 KB 管理
     职责被本端口完整接管；Step 016d 已删除 v1 入口，本端口成为唯一管理面入口。
+
+    Step 025a：读侧 ``list_documents`` / ``get_document`` 增加 ``owners`` 筛选；delete_document
+    增加 ``owner_id`` 筛选。语义为面向 KB 的冗余身份粒度，免得在上层重复过滤。
     """
 
-    def list_documents(self) -> list[KbDocument]: ...
+    def list_documents(
+        self,
+        *,
+        owners: list[str | None] | None = None,
+    ) -> list[KbDocument]: ...
 
-    def get_document(self, source_name: str) -> KbDocument | None: ...
+    def get_document(
+        self,
+        source_name: str,
+        *,
+        owners: list[str | None] | None = None,
+    ) -> KbDocument | None: ...
 
     def count_chunks(self) -> int: ...
 
-    def delete_document(self, source_name: str) -> int:
-        """按 ``source_name`` 删除其所有 chunk，返回实际删除条数（不存在返回 0）。"""
+    def delete_document(
+        self,
+        source_name: str,
+        *,
+        owner_id: Any = ...,
+    ) -> int:
+        """按 ``source_name`` 删除其所有 chunk，返回实际删除条数（不存在返回 0）。
+
+        ``owner_id`` 语义：作为可选过滤。传 None 仅删公共；传字符串仅删该 owner；
+        未传（实现方用 sentinel）表示 admin 语义，不限 owner。该参数默认使用 ``...``
+        仅作 Protocol 描述；实现侧以各自的 ``_UNSET`` sentinel 为准。
+        """
         ...
 
     def add_chunks(
@@ -192,7 +214,7 @@ class KbDocumentRepoPort(Protocol):
     ) -> None:
         """批量写入 chunks 与 embeddings。``len(chunks) == len(embeddings)`` 必须满足。
 
-        实现方应在写入前清理同 ``source_name`` 的旧数据（典型语义：替换而非追加），
+        实现方应在写入前清理同 ``source_name`` + ``owner_id`` 的旧数据（典型语义：替换而非追加），
         以保持 ingestion 链路的"先删后插"幂等。
         """
         ...
@@ -213,6 +235,8 @@ class DocumentLoaderPort(Protocol):
     设计取舍：之所以把"加载 + 切分"打包，是为了 ``KbManagementUseCase`` 编排时
     只面对 3 个 Port（loader / embedder / repo），避免把 ``processing.metadata``
     /``ingestion.unified_loader`` 这类基础设施模块直接渗到 app 层。
+
+    Step 025a：load_file / load_web 加 ``owner_id`` 参数，会默认填到返回 chunks 的 owner_id。
     """
 
     def load_file(
@@ -221,6 +245,7 @@ class DocumentLoaderPort(Protocol):
         *,
         original_filename: str | None = None,
         category: str | None = None,
+        owner_id: str | None = None,
     ) -> list[KbChunk]: ...
 
     def load_web(
@@ -228,6 +253,7 @@ class DocumentLoaderPort(Protocol):
         url: str,
         *,
         category: str | None = None,
+        owner_id: str | None = None,
     ) -> list[KbChunk]: ...
 
 

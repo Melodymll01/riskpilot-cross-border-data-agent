@@ -90,8 +90,9 @@ class TestDelete:
         chunks = _make_kb_chunks("PIPL", 3)
         uc, _, _, _ = _make_uc(loader=FakeDocumentLoader(chunks=chunks))
         uc.ingest_file("/tmp/PIPL.txt")
-        assert uc.delete_document("PIPL") == 3
-        assert uc.delete_document("PIPL") == 0  # 二次幂等
+        # Step 025a：删除走 admin 路径，跳过 owner_id 必填校验
+        assert uc.delete_document("PIPL", actor_is_admin=True) == 3
+        assert uc.delete_document("PIPL", actor_is_admin=True) == 0  # 二次幂等
 
 
 class TestIngestFile:
@@ -241,7 +242,12 @@ class TestAuditHooks:
             embedder=FakeEmbed(dim=4),
             audit_log=audit,
         )
-        uc.ingest_file("/tmp/PIPL.txt", actor_id="github:Melodymll01")
+        # Step 025a：ingest 传 owner_id 入私人；delete 用同一 actor_id 即可删自己
+        uc.ingest_file(
+            "/tmp/PIPL.txt",
+            actor_id="github:Melodymll01",
+            owner_id="github:Melodymll01",
+        )
         audit.entries.clear()  # 只看 delete
 
         deleted = uc.delete_document("PIPL", actor_id="github:Melodymll01")
@@ -362,5 +368,6 @@ class TestAuditHooks:
 
     def test_actor_id_default_when_none(self) -> None:
         uc, _, _, audit = _make_uc_with_audit()
-        uc.delete_document("nope")  # 不传 actor_id
+        # Step 025a：admin 路径下 actor_id 可空，审计落 system:unknown
+        uc.delete_document("nope", actor_is_admin=True)
         assert audit.entries[0].actor_id == "system:unknown"

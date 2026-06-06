@@ -140,7 +140,7 @@
       <header class="kb-header">
         <div class="kb-title-wrap">
           <h1 class="kb-title" id="kb-title">📚 知识库</h1>
-          <p class="kb-subtitle">Agent 在检索时会引用这里的语料。管理员可上传/删除；普通用户只读。</p>
+          <p class="kb-subtitle">Agent 在检索时会引用这里的语料。任何用户都可上传/删除自己的私人文档；管理员可维护公共库与他人文档。</p>
         </div>
         <div class="kb-stats">
           <div class="kb-stat">
@@ -155,6 +155,15 @@
         </div>
       </header>
 
+      <div class="kb-scope-toggle" role="tablist" aria-label="可见范围">
+        <button class="kb-scope-btn is-active" data-scope="all" role="tab"
+                title="公共 ∪ 我的（管理员视角=全库）">全部</button>
+        <button class="kb-scope-btn" data-scope="public" role="tab"
+                title="仅公共库（管理员入库）">公共</button>
+        <button class="kb-scope-btn" data-scope="mine" role="tab"
+                title="仅我自己上传的私人文档">我的</button>
+      </div>
+
       <div class="kb-readonly-banner hidden" id="kb-readonly-banner">
         🔒 当前以只读模式查看知识库；上传 / 删除需管理员权限。
       </div>
@@ -162,10 +171,15 @@
       <section class="kb-actions" id="kb-actions">
         <div class="kb-action-card">
           <div class="kb-action-title"><span>📄</span> 上传文件</div>
-          <div class="kb-action-hint">支持 PDF / TXT / DOCX；最大 50 MB</div>
+          <div class="kb-action-hint">支持 PDF / TXT / DOCX；最大 50 MB。默认上传到「我的」私人库。</div>
           <div class="kb-action-row">
             <input type="text" id="kb-file-category" class="kb-input"
                    placeholder="分类可选：法规 / 政策 / 指南" maxlength="100" />
+            <label class="kb-aspublic-wrap" id="kb-file-aspublic-wrap" style="display:none;"
+                   title="管理员可选：勾选后上传到公共库；否则与普通用户一致入私人库">
+              <input type="checkbox" id="kb-file-aspublic" />
+              <span>入公共库</span>
+            </label>
             <button class="btn btn-primary" id="kb-btn-upload">选择文件上传</button>
             <input type="file" id="kb-file-input" hidden accept=".pdf,.txt,.docx" />
           </div>
@@ -173,12 +187,17 @@
 
         <div class="kb-action-card">
           <div class="kb-action-title"><span>🌐</span> 采集网页</div>
-          <div class="kb-action-hint">仅支持 http / https 协议的公开页面</div>
+          <div class="kb-action-hint">仅支持 http / https 协议的公开页面。默认采集到「我的」私人库。</div>
           <form class="kb-action-row" id="kb-form-web">
             <input type="url" id="kb-web-url" class="kb-input kb-input-url"
                    placeholder="https://example.com/article" required />
             <input type="text" id="kb-web-category" class="kb-input"
                    placeholder="分类可选" maxlength="100" />
+            <label class="kb-aspublic-wrap" id="kb-web-aspublic-wrap" style="display:none;"
+                   title="管理员可选：勾选后采集到公共库；否则与普通用户一致入私人库">
+              <input type="checkbox" id="kb-web-aspublic" />
+              <span>入公共库</span>
+            </label>
             <button type="submit" class="btn btn-primary">采集</button>
           </form>
         </div>
@@ -191,6 +210,7 @@
           <thead>
             <tr>
               <th class="kb-col-type">类型</th>
+              <th class="kb-col-owner">归属</th>
               <th class="kb-col-source">source_name</th>
               <th class="kb-col-title">标题</th>
               <th class="kb-col-cat">分类</th>
