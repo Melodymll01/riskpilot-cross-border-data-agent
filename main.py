@@ -26,6 +26,7 @@ from api.routes import limiter, router, start_service_init
 from api.v2 import build_v2_router
 from api.v2.errors import install_exception_handlers
 from app.container import AppContainer
+from app.request_context import reset_request_id, set_request_id
 from config import settings
 
 # ===================== 日志配置 =====================
@@ -99,12 +100,20 @@ app = FastAPI(
 
 @app.middleware("http")
 async def request_context_middleware(request: Request, call_next):
-    """为每个请求注入 request_id，记录请求耗时。"""
+    """为每个请求注入 request_id，记录请求耗时。
+
+    Step 025d：同时把 request_id 写入 ``app.request_context.request_id_var``
+    contextvar，让 use case（如 ``_record_audit``）不需要 API 层逐层透传
+    就能拿到当前请求 id，落到 ``AuditEntry.request_id`` 字段。
+    """
     request_id = request.headers.get("X-Request-ID", uuid.uuid4().hex[:12])
     request.state.request_id = request_id
+    token = set_request_id(request_id)
     start = time.perf_counter()
-
-    response = await call_next(request)
+    try:
+        response = await call_next(request)
+    finally:
+        reset_request_id(token)
 
     elapsed_ms = (time.perf_counter() - start) * 1000
     response.headers["X-Request-ID"] = request_id

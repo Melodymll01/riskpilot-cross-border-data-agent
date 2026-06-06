@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from app.request_context import get_request_id
 from domain.errors import InvalidToken, OAuthFlowError
 from domain.models import AuditAction, AuditEntry
 
@@ -124,16 +125,20 @@ class AuthLoginUseCase:
         error: str | None,
         extra: dict[str, object] | None = None,
     ) -> None:
-        """统一审计写入：audit_log=None 跳过；写失败仅 warning。"""
+        """统一审计写入：audit_log=None 跳过；写失败仅 warning。
+
+        Step 025d：request_id 语义为「显式形参优先 > contextvar > None」。
+        """
         if self._audit is None:
             return
+        effective_request_id = request_id if request_id is not None else get_request_id()
         try:
             self._audit.record(
                 AuditEntry(
                     actor_id=actor_id or "system:unknown",
                     action=action,
                     resource=resource,
-                    request_id=request_id,
+                    request_id=effective_request_id,
                     success=success,
                     error=error,
                     extra_json=dict(extra or {}),

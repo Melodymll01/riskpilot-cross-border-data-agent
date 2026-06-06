@@ -21,6 +21,7 @@ from fastapi.testclient import TestClient
 from api.v2 import build_v2_router
 from api.v2.errors import install_exception_handlers
 from app.container import AppContainer
+from app.request_context import install_request_id_middleware
 from config import Settings
 from tests.fakes.fake_audit_log import FakeAuditLogRepo
 from tests.fakes.fake_auth import FakeAuth
@@ -79,6 +80,8 @@ def container(test_settings: Settings, chat_script: list[str]) -> AppContainer:
 @pytest.fixture
 def app(container: AppContainer) -> FastAPI:
     fastapi_app = FastAPI()
+    # Step 025d：挂 request_id middleware，确保端到端测试的 contextvar 与生产一致
+    install_request_id_middleware(fastapi_app)
     fastapi_app.include_router(build_v2_router(container), prefix="/api/v2")
     install_exception_handlers(fastapi_app)
     # 暴露 container，方便测试里直接读 repo / fakes 验证副作用
