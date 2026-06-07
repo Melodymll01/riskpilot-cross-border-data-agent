@@ -143,6 +143,14 @@ class Settings(BaseSettings):
     # 记忆块 token 预算上限（字符数近似）；超出时从最旧消息开始丢弃。
     memory_token_budget: int = Field(1500, ge=0, le=8000)
 
+    # ── 记忆 L2 摘要 + TTL（Step 030b）─────────────────────────────────────────
+    # L2 滚动摘要：未摘要消息数 ≥ 阈值时，后台 LLM 增量精炼出会话摘要。
+    memory_summary_enabled: bool = True
+    memory_summary_threshold: int = Field(20, ge=2, le=200)
+    # 差异化 TTL（逻辑遗忘）：读取时过滤过期记忆，过期原文/摘要永不注入。
+    memory_l1_ttl_days: float = Field(30.0, ge=0.0, le=3650.0)
+    memory_l2_ttl_days: float = Field(180.0, ge=0.0, le=3650.0)
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",

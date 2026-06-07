@@ -1,6 +1,6 @@
-"""``TaskBackedMemory`` L1 短期记忆测试（S-030a）。
+"""``TaskBackedMemory`` L1 短期 + L2 摘要 + TTL 测试（S-030a/b）。
 
-覆盖三类重点之"隔离"：owner_id 校验必须生效，跨用户绝不泄露。
+覆盖：隔离（owner 校验不泄露）、L2 增量摘要 + watermark 幂等、TTL 逻辑遗忘。
 """
 
 from __future__ import annotations
@@ -11,13 +11,17 @@ import pytest
 
 from domain.models import Message, Task
 from infra.memory import TaskBackedMemory
+from tests.fakes.fake_chat import FakeChat
 from tests.fakes.fake_repos import InMemoryTaskRepo
+from tests.fakes.fake_summary_store import InMemorySummaryStore
 
 pytestmark = pytest.mark.unit
 
+# 所有相对时间戳都锚到"现在"，避免默认 30 天 TTL 把 1970 纪元的旧消息过滤掉。
+_NOW = time.time()
+
 
 def _seed_task(repo: InMemoryTaskRepo, *, task_id: str, owner_id: str) -> None:
-    now = time.time()
     repo.create(
         Task(
             task_id=task_id,
@@ -26,8 +30,8 @@ def _seed_task(repo: InMemoryTaskRepo, *, task_id: str, owner_id: str) -> None:
             state="planning",
             user_goal="",
             collected_facts={},
-            created_at=now,
-            updated_at=now,
+            created_at=_NOW,
+            updated_at=_NOW,
         )
     )
 
@@ -38,7 +42,7 @@ def _msg(task_id: str, role: str, content: str, ts: float) -> Message:
         task_id=task_id,
         role=role,  # type: ignore[arg-type]
         content=content,
-        created_at=ts,
+        created_at=_NOW + ts,  # 锚到现在，落在 TTL 窗口内
     )
 
 
@@ -109,8 +113,164 @@ class TestOwnerIsolation:
         assert mem.recent_messages("anon:o1", "does_not_exist", 5) == []
 
 
-class TestL2L3L4NotImplemented:
-    def test_summary_raises(self) -> None:
+class TestL1Ttl:
+    def test_expired_messages_filtered(self) -> None:
+        repo = InMemoryTaskRepo()
+        _seed_task(repo, task_id="t1", owner_id="anon:o1")
+        old = Message(
+            msg_id="old",
+            task_id="t1",
+            role="user",
+            content="过期内容",
+            created_at=_NOW - 40 * 86400,  # 40 天前 > 30 天 TTL
+        )
+        repo.append_message(old)
+        repo.append_message(_msg("t1", "user", "新内容", 0.0))
+        mem = TaskBackedMemory(repo, l1_ttl_days=30.0)
+
+        out = mem.recent_messages("anon:o1", "t1", 5)
+
+        assert [m.content for m in out] == ["新内容"]
+
+    def test_ttl_zero_disables_filter(self) -> None:
+        repo = InMemoryTaskRepo()
+        _seed_task(repo, task_id="t1", owner_id="anon:o1")
+        old = Message(
+            msg_id="old",
+            task_id="t1",
+            role="user",
+            content="远古内容",
+            created_at=1000.0,
+        )
+        repo.append_message(old)
+        mem = TaskBackedMemory(repo, l1_ttl_days=0.0)
+
+        out = mem.recent_messages("anon:o1", "t1", 5)
+
+        assert [m.content for m in out] == ["远古内容"]
+
+
+class TestL2Summary:
+    def _mem(
+        self, repo: InMemoryTaskRepo, store: InMemorySummaryStore, chat: FakeChat
+    ) -> TaskBackedMemory:
+        return TaskBackedMemory(
+            repo, summary_store=store, chat=chat, summary_threshold=3
+        )
+
+    def test_summarizes_when_backlog_reaches_threshold(self) -> None:
+        repo = InMemoryTaskRepo()
+        _seed_task(repo, task_id="t1", owner_id="anon:o1")
+        for i in range(3):
+            repo.append_message(_msg("t1", "user", f"q{i}", i))
+        store = InMemorySummaryStore()
+        chat = FakeChat(responses=["摘要：用户问了三个问题"])
+        mem = self._mem(repo, store, chat)
+
+        mem.maybe_summarize("anon:o1", "t1")
+
+        assert mem.get_summary("anon:o1", "t1") == "摘要：用户问了三个问题"
+        rec = store.get("t1", "anon:o1")
+        assert rec is not None and rec.msg_watermark == 3
+
+    def test_below_threshold_is_noop(self) -> None:
+        repo = InMemoryTaskRepo()
+        _seed_task(repo, task_id="t1", owner_id="anon:o1")
+        repo.append_message(_msg("t1", "user", "q0", 0))
+        store = InMemorySummaryStore()
+        chat = FakeChat(responses=["不该被调用"])
+        mem = self._mem(repo, store, chat)
+
+        mem.maybe_summarize("anon:o1", "t1")
+
+        assert store.get("t1", "anon:o1") is None
+        assert chat.calls == []  # LLM 没被触发
+
+    def test_watermark_idempotent_no_double_summary(self) -> None:
+        repo = InMemoryTaskRepo()
+        _seed_task(repo, task_id="t1", owner_id="anon:o1")
+        for i in range(3):
+            repo.append_message(_msg("t1", "user", f"q{i}", i))
+        store = InMemorySummaryStore()
+        chat = FakeChat(responses=["第一次摘要"])
+        mem = self._mem(repo, store, chat)
+
+        mem.maybe_summarize("anon:o1", "t1")  # 触发
+        mem.maybe_summarize("anon:o1", "t1")  # backlog 已清空 → 空操作
+
+        assert len(chat.calls) == 1  # 只摘要一次
+
+    def test_incremental_refine_includes_old_summary(self) -> None:
+        repo = InMemoryTaskRepo()
+        _seed_task(repo, task_id="t1", owner_id="anon:o1")
+        for i in range(3):
+            repo.append_message(_msg("t1", "user", f"q{i}", i))
+        store = InMemorySummaryStore()
+        chat = FakeChat(responses=["旧摘要", "新摘要"])
+        mem = self._mem(repo, store, chat)
+        mem.maybe_summarize("anon:o1", "t1")  # 第一次 → 旧摘要
+        for i in range(3, 6):
+            repo.append_message(_msg("t1", "user", f"q{i}", i))
+
+        mem.maybe_summarize("anon:o1", "t1")  # 第二次 → 增量精炼
+
+        # 第二次的 user prompt 必须带上"旧摘要"
+        second_prompt = chat.calls[1]["messages"][1]["content"]
+        assert "旧摘要" in second_prompt
+        assert mem.get_summary("anon:o1", "t1") == "新摘要"
+
+    def test_no_store_or_chat_is_noop(self) -> None:
+        repo = InMemoryTaskRepo()
+        _seed_task(repo, task_id="t1", owner_id="anon:o1")
+        for i in range(5):
+            repo.append_message(_msg("t1", "user", f"q{i}", i))
+        mem = TaskBackedMemory(repo)  # 纯 L1，无 store/chat
+
+        mem.maybe_summarize("anon:o1", "t1")  # 不抛
+
+        assert mem.get_summary("anon:o1", "t1") is None
+
+    def test_other_owner_summary_not_leaked(self) -> None:
+        repo = InMemoryTaskRepo()
+        _seed_task(repo, task_id="t1", owner_id="anon:owner_a")
+        for i in range(3):
+            repo.append_message(_msg("t1", "user", f"q{i}", i))
+        store = InMemorySummaryStore()
+        chat = FakeChat(responses=["机密摘要"])
+        mem = self._mem(repo, store, chat)
+        mem.maybe_summarize("anon:owner_a", "t1")
+
+        assert mem.get_summary("anon:owner_b", "t1") is None
+
+
+class TestL2Ttl:
+    def test_expired_summary_not_returned(self) -> None:
+        repo = InMemoryTaskRepo()
+        _seed_task(repo, task_id="t1", owner_id="anon:o1")
+        store = InMemorySummaryStore()
+        from domain.models import TaskSummary
+
+        store.upsert(
+            TaskSummary(
+                task_id="t1",
+                owner_id="anon:o1",
+                summary="陈旧摘要",
+                msg_watermark=3,
+                updated_at=_NOW - 200 * 86400,  # 200 天前 > 180 天 TTL
+            )
+        )
+        mem = TaskBackedMemory(repo, summary_store=store, l2_ttl_days=180.0)
+
+        assert mem.get_summary("anon:o1", "t1") is None
+
+
+class TestL3L4NotImplemented:
+    def test_profile_raises(self) -> None:
         mem = TaskBackedMemory(InMemoryTaskRepo())
         with pytest.raises(NotImplementedError):
-            mem.get_summary("t1")
+            mem.get_profile("anon:o1")
+
+    def test_recall_semantic_raises(self) -> None:
+        mem = TaskBackedMemory(InMemoryTaskRepo())
+        with pytest.raises(NotImplementedError):
+            mem.recall_semantic("anon:o1", "q", 3)

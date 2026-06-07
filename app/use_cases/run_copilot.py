@@ -14,6 +14,7 @@ API 层（Step 010）直接迭代 yield 出来的事件序列化成 SSE。
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Iterator
 from typing import TYPE_CHECKING
 
@@ -24,7 +25,7 @@ if TYPE_CHECKING:
     from app.agent.copilot import ComplianceCopilotAgent
     from app.use_cases.task_management import TaskManagementUseCase
     from domain.models import RiskProfile, TaskMode
-    from domain.ports import ResearchPort, RiskProfilePort
+    from domain.ports import MemoryJobSchedulerPort, ResearchPort, RiskProfilePort
 
 
 class RunCopilotUseCase:
@@ -35,11 +36,13 @@ class RunCopilotUseCase:
         task_management: TaskManagementUseCase,
         risk_profile: RiskProfilePort | None = None,
         research: ResearchPort | None = None,
+        memory_scheduler: MemoryJobSchedulerPort | None = None,
     ) -> None:
         self._agent = agent
         self._task_uc = task_management
         self._risk_profile = risk_profile
         self._research = research
+        self._memory_scheduler = memory_scheduler
 
     def stream(
         self,
@@ -82,11 +85,26 @@ class RunCopilotUseCase:
             ids = ", ".join(attachment_doc_ids)
             effective_message = f"{user_message}\n\n[已上传文档 ID: {ids}]"
 
-        yield from self._agent.run(
-            owner_id=owner_id,
-            task_id=task_id,
-            user_message=effective_message,
-        )
+        try:
+            yield from self._agent.run(
+                owner_id=owner_id,
+                task_id=task_id,
+                user_message=effective_message,
+            )
+        finally:
+            # 回复完成后显式调度 L2 摘要（§14.1）。放 finally 而非生成器尾部：
+            # SSE 客户端提前断连触发 GeneratorExit 时仍会调度，不漏跑；
+            # 后台 best-effort，失败下一轮按 watermark 自愈。
+            self._schedule_memory(owner_id=owner_id, task_id=task_id)
+
+    # ─── 记忆调度 ──────────────────────────────────────────────────
+
+    def _schedule_memory(self, *, owner_id: str, task_id: str) -> None:
+        if self._memory_scheduler is None:
+            return
+        # 调度失败绝不影响主回复（后台 best-effort）。
+        with contextlib.suppress(Exception):
+            self._memory_scheduler.schedule_summarization(owner_id, task_id)
 
     # ─── profile 分支 ──────────────────────────────────────────────
 

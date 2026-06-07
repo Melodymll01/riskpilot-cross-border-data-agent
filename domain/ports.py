@@ -29,6 +29,7 @@ from domain.models import (
     RiskProfile,
     SessionProfile,
     Task,
+    TaskSummary,
     ToolCall,
     User,
     WebResult,
@@ -304,9 +305,11 @@ class MemoryPort(Protocol):
     def recent_messages(self, owner_id: str, task_id: str, n: int) -> list[Message]: ...
 
     # L2 摘要：按 task_id
-    def get_summary(self, task_id: str) -> str | None: ...
+    def get_summary(self, owner_id: str, task_id: str) -> str | None: ...
 
-    def maybe_summarize(self, task_id: str, threshold: int = 20) -> None: ...
+    def maybe_summarize(
+        self, owner_id: str, task_id: str, threshold: int = 20
+    ) -> None: ...
 
     # L3 用户画像：按 owner_id（跨 task / 跨设备）
     def get_profile(self, owner_id: str) -> SessionProfile: ...
@@ -315,6 +318,26 @@ class MemoryPort(Protocol):
 
     # L4 语义事实：按 owner_id
     def recall_semantic(self, owner_id: str, query: str, k: int) -> list[Fact]: ...
+
+
+@runtime_checkable
+class SummaryStorePort(Protocol):
+    """L2 摘要存储（``task_summaries`` 表，Step 030b）。"""
+
+    def get(self, task_id: str, owner_id: str) -> TaskSummary | None: ...
+
+    def upsert(self, summary: TaskSummary) -> None: ...
+
+
+@runtime_checkable
+class MemoryJobSchedulerPort(Protocol):
+    """记忆后台作业调度（§14.1 显式调度起步，Step 030b）。
+
+    回复完成后由 use case 显式调用，后台 best-effort 跡出 L2 摘要，
+    不阻塞主回复；失败下一轮按 watermark 自愈补。
+    """
+
+    def schedule_summarization(self, owner_id: str, task_id: str) -> None: ...
 
 
 # === 审计（Step 021） ===

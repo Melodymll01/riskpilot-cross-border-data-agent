@@ -320,6 +320,20 @@ class SessionProfile(BaseDomainModel):
     updated_at: float = Field(default_factory=lambda: time.time())
 
 
+class TaskSummary(BaseDomainModel):
+    """L2 情景记忆：单个 task 的滚动摘要（Step 030b）。
+
+    `msg_watermark` 记录"已摘要到第几条消息"（按 `list_messages` 顺序的索引），
+    用于增量精炼的幂等：重试不重复摘要、漏摘下一轮按差额自动补。
+    """
+
+    task_id: str = Field(min_length=1)
+    owner_id: str = Field(min_length=1)
+    summary: str = ""
+    msg_watermark: int = Field(default=0, ge=0)
+    updated_at: float = Field(default_factory=lambda: time.time())
+
+
 class Fact(BaseDomainModel):
     """语义记忆中的单条事实（按 `owner_id`，跨 task / 跨设备可召回）。"""
 

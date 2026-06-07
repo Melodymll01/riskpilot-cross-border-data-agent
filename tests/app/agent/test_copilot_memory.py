@@ -96,11 +96,16 @@ def _seed_task(repo: InMemoryTaskRepo, owner_id: str = _OWNER) -> None:
 
 
 def _seed_history(repo: InMemoryTaskRepo) -> None:
+    now = time.time()
     repo.append_message(
-        Message(msg_id="m1", task_id=_TASK, role="user", content="上一轮问题", created_at=1.0)
+        Message(
+            msg_id="m1", task_id=_TASK, role="user", content="上一轮问题", created_at=now - 2
+        )
     )
     repo.append_message(
-        Message(msg_id="m2", task_id=_TASK, role="assistant", content="上一轮回答", created_at=2.0)
+        Message(
+            msg_id="m2", task_id=_TASK, role="assistant", content="上一轮回答", created_at=now - 1
+        )
     )
 
 

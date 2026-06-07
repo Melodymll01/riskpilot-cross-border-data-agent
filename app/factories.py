@@ -21,10 +21,12 @@ from domain.ports import (
     EmbedPort,
     EvidencePort,
     KbDocumentRepoPort,
+    MemoryJobSchedulerPort,
     MemoryPort,
     ResearchPort,
     RetrievePort,
     RiskProfilePort,
+    SummaryStorePort,
     TaskRepoPort,
     UserRepoPort,
     WebSearchPort,
@@ -34,11 +36,11 @@ from infra.auth import AnonymousProvider, AuthService, GitHubOAuthProvider, JwtI
 from infra.chat import OpenAIChatAdapter
 from infra.evidence import MockEvidenceClient
 from infra.kb import ChromaKbRepo, UnifiedLoaderAdapter
-from infra.memory import TaskBackedMemory
+from infra.memory import TaskBackedMemory, ThreadPoolMemoryScheduler
 from infra.research import AgenticResearchAdapter
 from infra.risk_profile import StubRiskProfileService
 from infra.search import EmbedderAdapter, HybridRetrieverAdapter
-from infra.storage import SqliteTaskRepo, SqliteUserRepo
+from infra.storage import SqliteSummaryStore, SqliteTaskRepo, SqliteUserRepo
 from infra.storage._db import SqliteConnectionPool
 from infra.web import DuckDuckGoAdapter
 
@@ -95,14 +97,57 @@ def build_risk_profile(_settings: Settings) -> RiskProfilePort:
     return StubRiskProfileService(mode="raise")
 
 
-def build_memory(settings: Settings, *, task_repo: TaskRepoPort) -> MemoryPort | None:
-    """构造 ``MemoryPort``（S-030a 仅 L1）；禁用时返回 None。
+def build_memory(
+    settings: Settings,
+    *,
+    task_repo: TaskRepoPort,
+    chat: ChatPort | None = None,
+) -> MemoryPort | None:
+    """构造 ``MemoryPort``（S-030a L1 + S-030b L2）；禁用时返回 None。
 
     None 是合法状态：表示"记忆关闭"，装配器据此退回无状态旧行为。
+    L2 摘要依赖 summary_store + chat；任一缺失则退化为纯 L1。
+    `chat=None` 时按配置自建（容器一般注入自己的 chat 以复用注入的 fake）。
     """
     if not settings.memory_enabled:
         return None
-    return TaskBackedMemory(task_repo)
+    summary_store = build_summary_store(settings, task_repo=task_repo)
+    summary_chat: ChatPort | None = None
+    if settings.memory_summary_enabled:
+        summary_chat = chat if chat is not None else build_chat(settings)
+    return TaskBackedMemory(
+        task_repo,
+        summary_store=summary_store,
+        chat=summary_chat,
+        l1_ttl_days=settings.memory_l1_ttl_days,
+        l2_ttl_days=settings.memory_l2_ttl_days,
+        summary_threshold=settings.memory_summary_threshold,
+    )
+
+
+def build_summary_store(
+    settings: Settings, *, task_repo: TaskRepoPort
+) -> SummaryStorePort | None:
+    """构造 L2 摘要存储；禁用摘要时返回 None。
+
+    复用 ``SqliteTaskRepo`` 的连接池，与 task 同库同事务边界。
+    """
+    if not (settings.memory_enabled and settings.memory_summary_enabled):
+        return None
+    if isinstance(task_repo, SqliteTaskRepo):
+        return SqliteSummaryStore(task_repo._pool)  # noqa: SLF001 — 同包复用连接池
+    return SqliteSummaryStore(build_sqlite_pool(settings))
+
+
+def build_memory_scheduler(
+    settings: Settings, *, memory: MemoryPort | None
+) -> MemoryJobSchedulerPort | None:
+    """构造 L2 后台调度器；记忆禁用 / 摘要禁用时返回 None。"""
+    if memory is None or not settings.memory_summary_enabled:
+        return None
+    return ThreadPoolMemoryScheduler(
+        memory, summary_threshold=settings.memory_summary_threshold
+    )
 
 
 def build_research(_settings: Settings) -> ResearchPort:
@@ -165,10 +210,12 @@ __all__ = [
     "build_evidence",
     "build_kb_repo",
     "build_memory",
+    "build_memory_scheduler",
     "build_research",
     "build_retriever",
     "build_risk_profile",
     "build_sqlite_pool",
+    "build_summary_store",
     "build_task_repo",
     "build_user_repo",
     "build_web_search",

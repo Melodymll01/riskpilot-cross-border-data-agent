@@ -335,3 +335,77 @@ class TestResearchMode:
         assert len(cites) == 1
         assert cites[0]["source_name"] == "个人信息保护法"
 
+
+class _RecordingScheduler:
+    """记录 schedule_summarization 调用的 Fake 调度器。"""
+
+    def __init__(self, *, boom: bool = False) -> None:
+        self.calls: list[tuple[str, str]] = []
+        self._boom = boom
+
+    def schedule_summarization(self, owner_id: str, task_id: str) -> None:
+        if self._boom:
+            raise RuntimeError("调度炸了")
+        self.calls.append((owner_id, task_id))
+
+
+def _make_uc_with_scheduler(
+    scheduler: object,
+) -> tuple[RunCopilotUseCase, InMemoryTaskRepo]:
+    chat = FakeChat(responses=[_FINAL])
+    repo = InMemoryTaskRepo()
+    from types import SimpleNamespace
+
+    container = SimpleNamespace(
+        retriever=FakeRetrieve(),
+        web_search=FakeWebSearch(),
+        evidence=FakeEvidence(),
+    )
+    registry = register_default_tools(container)  # type: ignore[arg-type]
+    agent = ComplianceCopilotAgent(
+        chat=chat, task_repo=repo, tool_registry=registry, max_steps=3
+    )
+    task_uc = TaskManagementUseCase(repo)
+    uc = RunCopilotUseCase(
+        agent=agent,
+        task_management=task_uc,
+        memory_scheduler=scheduler,  # type: ignore[arg-type]
+    )
+    return uc, repo
+
+
+class TestMemoryScheduling:
+    """qa 模式收尾后应触发 L2 摘要调度（S-030b）。"""
+
+    def test_qa_schedules_summarization(self) -> None:
+        sched = _RecordingScheduler()
+        uc, _ = _make_uc_with_scheduler(sched)
+
+        events = list(
+            uc.stream(owner_id="anon:x", task_id=None, user_message="个人信息出境条件")
+        )
+        task_id = events[0].payload["task_id"]
+
+        assert sched.calls == [("anon:x", task_id)]
+
+    def test_scheduler_failure_does_not_break_stream(self) -> None:
+        sched = _RecordingScheduler(boom=True)
+        uc, _ = _make_uc_with_scheduler(sched)
+
+        # 调度抛错也不能影响主回复
+        events = list(
+            uc.stream(owner_id="anon:x", task_id=None, user_message="问题")
+        )
+
+        assert any(e.event_type is AgentEventType.ANSWER for e in events)
+
+    def test_no_scheduler_is_noop(self) -> None:
+        uc, _, _ = _make_uc(responses=[_FINAL])  # 不带 scheduler
+
+        events = list(
+            uc.stream(owner_id="anon:x", task_id=None, user_message="问题")
+        )
+
+        assert any(e.event_type is AgentEventType.ANSWER for e in events)
+
+

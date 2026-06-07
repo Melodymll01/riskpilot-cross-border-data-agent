@@ -30,6 +30,7 @@ from app.factories import (
     build_evidence,
     build_kb_repo,
     build_memory,
+    build_memory_scheduler,
     build_research,
     build_retriever,
     build_risk_profile,
@@ -58,6 +59,7 @@ if TYPE_CHECKING:
         EmbedPort,
         EvidencePort,
         KbDocumentRepoPort,
+        MemoryJobSchedulerPort,
         MemoryPort,
         ResearchPort,
         RetrievePort,
@@ -126,15 +128,19 @@ class AppContainer:
         # ── 鉴权（依赖 user_repo） ────────────────────────────────────
         self.auth: AuthPort = auth or build_auth(settings, self.user_repo)
 
-        # ── 记忆系统（Step 030：S-030a 仅 L1，依赖 task_repo） ────────
+        # ── 记忆系统（Step 030：S-030a L1 + S-030b L2，依赖 task_repo） ───
         # memory 可为 None（禁用）；显式注入优先，否则按配置装配。
         self.memory: MemoryPort | None = memory or build_memory(
-            settings, task_repo=self.task_repo
+            settings, task_repo=self.task_repo, chat=self.chat
         )
         self.memory_assembler = MemoryAssembler(
             self.memory,
             recent_n=settings.memory_recent_n,
             token_budget=settings.memory_token_budget,
+        )
+        # L2 后台调度器（回复后异步跡出摘要）
+        self.memory_scheduler: MemoryJobSchedulerPort | None = build_memory_scheduler(
+            settings, memory=self.memory
         )
 
         # ── use case 装配 ─────────────────────────────────────────────
@@ -162,6 +168,7 @@ class AppContainer:
             task_management=self.task_management,
             risk_profile=self.risk_profile,
             research=self.research,
+            memory_scheduler=self.memory_scheduler,
         )
 
     # ─── 启动钩子（main.py lifespan 调用） ───────────────────────────

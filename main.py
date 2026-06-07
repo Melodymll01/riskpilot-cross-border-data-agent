@@ -84,6 +84,14 @@ async def lifespan(app: FastAPI):
             logger.warning("Step 025a 启动迁移异常（已吞掉）", exc_info=True)
     yield
     logger.info("数据出境知识库问答系统正在关闭...")
+    # 优雅关闭 L2 记忆调度线程池（best-effort，不等待挂起作业）
+    if container_ref is not None:
+        scheduler = getattr(container_ref, "memory_scheduler", None)
+        if scheduler is not None:
+            try:
+                scheduler.shutdown(wait=False)
+            except Exception:  # noqa: BLE001 — 关闭期异常仅记录
+                logger.warning("记忆调度器关闭异常（已吞掉）", exc_info=True)
 
 
 # ===================== FastAPI 应用 =====================

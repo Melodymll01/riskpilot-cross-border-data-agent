@@ -17,12 +17,16 @@ class FakeMemory:
         *,
         messages: dict[str, list[Message]] | None = None,
         owners: dict[str, str] | None = None,
+        summaries: dict[str, str] | None = None,
     ) -> None:
         # task_id -> 消息列表
         self._messages: dict[str, list[Message]] = messages or {}
         # task_id -> owner_id（用于归属校验）；缺省视为任意 owner 可读。
         self._owners: dict[str, str] = owners or {}
+        # task_id -> 摘要文本（L2）
+        self._summaries: dict[str, str] = summaries or {}
         self.recent_calls: list[tuple[str, str, int]] = []
+        self.summarize_calls: list[tuple[str, str, int]] = []
 
     def append_message(self, task_id: str, msg: Message) -> None:
         self._messages.setdefault(task_id, []).append(msg)
@@ -37,13 +41,20 @@ class FakeMemory:
         msgs = self._messages.get(task_id, [])
         return msgs[-n:]
 
-    # ── L2/L3/L4 占位 ──────────────────────────────────────────────────────
+    # ── L2 摘要 ────────────────────────────────────────────────────────────
 
-    def get_summary(self, task_id: str) -> str | None:
-        raise NotImplementedError
+    def get_summary(self, owner_id: str, task_id: str) -> str | None:
+        expected = self._owners.get(task_id)
+        if expected is not None and expected != owner_id:
+            return None
+        return self._summaries.get(task_id)
 
-    def maybe_summarize(self, task_id: str, threshold: int = 20) -> None:
-        raise NotImplementedError
+    def maybe_summarize(
+        self, owner_id: str, task_id: str, threshold: int = 20
+    ) -> None:
+        self.summarize_calls.append((owner_id, task_id, threshold))
+
+    # ── L3/L4 占位 ──────────────────────────────────────────────────────────
 
     def get_profile(self, owner_id: str) -> SessionProfile:
         raise NotImplementedError

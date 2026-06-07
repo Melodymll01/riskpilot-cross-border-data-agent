@@ -104,3 +104,60 @@ class TestTokenBudget:
         block = asm.assemble(owner_id="o1", task_id="t1")
 
         assert huge in block
+
+
+class TestSummaryInjection:
+    def test_summary_and_recent_both_rendered(self) -> None:
+        mem = FakeMemory(
+            messages={"t1": [_msg("user", "最近问题", 2.0)]},
+            summaries={"t1": "更早聊过数据出境评估"},
+        )
+        asm = MemoryAssembler(mem, recent_n=6, token_budget=1500)
+
+        block = asm.assemble(owner_id="o1", task_id="t1")
+
+        assert "【对话摘要" in block
+        assert "更早聊过数据出境评估" in block
+        assert "【历史对话" in block
+        assert "用户：最近问题" in block
+        # 摘要排在最近原文之前
+        assert block.index("【对话摘要") < block.index("【历史对话")
+
+    def test_summary_only_when_no_recent(self) -> None:
+        mem = FakeMemory(messages={}, summaries={"t1": "纯摘要内容"})
+        asm = MemoryAssembler(mem, recent_n=6, token_budget=1500)
+
+        block = asm.assemble(owner_id="o1", task_id="t1")
+
+        assert "【对话摘要" in block
+        assert "纯摘要内容" in block
+        assert "【历史对话" not in block
+
+    def test_summary_takes_budget_priority(self) -> None:
+        # 摘要先吃预算：摘要超预算时被截断，但仍优先保留。
+        summary = "摘" * 200
+        mem = FakeMemory(messages={}, summaries={"t1": summary})
+        asm = MemoryAssembler(mem, recent_n=6, token_budget=30)
+
+        block = asm.assemble(owner_id="o1", task_id="t1")
+
+        assert "【对话摘要" in block  # 摘要保住
+        assert "摘" in block
+        # 整体不超太多：被预算截断，远小于原始 200 字
+        assert block.count("摘") < 200
+
+    def test_summary_failure_degrades_to_recent_only(self) -> None:
+        class _SummaryBoom:
+            def get_summary(self, *a: object, **k: object) -> str:
+                raise RuntimeError("boom")
+
+            def recent_messages(self, *a: object, **k: object) -> list[Message]:
+                return [_msg("user", "仍可用的历史", 1.0)]
+
+        asm = MemoryAssembler(_SummaryBoom(), recent_n=6, token_budget=1500)  # type: ignore[arg-type]
+
+        block = asm.assemble(owner_id="o1", task_id="t1")
+
+        assert "用户：仍可用的历史" in block
+        assert "【对话摘要" not in block
+

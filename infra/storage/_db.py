@@ -81,6 +81,18 @@ CREATE TABLE IF NOT EXISTS artifacts (
 
 CREATE INDEX IF NOT EXISTS idx_artifacts_task
     ON artifacts(task_id, created_at);
+
+CREATE TABLE IF NOT EXISTS task_summaries (
+    task_id       TEXT PRIMARY KEY,
+    owner_id      TEXT NOT NULL,
+    summary       TEXT NOT NULL DEFAULT '',
+    msg_watermark INTEGER NOT NULL DEFAULT 0,
+    updated_at    REAL NOT NULL,
+    FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_summaries_owner
+    ON task_summaries(owner_id, updated_at DESC);
 """
 
 
