@@ -30,6 +30,7 @@ import sys
 import time
 import logging
 import statistics
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional
@@ -42,6 +43,65 @@ os.chdir(_PROJECT_ROOT)
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 只读 RAG 引擎门面（Step 029：替代已删除的 v1 service.KnowledgeService）
+# ═══════════════════════════════════════════════════════════════════════════════
+# 仅为本 benchmark 提供 retriever / vector_store / retrieve / ask 四个入口，直接装配
+# retrieval/ 引擎模块（与 v2 检索同源：build_reranker + Retriever + QAChain）。
+
+
+@dataclass
+class _RetrievalResult:
+    chunks: list[dict[str, Any]]
+    query_used: list[str]
+
+
+class BenchmarkRagService:
+    """benchmark 专用只读 RAG 门面（无 Web 依赖，纯引擎装配）。"""
+
+    def __init__(self) -> None:
+        from config import settings
+        from retrieval.generation.qa_chain import QAChain
+        from retrieval.search.embedder import Embedder
+        from retrieval.search.query_rewriter import QueryRewriter
+        from retrieval.search.reranker import build_reranker
+        from retrieval.search.retriever import Retriever
+        from retrieval.search.vector_store import VectorStore
+
+        self._settings = settings
+        self.embedder = Embedder()
+        self.vector_store = VectorStore()
+        self.retriever = Retriever(
+            embedder=self.embedder,
+            vector_store=self.vector_store,
+            query_rewriter=QueryRewriter(),
+            reranker=build_reranker(),
+        )
+        self.qa_chain = QAChain()
+
+    def retrieve(
+        self, query: str, top_k: int = 5, category: str | None = None
+    ) -> _RetrievalResult:
+        top_k = max(1, min(top_k, self._settings.max_top_k))
+        queries = self.retriever.query_rewriter.rewrite(query)
+        if query not in queries:
+            queries.insert(0, query)
+        results = self.retriever.retrieve(query, top_k=top_k)
+        if category:
+            results = [
+                r
+                for r in results
+                if r.get("metadata", {}).get("category", "") == category
+            ]
+        return _RetrievalResult(chunks=results, query_used=queries)
+
+    def ask(self, question: str, top_k: int = 5, category: str | None = None):
+        retrieval = self.retrieve(question, top_k=top_k, category=category)
+        return self.qa_chain.generate(question, retrieval.chunks)
+
+
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -546,10 +606,9 @@ def main():
           f"{'+ 准确率' if run_accuracy else ''}"
           f"{'+ QA' if run_qa else ''}")
 
-    # 初始化 KnowledgeService
-    print("\n正在初始化 KnowledgeService...")
-    from service import KnowledgeService
-    service = KnowledgeService()
+    # 初始化 RAG 引擎门面
+    print("\n正在初始化 RAG 引擎...")
+    service = BenchmarkRagService()
 
     chunk_count = service.vector_store.get_total_count()
     print(f"知识库当前 chunk 数: {chunk_count}")

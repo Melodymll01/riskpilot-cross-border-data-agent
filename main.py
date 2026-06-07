@@ -19,10 +19,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from slowapi import _rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
 
-from api.routes import limiter, router, start_service_init
 from api.v2 import build_v2_router
 from api.v2.errors import install_exception_handlers
 from app.container import AppContainer
@@ -78,7 +75,6 @@ def _warn_oauth_redirect_port_mismatch(server_port: int | None) -> None:
 async def lifespan(app: FastAPI):
     """应用生命周期管理：启动时初始化服务，关闭时释放资源。"""
     logger.info("数据出境知识库问答系统正在启动...")
-    start_service_init()
     # Step 025a 启动迁移：把缺 owner_id 的旧 chunk 标为公共库（幂等）
     container_ref = getattr(app.state, "container", None)
     if container_ref is not None:
@@ -178,14 +174,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 
-# 注册 API 限流
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
-
-# 注册 API 路由
-app.include_router(router)
-
-# ── Step 011：装配 api/v2（新六边形架构层）─────────────────────────────────
+# ── Step 011：装配 api/v2（六边形架构层）——v1 已于 Step 029 退役────────────────
 # 容器在模块级构造（构造本身只装组件、不连外部服务），存到 app.state 方便测试取用。
 # 不要放进 lifespan：include_router 在 app 创建时就要拿到 router。
 container = AppContainer(settings)

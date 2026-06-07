@@ -1,11 +1,9 @@
-"""集成测试：``main:app`` 同时挂载老 ``/api/*`` 与新 ``/api/v2/*``。
+"""集成测试：``main:app`` 挂载 ``/api/v2/*``（v1 已于 Step 029 退役）。
 
 策略：
 - 不再用 fresh FastAPI + 全 Fake container（那是 unit-level 测试，见 tests/api/）
 - 这里走真 main.app，验证装配确实生效；为了避免触发 sk-placeholder 校验，
   在 import main 之前把 LLM/EMBED provider 切到 local 通道。
-- KnowledgeService 是后台线程懒加载，不会阻塞 import；老 /health 在未就绪时
-  返回 ``status=initializing``，对集成测试不影响。
 """
 
 from __future__ import annotations
@@ -86,16 +84,7 @@ def test_v2_require_owner_blocks_unauthed(main_client):
 
 
 def test_legacy_root_still_served(main_client):
-    """老的 ``GET /`` 静态前端入口保留（Strangler Fig：v1 不破）。"""
+    """老的 ``GET /`` 静态前端入口保留（由 main.py 直接服务，非 v1 路由）。"""
     resp = main_client.get("/")
-    # frontend/index.html 存在 → 200；不存在则 404；任一都说明老路由仍挂着
+    # frontend/index.html 存在 → 200；不存在则 404；任一都说明静态入口仍挂着
     assert resp.status_code in (200, 404)
-
-
-def test_legacy_api_health_still_served(main_client):
-    """老 ``/health`` 路由（api/routes.py 里）仍可访问。"""
-    resp = main_client.get("/health")
-    assert resp.status_code == 200
-    body = resp.json()
-    # 后台线程初始化中或已就绪都行，关键是路由还在
-    assert body["status"] in ("ok", "initializing", "degraded")

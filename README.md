@@ -414,16 +414,23 @@ uvicorn main:app --host 0.0.0.0 --port 8001 --workers 2
 | GET | `/api/v2/audit/logs` | **admin** | 审计日志查询（`limit/offset/action/actor_id` 过滤） |
 | GET | `/api/v2/health` `/health/ready` | 公开 | 健康检查 |
 
-### v1 端点（保留，逐步收敛）
+### v1 端点（已于 Step 029 全部退役删除）
 
-| 方法 | 路径 | 状态 | 说明 |
+v1 HTTP 层（`service.py` / `api/routes.py` / `api/schemas.py`）已整体删除，
+现行接口全部在 `/api/v2/*`。下表为历史映射记录：
+
+| 方法 | 路径 | 状态 | 替代 |
 | --- | --- | --- | --- |
-| POST | `/api/ask` | 保留 | v1 同步问答（v2 推荐用 `/copilot/chat`） |
-| POST | `/api/chat/sse` | 保留 | v1 SSE 流（v2 推荐用 `/copilot/stream`） |
-| ~~POST `/api/ingest/file`~~ | ❌ Step 016d 删除 | 已迁移到 `/api/v2/documents/file` |
-| ~~POST `/api/ingest/web`~~ | ❌ Step 016d 删除 | 已迁移到 `/api/v2/documents/web` |
-| ~~GET `/api/sources`~~ | ❌ Step 016d 删除 | 已迁移到 `/api/v2/documents` |
-| ~~DELETE `/api/sources/{name}`~~ | ❌ Step 016d 删除 | 已迁移到 `DELETE /api/v2/documents/{name}` |
+| ~~POST `/api/ask`~~ | ❌ Step 029 删除 | `/api/v2/copilot/chat` |
+| ~~POST `/api/chat/sse`~~ | ❌ Step 029 删除 | `/api/v2/copilot/stream` |
+| ~~POST `/api/retrieve`~~ | ❌ Step 029 删除 | `/api/v2/copilot/*` |
+| ~~POST `/api/research`~~ | ❌ Step 029 删除 | `/api/v2/copilot/*`（`mode=research`） |
+| ~~`/api/conversations*`~~ | ❌ Step 029 删除 | `/api/v2/tasks/*` |
+| ~~GET `/health`~~ | ❌ Step 029 删除 | `/api/v2/health` |
+| ~~POST `/api/ingest/file`~~ | ❌ Step 016d 删除 | `/api/v2/documents/file` |
+| ~~POST `/api/ingest/web`~~ | ❌ Step 016d 删除 | `/api/v2/documents/web` |
+| ~~GET `/api/sources`~~ | ❌ Step 016d 删除 | `/api/v2/documents` |
+| ~~DELETE `/api/sources/{name}`~~ | ❌ Step 016d 删除 | `DELETE /api/v2/documents/{name}` |
 
 ## 扩展指南
 
