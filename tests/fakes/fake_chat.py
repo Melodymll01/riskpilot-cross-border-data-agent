@@ -16,12 +16,14 @@ class FakeChat:
         *,
         temperature: float = 0.2,
         max_tokens: int | None = None,
+        json_mode: bool = False,
     ) -> str:
         self.calls.append(
             {
                 "messages": messages,
                 "temperature": temperature,
                 "max_tokens": max_tokens,
+                "json_mode": json_mode,
             }
         )
         idx = min(len(self.calls) - 1, len(self._responses) - 1)

@@ -27,6 +27,7 @@ class _StubChatClient:
         model: str | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        response_format: dict | None = None,
     ) -> str:
         self.calls.append(
             {
@@ -34,6 +35,7 @@ class _StubChatClient:
                 "model": model,
                 "temperature": temperature,
                 "max_tokens": max_tokens,
+                "response_format": response_format,
             }
         )
         return self.response
@@ -86,6 +88,14 @@ class TestOpenAIChatAdapter:
         assert client.calls[0]["temperature"] == 0.5
         assert client.calls[0]["max_tokens"] == 128
         assert client.calls[0]["messages"] == [{"role": "user", "content": "你好"}]
+        # 默认不强制 JSON
+        assert client.calls[0]["response_format"] is None
+
+    def test_chat_json_mode_forwards_response_format(self) -> None:
+        client = _StubChatClient(response="{}")
+        adapter = OpenAIChatAdapter(client=client)
+        adapter.chat([{"role": "user", "content": "hi"}], json_mode=True)
+        assert client.calls[0]["response_format"] == {"type": "json_object"}
 
 
 # ── Embed ─────────────────────────────────────────────────────────────

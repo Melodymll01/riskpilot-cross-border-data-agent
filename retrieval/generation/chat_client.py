@@ -12,7 +12,13 @@
 import logging
 from collections.abc import Generator
 
-from openai import APIConnectionError, APITimeoutError, OpenAI, RateLimitError
+from openai import (
+    APIConnectionError,
+    APITimeoutError,
+    BadRequestError,
+    OpenAI,
+    RateLimitError,
+)
 
 from config import settings
 
@@ -44,10 +50,18 @@ class ChatClient:
         model: str | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        response_format: dict | None = None,
     ) -> str:
-        """非流式补全，返回文本内容。"""
+        """非流式补全，返回文本内容。
+
+        ``response_format``：传 ``{"type": "json_object"}`` 可让兼容 OpenAI 的网关
+        在模型层强制输出**语法合法**的 JSON（Step 026e Agent 决策协议用）。某些模型/
+        网关不支持该参数，``_openai_complete`` 会自动降级重试一次（去掉该参数）。
+        """
         model = model or self.model
-        return self._openai_complete(messages, model, temperature, max_tokens)
+        return self._openai_complete(
+            messages, model, temperature, max_tokens, response_format
+        )
 
     def complete_stream(
         self,
@@ -62,13 +76,23 @@ class ChatClient:
 
     # ── OpenAI 兼容实现 ──────────────────────────────────────────────────────
 
-    def _openai_complete(self, messages, model, temperature, max_tokens):
+    def _openai_complete(self, messages, model, temperature, max_tokens, response_format=None):
         kwargs = {"model": model, "messages": messages}
         if temperature is not None:
             kwargs["temperature"] = temperature
         if max_tokens is not None:
             kwargs["max_tokens"] = max_tokens
-        response = self.client.chat.completions.create(**kwargs)
+        if response_format is not None:
+            kwargs["response_format"] = response_format
+        try:
+            response = self.client.chat.completions.create(**kwargs)
+        except BadRequestError:
+            # 某些模型/网关不支持 response_format（如 json_object）；降级重试一次。
+            if response_format is None:
+                raise
+            logger.warning("response_format 不被支持，降级为普通补全重试一次")
+            kwargs.pop("response_format", None)
+            response = self.client.chat.completions.create(**kwargs)
         msg = response.choices[0].message
         # 智谱等模型可能将回答放在 reasoning_content 而非 content
         text = msg.content or getattr(msg, "reasoning_content", "") or ""

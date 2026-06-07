@@ -2,6 +2,8 @@
 
 设计要点：
 - 不假设 ChatPort 支持原生 function-calling；用 JSON 协议（见 ``decision.py``）
+- 决策轮启用 ``json_mode=True``：支持的网关在模型层强制合法 JSON，根治解析崩溃；
+  不支持时适配器自动降级，``parse_decision`` 的引号兜底仍兜底（Step 026e）
 - 主循环最多跑 ``max_steps`` 轮；每轮：LLM 决策 → 解析 → 执行 → 喂回观察值
 - 任何工具异常或解析失败都"软失败"——产出 error 事件继续走，不 crash
 - 流式输出：每动作产出至少一个 ``AgentEvent``，由上层 use case 转 SSE
@@ -147,8 +149,13 @@ class ComplianceCopilotAgent:
         last_thought = ""
         for _step in range(self._max_steps):
             messages = self._build_messages(user_message, observations)
+            # json_mode=True：让支持的网关在模型层强制输出语法合法 JSON（根治决策解析崩溃）；
+            # 不支持时适配器自动降级，parse_decision 仍有 _repair_unescaped_quotes 兜底。
             raw = self._chat.chat(
-                messages, temperature=self._temperature, max_tokens=None
+                messages,
+                temperature=self._temperature,
+                max_tokens=None,
+                json_mode=True,
             )
 
             try:

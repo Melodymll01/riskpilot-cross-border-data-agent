@@ -22,6 +22,7 @@ class _ChatClientLike(Protocol):
         model: str | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        response_format: dict | None = None,
     ) -> str: ...
 
 
@@ -42,9 +43,13 @@ class OpenAIChatAdapter:
         *,
         temperature: float = 0.2,
         max_tokens: int | None = None,
+        json_mode: bool = False,
     ) -> str:
+        # json_mode=True 时请求网关在模型层强制输出语法合法的 JSON（Agent 决策协议）。
+        response_format = {"type": "json_object"} if json_mode else None
         return self._client.complete(
             messages,
             temperature=temperature,
             max_tokens=max_tokens,
+            response_format=response_format,
         )

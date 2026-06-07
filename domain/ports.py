@@ -112,6 +112,7 @@ class ChatPort(Protocol):
         *,
         temperature: float = 0.2,
         max_tokens: int | None = None,
+        json_mode: bool = False,
     ) -> str: ...
 
 
