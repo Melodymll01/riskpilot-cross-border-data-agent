@@ -88,11 +88,18 @@ def parse_decision(raw: str) -> AgentDecision:
         msg = f"no JSON object found in response: {raw!r}"
         raise AgentDecisionParseError(msg)
 
+    snippet = match.group(0)
     try:
-        data = json.loads(match.group(0))
+        data = json.loads(snippet)
     except json.JSONDecodeError as exc:
-        msg = f"invalid JSON: {exc}; raw={raw!r}"
-        raise AgentDecisionParseError(msg) from exc
+        # Step 026d：真实 LLM（如 GLM-5）偶尔在字符串值内塞未转义的 ASCII 双引号
+        # （例：``第三章"个人信息跨境提供的规则"的相关条款``），令标准 json.loads 失败。
+        # 先做一次启发式修复再重解析；仍失败才抛错，保持降级不 crash。
+        try:
+            data = json.loads(_repair_unescaped_quotes(snippet))
+        except json.JSONDecodeError:
+            msg = f"invalid JSON: {exc}; raw={raw!r}"
+            raise AgentDecisionParseError(msg) from exc
 
     # 正则 \{.*\} 已经保证抠出的是花括号片段，json.loads 解出来必是 dict。
     # 此处不再加 isinstance 防御层 —— 若未来正则改动，由测试兜底。
@@ -154,3 +161,50 @@ def _strip_fences(text: str) -> str:
     if match is not None:
         return match.group(1)
     return text
+
+
+def _repair_unescaped_quotes(snippet: str) -> str:
+    """修复 JSON 字符串值内部未转义的 ASCII 双引号（LLM 常见越界输出）。
+
+    启发式状态机：逐字符扫描。处于字符串内部时遇到 ``"``，向后跳过空白看下一个
+    非空白字符：若是结构分隔符 ``, : } ]`` 或已到结尾，则视为字符串真正的结束引号；
+    否则视为字面引号并转义成 ``\\"``。转义序列 ``\\x`` 原样保留。
+
+    已知局限：字符串文本内若出现 ``"`` 紧跟 ``,``（如 ``他说"好",``）会被误判为结束，
+    但法规问答场景极少触发；仅作为 json.loads 失败后的兜底，不影响合法 JSON。
+    """
+    out: list[str] = []
+    in_string = False
+    i = 0
+    n = len(snippet)
+    while i < n:
+        ch = snippet[i]
+        if not in_string:
+            out.append(ch)
+            if ch == '"':
+                in_string = True
+            i += 1
+            continue
+        # —— 字符串内部 ——
+        if ch == "\\":
+            out.append(ch)
+            if i + 1 < n:
+                out.append(snippet[i + 1])
+                i += 2
+            else:
+                i += 1
+            continue
+        if ch == '"':
+            j = i + 1
+            while j < n and snippet[j] in " \t\r\n":
+                j += 1
+            if j >= n or snippet[j] in ",:}]":
+                out.append(ch)  # 真正的结束引号
+                in_string = False
+            else:
+                out.append('\\"')  # 字面引号 → 转义
+            i += 1
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)

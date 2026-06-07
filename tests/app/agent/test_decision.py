@@ -126,3 +126,44 @@ class TestParseDecisionDefaults:
         d = parse_decision(raw)
         assert d.tool_name is None
         assert d.tool_args == {}
+
+
+class TestParseDecisionUnescapedQuotes:
+    """Step 026d：真实 GLM-5 在字符串值内塞未转义 ASCII 双引号的容错修复。"""
+
+    def test_unescaped_quotes_in_thought(self) -> None:
+        # 复刻真实失败样本：thought 内 ``第三章"个人信息跨境提供的规则"的相关条款``
+        raw = (
+            '{"thought":"已检索到第三章"个人信息跨境提供的规则"的条款",'
+            '"action":"final_answer","answer":"根据第三十八条，需满足条件之一"}'
+        )
+        d = parse_decision(raw)
+        assert d.action == "final_answer"
+        assert d.final_text == "根据第三十八条，需满足条件之一"
+
+    def test_unescaped_quotes_in_answer(self) -> None:
+        raw = (
+            '{"thought":"ok","action":"final_answer",'
+            '"answer":"这属于"安全评估"路径，详见办法"}'
+        )
+        d = parse_decision(raw)
+        assert d.action == "final_answer"
+        assert "安全评估" in d.final_text
+
+    def test_repair_preserves_citations(self) -> None:
+        raw = (
+            '{"thought":"查到第三章"跨境规则"相关","action":"final_answer",'
+            '"answer":"需通过"安全评估"等","citations":'
+            '[{"source_name":"个人信息保护法","source_type":"law"}]}'
+        )
+        d = parse_decision(raw)
+        assert len(d.citations) == 1
+        assert d.citations[0]["source_name"] == "个人信息保护法"
+
+    def test_valid_json_unaffected(self) -> None:
+        # 合法 JSON 不应被修复逻辑触碰（escape 正常的引号保留）
+        raw = '{"thought":"说\\"你好\\"","action":"final_answer","answer":"ok"}'
+        d = parse_decision(raw)
+        assert d.thought == '说"你好"'
+        assert d.final_text == "ok"
+
