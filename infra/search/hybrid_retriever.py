@@ -35,16 +35,25 @@ class HybridRetrieverAdapter:
     """实现 `RetrievePort`，委托给现有 `Retriever`。"""
 
     def __init__(self, retriever: _RetrieverLike | None = None) -> None:
-        if retriever is None:
+        # retriever=None → 懒构造：首次 retrieve 时才 new Retriever 并注入
+        # build_reranker()。CrossEncoder 精排会同步加载 ~1GB 模型，绝不能在
+        # 容器构造 / app import 时加载（否则 `from main import app` 阻塞）。
+        self._retriever = retriever
+
+    def _ensure_retriever(self) -> _RetrieverLike:
+        if self._retriever is None:
             from retrieval.search.embedder import Embedder
+            from retrieval.search.reranker import build_reranker
             from retrieval.search.retriever import Retriever
             from retrieval.search.vector_store import VectorStore
 
-            retriever = Retriever(
+            self._retriever = Retriever(
                 embedder=Embedder(),
                 vector_store=VectorStore(),
+                reranker=build_reranker(),
             )
-        self._retriever = retriever
+        return self._retriever
+
 
     def retrieve(
         self,
@@ -71,7 +80,7 @@ class HybridRetrieverAdapter:
         if owner_id:
             viewers.append(owner_id)
 
-        raw = self._retriever.retrieve(query, top_k=top_k, viewers=viewers)
+        raw = self._ensure_retriever().retrieve(query, top_k=top_k, viewers=viewers)
         return [_dict_to_chunk(item) for item in raw]
 
 

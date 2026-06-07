@@ -136,3 +136,29 @@ class CrossEncoderReranker(BaseReranker):
             f", threshold={self.score_threshold}" if self.score_threshold is not None else "",
         )
         return results
+
+
+# ---- 工厂：按 settings 选择重排序器 ----
+
+
+def build_reranker() -> BaseReranker:
+    """根据 ``settings`` 选择重排序器。
+
+    - ``enable_reranker=True`` → ``CrossEncoderReranker``（bge-reranker 精排）；
+      加载失败（无模型 / 无网 / 无 torch）回退 ``DistanceThresholdReranker``。
+    - ``enable_reranker=False`` → 轻量 ``DistanceThresholdReranker``（仅距离阈值过滤）。
+
+    注意：``CrossEncoderReranker.__init__`` 会**同步加载模型（~1GB）**，调用方应在
+    首次检索时懒构造（见 ``HybridRetrieverAdapter``），避免容器构造即阻塞启动。
+    """
+    if not settings.enable_reranker:
+        return DistanceThresholdReranker()
+    try:
+        return CrossEncoderReranker(
+            model_name=settings.reranker_model,
+            device=settings.reranker_device,
+            score_threshold=settings.reranker_score_threshold,
+        )
+    except Exception as exc:  # noqa: BLE001 — 加载失败必须回退，不能让检索整体挂掉
+        logger.warning("Cross-Encoder 加载失败，回退到距离阈值重排序: %s", exc)
+        return DistanceThresholdReranker()

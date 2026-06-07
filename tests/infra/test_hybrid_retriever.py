@@ -37,6 +37,25 @@ class TestProtocolConformance:
         assert isinstance(adapter, RetrievePort)
 
 
+# ── 懒加载（Step 027：避免容器构造即加载 reranker 模型）────────────────
+
+
+class TestLazyRetriever:
+    def test_default_retriever_not_built_on_construction(self) -> None:
+        # retriever=None 时不应立即构造（否则 CrossEncoder 加载阻塞 app 启动）
+        adapter = HybridRetrieverAdapter()
+        assert adapter._retriever is None
+
+    def test_injected_retriever_used_without_lazy_build(self) -> None:
+        stub = _StubRetriever([{"id": "c1", "text": "x", "distance": 0.1}])
+        adapter = HybridRetrieverAdapter(retriever=stub)
+        adapter.retrieve("q", top_k=1)
+        # 注入的 stub 被直接使用，未触发懒构造
+        assert adapter._retriever is stub
+        assert stub.calls == [("q", 1)]
+
+
+
 # ── _dict_to_chunk 转换 ─────────────────────────────────────────────
 
 
