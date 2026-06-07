@@ -25,6 +25,7 @@ from domain.models import (
     KbChunk,
     KbDocument,
     Message,
+    ResearchReport,
     RiskProfile,
     SessionProfile,
     Task,
@@ -159,6 +160,33 @@ class RiskProfilePort(Protocol):
         *,
         language: str = "zh",
     ) -> RiskProfile: ...
+
+
+@runtime_checkable
+class ResearchPort(Protocol):
+    """深度研究端口（Step 028）：``research`` 模式的高层入口。
+
+    承接 v1 ``AgenticRAGAgent`` 的报告能力——问题分类 → 查询改写 → 多轮检索 +
+    证据充分性判定 → 联网补齐 → ``ReportGenerator`` 生成长篇结构化报告。
+
+    与 ``RetrievePort`` 区别：``RetrievePort`` 只做单轮召回返回 ``Chunk``；本端口
+    编排「分类/改写/多轮/证据/联网/报告」整条研究链路，返回渲染好的 ``ResearchReport``。
+    与 ``qa`` 模式（``ComplianceCopilotAgent`` 会话式 ReAct）区别：research 产出的是
+    一次性长报告而非多轮对话。
+
+    实现方约定：
+    - 同步阻塞，可能耗时数十秒（多轮检索 + LLM 生成）
+    - 底层引擎（embedder / vector_store / reranker / web_search）由适配器内部组合，
+      重型模型应懒加载，避免容器构造期阻塞
+    """
+
+    def research(
+        self,
+        query: str,
+        *,
+        top_k: int = 8,
+        enable_web_search: bool = True,
+    ) -> ResearchReport: ...
 
 
 @runtime_checkable

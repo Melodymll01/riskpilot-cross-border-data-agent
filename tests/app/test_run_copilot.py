@@ -229,3 +229,109 @@ class TestProfileMode:
         )
         # 至少有 answer
         assert any(e.event_type is AgentEventType.ANSWER for e in events)
+
+
+def _make_uc_with_research(
+    research: object,
+) -> tuple[RunCopilotUseCase, InMemoryTaskRepo]:
+    """research 模式专用：装一个 research port，agent 用 FakeChat 不会被触发。"""
+    chat = FakeChat(responses=[_FINAL])
+    repo = InMemoryTaskRepo()
+    from types import SimpleNamespace
+
+    container = SimpleNamespace(
+        retriever=FakeRetrieve(),
+        web_search=FakeWebSearch(),
+        evidence=FakeEvidence(),
+    )
+    registry = register_default_tools(container)  # type: ignore[arg-type]
+    agent = ComplianceCopilotAgent(
+        chat=chat, task_repo=repo, tool_registry=registry, max_steps=3
+    )
+    task_uc = TaskManagementUseCase(repo)
+    uc = RunCopilotUseCase(
+        agent=agent, task_management=task_uc, research=research  # type: ignore[arg-type]
+    )
+    return uc, repo
+
+
+class TestResearchMode:
+    """``mode='research'`` 走 ResearchPort，不进 ReAct Agent。"""
+
+    def test_research_mode_emits_thoughts_and_answer(self) -> None:
+        from tests.fakes.fake_research import FakeResearch
+
+        fake = FakeResearch()
+        uc, repo = _make_uc_with_research(fake)
+        events = list(
+            uc.stream(
+                owner_id="anon:x",
+                task_id=None,
+                user_message="什么是数据出境安全评估",
+                mode="research",
+            )
+        )
+        # 第一帧 task_created
+        assert events[0].event_type is AgentEventType.TASK_CREATED
+        # 决策步骤渲染成 thought
+        thoughts = [e for e in events if e.event_type is AgentEventType.THOUGHT]
+        assert len(thoughts) == 2
+        assert "classify" in thoughts[0].payload["text"]
+        # 最后一帧 answer，正文为报告
+        answer = events[-1]
+        assert answer.event_type is AgentEventType.ANSWER
+        assert "深度研究报告" in answer.payload["text"]
+        # task.mode 持久化为 research
+        task = repo.get(events[0].payload["task_id"], "anon:x")
+        assert task is not None and task.mode == "research"
+        # ReAct agent 没被触发：无 tool_call / decision_parse_error
+        kinds = [e.event_type for e in events]
+        assert AgentEventType.TOOL_CALL not in kinds
+        # research port 收到 query
+        assert fake.calls == [
+            {"query": "什么是数据出境安全评估", "top_k": 8, "enable_web_search": True}
+        ]
+
+    def test_research_mode_without_port_falls_back(self) -> None:
+        uc, _ = _make_uc_with_research(None)
+        events = list(
+            uc.stream(
+                owner_id="anon:x",
+                task_id=None,
+                user_message="x" * 5,
+                mode="research",
+            )
+        )
+        text = events[-1].payload["text"]
+        assert "未在容器中装配" in text or "未装配" in text
+
+    def test_research_answer_carries_citations(self) -> None:
+        from domain.models import Citation, ResearchReport
+        from tests.fakes.fake_research import FakeResearch
+
+        report = ResearchReport(
+            answer="报告正文",
+            citations=[
+                Citation(
+                    source_type="law",
+                    source_name="个人信息保护法",
+                    title="第三十八条",
+                    text_snippet="向境外提供个人信息……",
+                )
+            ],
+        )
+        uc, _ = _make_uc_with_research(FakeResearch(report=report))
+        events = list(
+            uc.stream(
+                owner_id="anon:x",
+                task_id=None,
+                user_message="个人信息出境条件",
+                mode="research",
+            )
+        )
+        answer = events[-1]
+        assert answer.event_type is AgentEventType.ANSWER
+        cites = answer.payload["citations"]
+        assert len(cites) == 1
+        assert cites[0]["source_name"] == "个人信息保护法"
+

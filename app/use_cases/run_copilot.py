@@ -6,6 +6,8 @@
 - 委托 Agent 主循环流式产出 ``AgentEvent``
 - ``mode == "profile"`` 时跳过 agent，直接调 ``RiskProfilePort.assess()``，
   把结果（或 ``RiskProfileNotReady``）格式化成 ``answer`` 事件返回
+- ``mode == "research"`` 时跳过 ReAct agent，走 ``ResearchPort.research()`` 产出长篇
+  结构化报告：决策步骤渲染成 ``thought`` 事件，报告正文渲染成 ``answer`` 事件（Step 028）
 
 API 层（Step 010）直接迭代 yield 出来的事件序列化成 SSE。
 """
@@ -22,7 +24,7 @@ if TYPE_CHECKING:
     from app.agent.copilot import ComplianceCopilotAgent
     from app.use_cases.task_management import TaskManagementUseCase
     from domain.models import RiskProfile, TaskMode
-    from domain.ports import RiskProfilePort
+    from domain.ports import ResearchPort, RiskProfilePort
 
 
 class RunCopilotUseCase:
@@ -32,10 +34,12 @@ class RunCopilotUseCase:
         agent: ComplianceCopilotAgent,
         task_management: TaskManagementUseCase,
         risk_profile: RiskProfilePort | None = None,
+        research: ResearchPort | None = None,
     ) -> None:
         self._agent = agent
         self._task_uc = task_management
         self._risk_profile = risk_profile
+        self._research = research
 
     def stream(
         self,
@@ -67,7 +71,12 @@ class RunCopilotUseCase:
             yield from self._run_profile(target=user_message)
             return
 
-        # 3) qa / research：附件信息进 user_message，再跑 Agent
+        # 2b) research 模式：跳过 ReAct agent，走 ResearchPort 产出长篇报告
+        if mode == "research":
+            yield from self._run_research(query=user_message)
+            return
+
+        # 3) qa：附件信息进 user_message，再跑 Agent
         effective_message = user_message
         if attachment_doc_ids:
             ids = ", ".join(attachment_doc_ids)
@@ -100,6 +109,25 @@ class RunCopilotUseCase:
             )
             return
         yield AgentEvent.answer(_format_risk_profile_md(result))
+
+    # ─── research 分支 ─────────────────────────────────────────────
+
+    def _run_research(self, *, query: str) -> Iterator[AgentEvent]:
+        """research 模式分流：调 ResearchPort，把决策步骤渲染成 thought、报告渲染成 answer。"""
+        if self._research is None:
+            yield AgentEvent.answer(
+                "⚠️ 深度研究服务未在容器中装配，请联系运维。"
+            )
+            return
+        report = self._research.research(query)
+        # 把研究链路（分类 → 改写 → 多轮检索 → 证据检查 → 生成）逐步渲染成 thought
+        for step in report.steps:
+            detail = f"[{step.step_name}] {step.description}"
+            if step.result_summary:
+                detail += f" → {step.result_summary}"
+            yield AgentEvent.thought(detail)
+        citations = [c.model_dump() for c in report.citations]
+        yield AgentEvent.answer(report.answer, citations)
 
 
 # ─── 工具函数 ──────────────────────────────────────────────────────

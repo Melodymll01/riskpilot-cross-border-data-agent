@@ -29,6 +29,7 @@ from app.factories import (
     build_embedder,
     build_evidence,
     build_kb_repo,
+    build_research,
     build_retriever,
     build_risk_profile,
     build_sqlite_pool,
@@ -55,6 +56,7 @@ if TYPE_CHECKING:
         EmbedPort,
         EvidencePort,
         KbDocumentRepoPort,
+        ResearchPort,
         RetrievePort,
         RiskProfilePort,
         TaskRepoPort,
@@ -64,7 +66,7 @@ if TYPE_CHECKING:
 
 
 class AppContainer:
-    """11 个 Port + 5 个 use case 的中央配电盘。"""
+    """12 个 Port + 5 个 use case 的中央配电盘。"""
 
     def __init__(
         self,
@@ -79,6 +81,7 @@ class AppContainer:
         web_search: WebSearchPort | None = None,
         evidence: EvidencePort | None = None,
         risk_profile: RiskProfilePort | None = None,
+        research: ResearchPort | None = None,
         kb_repo: KbDocumentRepoPort | None = None,
         document_loader: DocumentLoaderPort | None = None,
         auth: AuthPort | None = None,
@@ -110,6 +113,7 @@ class AppContainer:
         self.risk_profile: RiskProfilePort = risk_profile or build_risk_profile(
             settings
         )
+        self.research: ResearchPort = research or build_research(settings)
         self.kb_repo: KbDocumentRepoPort = kb_repo or build_kb_repo(settings)
         self.document_loader: DocumentLoaderPort = document_loader or build_document_loader(
             settings
@@ -141,6 +145,7 @@ class AppContainer:
             agent=self.copilot_agent,
             task_management=self.task_management,
             risk_profile=self.risk_profile,
+            research=self.research,
         )
 
     # ─── 启动钩子（main.py lifespan 调用） ───────────────────────────

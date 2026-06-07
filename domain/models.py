@@ -224,6 +224,39 @@ class RiskProfile(BaseDomainModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+# === 深度研究（Step 028：v1 AgenticRAG 报告能力迁移） ===
+
+
+class ResearchStep(BaseDomainModel):
+    """深度研究执行的单个决策步骤记录（对应 v1 ``AgentStep``）。
+
+    供前端把"分类 → 改写 → 多轮检索 → 证据检查 → 生成"的推理链路渲染成进度。
+    """
+
+    step_name: str = Field(min_length=1)
+    description: str = ""
+    result_summary: str = ""
+
+
+class ResearchReport(BaseDomainModel):
+    """深度研究产出：长篇结构化报告 + 决策过程元数据。
+
+    与 ``qa`` 模式的会话式 ``answer`` 区别：本模型承载 v1 ``ReportGenerator`` 的
+    多段落报告（含问题分类、查询改写、多轮检索、证据充分性判定、联网补齐）。
+    ``answer`` 是渲染好的 markdown 全文；``steps`` 是可视化的推理链路。
+    """
+
+    answer: str = ""
+    citations: list[Citation] = Field(default_factory=list)
+    question_type: str = ""
+    question_type_label: str = ""
+    retrieval_rounds: int = Field(default=0, ge=0)
+    total_docs: int = Field(default=0, ge=0)
+    web_search_used: bool = False
+    refused: bool = False
+    steps: list[ResearchStep] = Field(default_factory=list)
+
+
 # === 知识库管理面（Step 016a） ===
 
 KbSourceType = Literal["file", "web"]

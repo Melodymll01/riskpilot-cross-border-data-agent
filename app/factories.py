@@ -21,6 +21,7 @@ from domain.ports import (
     EmbedPort,
     EvidencePort,
     KbDocumentRepoPort,
+    ResearchPort,
     RetrievePort,
     RiskProfilePort,
     TaskRepoPort,
@@ -32,6 +33,7 @@ from infra.auth import AnonymousProvider, AuthService, GitHubOAuthProvider, JwtI
 from infra.chat import OpenAIChatAdapter
 from infra.evidence import MockEvidenceClient
 from infra.kb import ChromaKbRepo, UnifiedLoaderAdapter
+from infra.research import AgenticResearchAdapter
 from infra.risk_profile import StubRiskProfileService
 from infra.search import EmbedderAdapter, HybridRetrieverAdapter
 from infra.storage import SqliteTaskRepo, SqliteUserRepo
@@ -91,6 +93,15 @@ def build_risk_profile(_settings: Settings) -> RiskProfilePort:
     return StubRiskProfileService(mode="raise")
 
 
+def build_research(_settings: Settings) -> ResearchPort:
+    """构造 ``ResearchPort`` 实现：默认 ``AgenticResearchAdapter``（包 v1 引擎）。
+
+    适配器内部懒加载 v1 ``AgenticRAGAgent``（含 CrossEncoder 等重型组件），
+    故工厂调用安全（无真实网络 / 模型加载）。
+    """
+    return AgenticResearchAdapter()
+
+
 def build_kb_repo(_settings: Settings) -> KbDocumentRepoPort:
     """构造 ``KbDocumentRepoPort`` 实现：当前默认 ``ChromaKbRepo``。
 
@@ -141,6 +152,7 @@ __all__ = [
     "build_embedder",
     "build_evidence",
     "build_kb_repo",
+    "build_research",
     "build_retriever",
     "build_risk_profile",
     "build_sqlite_pool",
