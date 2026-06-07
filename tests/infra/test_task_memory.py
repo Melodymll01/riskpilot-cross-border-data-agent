@@ -9,9 +9,11 @@ import time
 
 import pytest
 
-from domain.models import Message, Task
+from domain.models import Fact, Message, Task
 from infra.memory import TaskBackedMemory
 from tests.fakes.fake_chat import FakeChat
+from tests.fakes.fake_embed import FakeEmbed
+from tests.fakes.fake_fact_store import FakeFactStore
 from tests.fakes.fake_repos import InMemoryTaskRepo
 from tests.fakes.fake_summary_store import InMemorySummaryStore
 
@@ -264,13 +266,90 @@ class TestL2Ttl:
         assert mem.get_summary("anon:o1", "t1") is None
 
 
-class TestL3L4NotImplemented:
+class TestL3NotImplemented:
     def test_profile_raises(self) -> None:
         mem = TaskBackedMemory(InMemoryTaskRepo())
         with pytest.raises(NotImplementedError):
             mem.get_profile("anon:o1")
 
-    def test_recall_semantic_raises(self) -> None:
-        mem = TaskBackedMemory(InMemoryTaskRepo())
-        with pytest.raises(NotImplementedError):
-            mem.recall_semantic("anon:o1", "q", 3)
+
+class TestL4RecallSemantic:
+    @staticmethod
+    def _fact(
+        owner_id: str,
+        text: str,
+        *,
+        superseded_by: str | None = None,
+        created_offset: float = 0.0,
+    ) -> Fact:
+        return Fact(
+            fact_id=f"f_{abs(hash(text)) % 99999}",
+            owner_id=owner_id,
+            text=text,
+            superseded_by=superseded_by,
+            created_at=_NOW + created_offset,
+        )
+
+    def test_no_fact_store_returns_empty(self) -> None:
+        mem = TaskBackedMemory(InMemoryTaskRepo())  # 无 fact_store/embedder
+        assert mem.recall_semantic("anon:o1", "q", 3) == []
+
+    def test_blank_query_or_zero_k_returns_empty(self) -> None:
+        store = FakeFactStore()
+        embed = FakeEmbed()
+        store.add(self._fact("anon:o1", "用户在跨境电商行业"), embed.embed(["x"])[0])
+        mem = TaskBackedMemory(
+            InMemoryTaskRepo(), fact_store=store, embedder=embed
+        )
+
+        assert mem.recall_semantic("anon:o1", "  ", 3) == []
+        assert mem.recall_semantic("anon:o1", "q", 0) == []
+
+    def test_returns_facts_for_owner(self) -> None:
+        store = FakeFactStore()
+        embed = FakeEmbed()
+        fact = self._fact("anon:o1", "用户在跨境电商行业")
+        store.add(fact, embed.embed([fact.text])[0])
+        mem = TaskBackedMemory(
+            InMemoryTaskRepo(), fact_store=store, embedder=embed
+        )
+
+        out = mem.recall_semantic("anon:o1", "行业是什么", 3)
+
+        assert [f.text for f in out] == ["用户在跨境电商行业"]
+
+    def test_superseded_fact_filtered(self) -> None:
+        store = FakeFactStore()
+        embed = FakeEmbed()
+        fact = self._fact("anon:o1", "用户偏好英文", superseded_by="f_new")
+        store.add(fact, embed.embed([fact.text])[0])
+        mem = TaskBackedMemory(
+            InMemoryTaskRepo(), fact_store=store, embedder=embed
+        )
+
+        assert mem.recall_semantic("anon:o1", "偏好", 3) == []
+
+    def test_expired_fact_filtered_by_ttl(self) -> None:
+        store = FakeFactStore()
+        embed = FakeEmbed()
+        old = self._fact("anon:o1", "很久以前的事实", created_offset=-400 * 86400)
+        store.add(old, embed.embed([old.text])[0])
+        mem = TaskBackedMemory(
+            InMemoryTaskRepo(),
+            fact_store=store,
+            embedder=embed,
+            l4_ttl_days=365.0,
+        )
+
+        assert mem.recall_semantic("anon:o1", "事实", 3) == []
+
+    def test_other_owner_not_leaked(self) -> None:
+        store = FakeFactStore()
+        embed = FakeEmbed()
+        fact = self._fact("anon:owner_a", "机密事实")
+        store.add(fact, embed.embed([fact.text])[0])
+        mem = TaskBackedMemory(
+            InMemoryTaskRepo(), fact_store=store, embedder=embed
+        )
+
+        assert mem.recall_semantic("anon:owner_b", "事实", 3) == []

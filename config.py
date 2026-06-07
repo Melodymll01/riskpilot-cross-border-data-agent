@@ -151,6 +151,28 @@ class Settings(BaseSettings):
     memory_l1_ttl_days: float = Field(30.0, ge=0.0, le=3650.0)
     memory_l2_ttl_days: float = Field(180.0, ge=0.0, le=3650.0)
 
+    # ── 记忆 L4 固化管线（Step 030c）──────────────────────────────────────────
+    # L4 语义事实：提取→验证→巩固（fork 异步）；禁用时退回 L1+L2。
+    memory_consolidation_enabled: bool = True
+    # 未固化消息数 ≥ 此值才触发一次增量固化（比 summary 阈值高，避免过早提取）。
+    memory_consolidation_min_backlog: int = Field(30, ge=2, le=500)
+    # task 收尾时固化（当前每轮调度，由 backlog 门控；任务关闭事件后续接入）。
+    memory_consolidate_on_task_close: bool = True
+    # L4 事实 TTL（天）与衰减系数；0 关闭 TTL 过滤。
+    memory_l4_ttl_days: float = Field(365.0, ge=0.0, le=3650.0)
+    memory_decay_lambda: float = Field(0.01, ge=0.0, le=10.0)
+    # 单 owner 事实容量上限：巩固后超限按衰减分淘汰最低分。
+    memory_fact_cap_per_owner: int = Field(500, ge=10, le=100000)
+    # 注入 prompt 的 L4 召回事实条数；0 关闭 L4 注入。
+    memory_fact_recall_k: int = Field(3, ge=0, le=20)
+    # 写入门控阈值：显著性低于此值不固化（防污染）。
+    memory_fact_salience_threshold: float = Field(0.5, ge=0.0, le=1.0)
+    # 去重相似度门控：候选与最近邻 ≥ 此值视为重复（强化置信，不新增）。
+    memory_fact_dedup_threshold: float = Field(0.88, ge=0.0, le=1.0)
+    # 冲突相似度门控：相似度落在 [conflict, dedup) 视为更新/矛盾 → 旧事实标 superseded。
+    memory_fact_conflict_threshold: float = Field(0.72, ge=0.0, le=1.0)
+
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",

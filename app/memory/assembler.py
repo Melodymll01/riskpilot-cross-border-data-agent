@@ -4,7 +4,8 @@
 - 只负责"读 + 排版 + 预算裁剪"，不负责写入 / 固化 / 遗忘。
 - ``memory=None`` 时返回空串，调用方据此保持无状态旧行为（降级）。
 - token 预算用字符数保守近似（中文 1 字 ≈ 1 token 偏高估，宁可少注入）。
-- 汇聚顺序：L2 摘要（长期压缩、优先保）→ L1 最近原文（预算剩余从最新往旧填）。
+- 汇聚顺序：L4 长期事实（跨会话稳定知识，价值密度最高）→ L2 摘要（长期压缩）
+  → L1 最近原文（预算剩余从最新往旧填，始终保留≥1条）。
 - 读取走 ``MemoryPort``，已在适配器内做 owner 归属校验与 TTL 过滤；
   任意异常都吞掉降级，绝不因记忆故障拖垮主对话。
 """
@@ -13,13 +14,14 @@ from __future__ import annotations
 
 import logging
 
-from domain.models import Message
+from domain.models import Fact, Message
 from domain.ports import MemoryPort
 
 logger = logging.getLogger(__name__)
 
 _HEADER = "【历史对话（仅供参考，避免重复已回答内容）】"
 _SUMMARY_HEADER = "【对话摘要（更早内容已压缩）】"
+_FACTS_HEADER = "【相关长期记忆（你已知的用户事实，仅供参考）】"
 
 _ROLE_LABEL = {
     "user": "用户",
@@ -38,22 +40,37 @@ class MemoryAssembler:
         *,
         recent_n: int,
         token_budget: int,
+        recall_k: int = 0,
     ) -> None:
         self._memory = memory
         self._recent_n = recent_n
         self._token_budget = token_budget
+        self._recall_k = recall_k
 
-    def assemble(self, *, owner_id: str, task_id: str) -> str:
-        """组装注入文本；无记忆 / 无内容 / 出错均返回空串。"""
+    def assemble(self, *, owner_id: str, task_id: str, query: str | None = None) -> str:
+        """组装注入文本；无记忆 / 无内容 / 出错均返回空串。
+
+        ``query`` 为本轮用户问题，用于 L4 语义召回（缺省不召回）。
+        """
         if self._memory is None:
             return ""
+        facts = self._safe_facts(owner_id=owner_id, query=query)
         summary = self._safe_summary(owner_id=owner_id, task_id=task_id)
         msgs = self._safe_recent(owner_id=owner_id, task_id=task_id)
-        if not summary and not msgs:
+        if not facts and not summary and not msgs:
             return ""
-        return self._render(summary, msgs)
+        return self._render(facts, summary, msgs)
 
-    # ── 读取（全程降级） ──────────────────────────────────────────────────
+    # ── 读取（全程降级） ───────────────────────────────────
+
+    def _safe_facts(self, *, owner_id: str, query: str | None) -> list[Fact]:
+        if self._recall_k <= 0 or not (query or "").strip():
+            return []
+        try:
+            return self._memory.recall_semantic(owner_id, query, self._recall_k)  # type: ignore[union-attr]
+        except Exception:  # noqa: BLE001 — 记忆故障必须降级，不得中断主流程
+            logger.warning("L4 语义召回失败，降级为无事实", exc_info=True)
+            return []
 
     def _safe_summary(self, *, owner_id: str, task_id: str) -> str:
         try:
@@ -73,16 +90,32 @@ class MemoryAssembler:
 
     # ── 排版 + 预算 ────────────────────────────────────────────────────────
 
-    def _render(self, summary: str, msgs: list[Message]) -> str:
+    def _render(self, facts: list[Fact], summary: str, msgs: list[Message]) -> str:
         budget = self._token_budget
         sections: list[str] = []
         used = 0
 
-        # L2 摘要优先占预算（长期压缩信息，价值密度高）；超额则截断摘要正文。
+        # L4 长期事实最优先（跨会话稳定知识）；逐条填入直到超预算。
+        if facts:
+            head_cost = self._estimate_tokens(_FACTS_HEADER)
+            kept_facts: list[str] = []
+            local_used = used + head_cost
+            for fact in facts:
+                line = self._format_fact(fact)
+                cost = self._estimate_tokens(line)
+                if local_used + cost > budget and kept_facts:
+                    break
+                local_used += cost
+                kept_facts.append(line)
+            if kept_facts:
+                sections.append("\n".join([_FACTS_HEADER, *kept_facts]))
+                used = local_used
+
+        # L2 摘要次优先占预算（长期压缩信息，价值密度高）；超额则截断摘要正文。
         if summary:
             summary = summary.strip()
             head_cost = self._estimate_tokens(_SUMMARY_HEADER)
-            avail = max(0, budget - head_cost)
+            avail = max(0, budget - used - head_cost)
             if self._estimate_tokens(summary) > avail:
                 summary = summary[:avail]
             if summary:
@@ -90,7 +123,7 @@ class MemoryAssembler:
                 sections.append(block)
                 used += self._estimate_tokens(block)
 
-        # L1 最近原文用剩余预算，从最新往最旧填。
+        # L1 最近原文用剩余预算，从最新往最旧填（始终保留≥1条）。
         if msgs:
             lines = [self._format_line(m) for m in msgs]
             used += self._estimate_tokens(_HEADER)
@@ -106,6 +139,11 @@ class MemoryAssembler:
                 sections.append("\n".join([_HEADER, *kept]))
 
         return "\n\n".join(sections)
+
+    @staticmethod
+    def _format_fact(fact: Fact) -> str:
+        text = (fact.text or "").strip().replace("\n", " ")
+        return f"- {text}"
 
     @staticmethod
     def _format_line(msg: Message) -> str:

@@ -20,6 +20,7 @@ from domain.models import (
     Artifact,
     AuditEntry,
     Chunk,
+    ConsolidationState,
     EvidenceJudgement,
     Fact,
     KbChunk,
@@ -331,13 +332,53 @@ class SummaryStorePort(Protocol):
 
 @runtime_checkable
 class MemoryJobSchedulerPort(Protocol):
-    """记忆后台作业调度（§14.1 显式调度起步，Step 030b）。
+    """记忆后台作业调度（§14.1 显式调度起步，Step 030b/030c）。
 
-    回复完成后由 use case 显式调用，后台 best-effort 跡出 L2 摘要，
+    回复完成后由 use case 显式调用，后台 best-effort 跡出 L2 摘要 / L4 固化，
     不阻塞主回复；失败下一轮按 watermark 自愈补。
     """
 
     def schedule_summarization(self, owner_id: str, task_id: str) -> None: ...
+
+    def schedule_consolidation(self, owner_id: str, task_id: str) -> None: ...
+
+
+@runtime_checkable
+class FactStorePort(Protocol):
+    """L4 语义事实存储（Chroma ``memory_facts`` collection，Step 030c）。
+
+    向量化由调用方（固化 worker / 记忆适配器）用 ``EmbedPort`` 完成后传入，
+    本端口只管"带 owner 隔离的向量 upsert / 近邻查询 / 逻辑删除 / 容量管理"。
+    """
+
+    def add(self, fact: Fact, embedding: list[float]) -> None: ...
+
+    def query(
+        self, owner_id: str, embedding: list[float], k: int
+    ) -> list[tuple[Fact, float]]:
+        """按 owner 隔离的近邻检索，返回 ``(fact, 相似度)`` 倒序（含已 superseded，由调用方过滤）。"""
+        ...
+
+    def get(self, owner_id: str, fact_id: str) -> Fact | None: ...
+
+    def mark_superseded(
+        self, owner_id: str, fact_id: str, superseded_by: str
+    ) -> None: ...
+
+    def list_owner(self, owner_id: str) -> list[Fact]: ...
+
+    def delete(self, owner_id: str, fact_id: str) -> None: ...
+
+    def count(self, owner_id: str) -> int: ...
+
+
+@runtime_checkable
+class ConsolidationStatePort(Protocol):
+    """L4 固化进度水位存储（``consolidation_state`` 表，Step 030c）。"""
+
+    def get(self, task_id: str, owner_id: str) -> ConsolidationState | None: ...
+
+    def upsert(self, state: ConsolidationState) -> None: ...
 
 
 # === 审计（Step 021） ===

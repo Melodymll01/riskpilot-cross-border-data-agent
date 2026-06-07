@@ -335,13 +335,40 @@ class TaskSummary(BaseDomainModel):
 
 
 class Fact(BaseDomainModel):
-    """语义记忆中的单条事实（按 `owner_id`，跨 task / 跨设备可召回）。"""
+    """语义记忆中的单条事实（按 `owner_id`，跨 task / 跨设备可召回）。
+
+    Step 030c 固化字段：
+    - ``confidence`` 置信度 [0,1]：首次提取 tentative（低），反复印证 reinforcement（升）。
+    - ``salience``   显著性 [0,1]：写入门控（低于阈值不固化）+ 衰减打分输入。
+    - ``last_used_at`` 最近被召回时间：衰减/容量淘汰用（recency）。
+    - ``superseded_by`` 被哪条新事实取代（冲突遗忘）：非 None 即逻辑删除，永不召回。
+    - ``source_episode`` 来源情景（task_id / summary 引用）：可解释性溯源。
+    """
 
     fact_id: str = Field(min_length=1)
     owner_id: str = Field(min_length=1)
     text: str = Field(min_length=1)
     tags: list[str] = Field(default_factory=list)
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    salience: float = Field(default=0.5, ge=0.0, le=1.0)
     created_at: float = Field(default_factory=lambda: time.time())
+    last_used_at: float = Field(default_factory=lambda: time.time())
+    superseded_by: str | None = None
+    source_episode: str = ""
+
+
+class ConsolidationState(BaseDomainModel):
+    """L4 固化进度水位（按 task_id，Step 030c）。
+
+    ``msg_watermark`` 记录"已固化到第几条消息"（按 ``list_messages`` 顺序），
+    与 L2 摘要的 watermark 同构：重试不重复写 fact、漏固化下一轮按差额自动补。
+    """
+
+    task_id: str = Field(min_length=1)
+    owner_id: str = Field(min_length=1)
+    msg_watermark: int = Field(default=0, ge=0)
+    updated_at: float = Field(default_factory=lambda: time.time())
+
 
 
 # === 审计（Step 021） ===

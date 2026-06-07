@@ -337,16 +337,22 @@ class TestResearchMode:
 
 
 class _RecordingScheduler:
-    """记录 schedule_summarization 调用的 Fake 调度器。"""
+    """记录 schedule_summarization / schedule_consolidation 调用的 Fake 调度器。"""
 
     def __init__(self, *, boom: bool = False) -> None:
         self.calls: list[tuple[str, str]] = []
+        self.consolidation_calls: list[tuple[str, str]] = []
         self._boom = boom
 
     def schedule_summarization(self, owner_id: str, task_id: str) -> None:
         if self._boom:
             raise RuntimeError("调度炸了")
         self.calls.append((owner_id, task_id))
+
+    def schedule_consolidation(self, owner_id: str, task_id: str) -> None:
+        if self._boom:
+            raise RuntimeError("调度炸了")
+        self.consolidation_calls.append((owner_id, task_id))
 
 
 def _make_uc_with_scheduler(
@@ -387,6 +393,17 @@ class TestMemoryScheduling:
         task_id = events[0].payload["task_id"]
 
         assert sched.calls == [("anon:x", task_id)]
+
+    def test_qa_schedules_consolidation(self) -> None:
+        sched = _RecordingScheduler()
+        uc, _ = _make_uc_with_scheduler(sched)
+
+        events = list(
+            uc.stream(owner_id="anon:x", task_id=None, user_message="个人信息出境条件")
+        )
+        task_id = events[0].payload["task_id"]
+
+        assert sched.consolidation_calls == [("anon:x", task_id)]
 
     def test_scheduler_failure_does_not_break_stream(self) -> None:
         sched = _RecordingScheduler(boom=True)

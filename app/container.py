@@ -25,9 +25,12 @@ from app.factories import (
     build_audit_log,
     build_auth,
     build_chat,
+    build_consolidation_state_store,
+    build_consolidation_worker,
     build_document_loader,
     build_embedder,
     build_evidence,
+    build_fact_store,
     build_kb_repo,
     build_memory,
     build_memory_scheduler,
@@ -55,9 +58,11 @@ if TYPE_CHECKING:
         AuditLogPort,
         AuthPort,
         ChatPort,
+        ConsolidationStatePort,
         DocumentLoaderPort,
         EmbedPort,
         EvidencePort,
+        FactStorePort,
         KbDocumentRepoPort,
         MemoryJobSchedulerPort,
         MemoryPort,
@@ -128,19 +133,40 @@ class AppContainer:
         # ── 鉴权（依赖 user_repo） ────────────────────────────────────
         self.auth: AuthPort = auth or build_auth(settings, self.user_repo)
 
-        # ── 记忆系统（Step 030：S-030a L1 + S-030b L2，依赖 task_repo） ───
+        # ── 记忆系统（Step 030：S-030a L1 + S-030b L2 + S-030c L4，依赖 task_repo） ───
         # memory 可为 None（禁用）；显式注入优先，否则按配置装配。
+        # L4 fact_store / state_store 在 memory 与 worker 间共享，保证读写同一 collection。
+        self.fact_store: FactStorePort | None = build_fact_store(settings)
+        self.consolidation_state_store: ConsolidationStatePort | None = (
+            build_consolidation_state_store(settings, task_repo=self.task_repo)
+        )
         self.memory: MemoryPort | None = memory or build_memory(
-            settings, task_repo=self.task_repo, chat=self.chat
+            settings,
+            task_repo=self.task_repo,
+            chat=self.chat,
+            fact_store=self.fact_store,
+            embedder=self.embedder,
         )
         self.memory_assembler = MemoryAssembler(
             self.memory,
             recent_n=settings.memory_recent_n,
             token_budget=settings.memory_token_budget,
+            recall_k=settings.memory_fact_recall_k,
         )
-        # L2 后台调度器（回复后异步跡出摘要）
+        # L4 提取-验证-巩固 worker（后台固化）
+        self.consolidation_worker = build_consolidation_worker(
+            settings,
+            task_repo=self.task_repo,
+            fact_store=self.fact_store,
+            embedder=self.embedder,
+            chat=self.chat,
+            state_store=self.consolidation_state_store,
+        )
+        # L2/L4 后台调度器（回复后异步跳出摘要 / 固化）
         self.memory_scheduler: MemoryJobSchedulerPort | None = build_memory_scheduler(
-            settings, memory=self.memory
+            settings,
+            memory=self.memory,
+            consolidation_worker=self.consolidation_worker,
         )
 
         # ── use case 装配 ─────────────────────────────────────────────

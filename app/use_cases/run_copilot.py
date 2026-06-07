@@ -105,6 +105,8 @@ class RunCopilotUseCase:
         # 调度失败绝不影响主回复（后台 best-effort）。
         with contextlib.suppress(Exception):
             self._memory_scheduler.schedule_summarization(owner_id, task_id)
+        with contextlib.suppress(Exception):
+            self._memory_scheduler.schedule_consolidation(owner_id, task_id)
 
     # ─── profile 分支 ──────────────────────────────────────────────
 

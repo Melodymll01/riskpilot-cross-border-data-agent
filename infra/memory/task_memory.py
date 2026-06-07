@@ -7,8 +7,10 @@
 - L2 滚动摘要走独立 ``SummaryStorePort``（``task_summaries`` 表），
   LLM **增量精炼**（旧摘要 + 新增消息 → 新摘要，成本 O(1)/轮），
   靠 ``msg_watermark`` 幂等：重试不重复摘要、漏摘下一轮自动补。
-- TTL 逻辑遗忘：读取时过滤过期记忆（L1 原文 / L2 摘要），过期永不注入。
-- L3/L4 仍保留接口但抛 ``NotImplementedError``，由 S-030c/d 补齐。
+- TTL 逻辑遗忘：读取时过滤过期记忆（L1 原文 / L2 摘要 / L4 事实），过期永不注入。
+- L4 语义事实读路径（``recall_semantic``）走独立 ``FactStorePort``（Chroma），
+  写路径（提取-验证-巩固）在 ``ConsolidationWorker`` 后台完成，本类只读。
+- L3 仍保留接口但抛 ``NotImplementedError``，由 S-030d 补齐。
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ import logging
 import time
 
 from domain.models import Fact, Message, SessionProfile, TaskSummary
-from domain.ports import ChatPort, SummaryStorePort, TaskRepoPort
+from domain.ports import ChatPort, EmbedPort, FactStorePort, SummaryStorePort, TaskRepoPort
 
 logger = logging.getLogger(__name__)
 
@@ -39,15 +41,21 @@ class TaskBackedMemory:
         *,
         summary_store: SummaryStorePort | None = None,
         chat: ChatPort | None = None,
+        fact_store: FactStorePort | None = None,
+        embedder: EmbedPort | None = None,
         l1_ttl_days: float = 30.0,
         l2_ttl_days: float = 180.0,
+        l4_ttl_days: float = 365.0,
         summary_threshold: int = 20,
     ) -> None:
         self._repo = task_repo
         self._summary_store = summary_store
         self._chat = chat
+        self._fact_store = fact_store
+        self._embedder = embedder
         self._l1_ttl_days = l1_ttl_days
         self._l2_ttl_days = l2_ttl_days
+        self._l4_ttl_days = l4_ttl_days
         self._summary_threshold = summary_threshold
 
     # ── L1 短期 ────────────────────────────────────────────────────────────
@@ -130,16 +138,45 @@ class TaskBackedMemory:
             )
         )
 
-    # ── L3/L4：占位，后续步骤实现 ─────────────────────────────────────────
+    # ── L4 语义事实（读） ──────────────────────────────────────────────────
+
+    def recall_semantic(self, owner_id: str, query: str, k: int) -> list[Fact]:
+        """按 query 语义召回该 owner 的长期事实；逻辑遗忘已 superseded / 过期的。
+
+        未配置 fact_store/embedder、k≤0、query 为空均安全返回空列表。
+        owner 隔离由 ``FactStorePort.query`` 的 owner_id 过滤保证。
+        """
+        if self._fact_store is None or self._embedder is None:
+            return []
+        if k <= 0 or not (query or "").strip():
+            return []
+        try:
+            embedding = self._embedder.embed([query])[0]
+            hits = self._fact_store.query(owner_id, embedding, k)
+        except Exception:  # noqa: BLE001 — 召回失败时降级为无事实，不影响主回复
+            logger.warning("L4 语义召回失败（已降级为空）", exc_info=True)
+            return []
+        cutoff = (
+            time.time() - self._l4_ttl_days * _SECONDS_PER_DAY
+            if self._l4_ttl_days > 0
+            else None
+        )
+        facts: list[Fact] = []
+        for fact, _sim in hits:
+            if fact.superseded_by is not None:
+                continue  # 逻辑遗忘：被取代的事实不召回
+            if cutoff is not None and fact.created_at < cutoff:
+                continue  # TTL 逻辑遗忘
+            facts.append(fact)
+        return facts
+
+    # ── L3：占位，S-030d 实现 ──────────────────────────────────────────────
 
     def get_profile(self, owner_id: str) -> SessionProfile:  # pragma: no cover
         raise NotImplementedError("L3 用户画像将在 S-030d 实现")
 
     def update_profile(self, owner_id: str, facts: dict[str, str]) -> None:  # pragma: no cover
         raise NotImplementedError("L3 用户画像将在 S-030d 实现")
-
-    def recall_semantic(self, owner_id: str, query: str, k: int) -> list[Fact]:  # pragma: no cover
-        raise NotImplementedError("L4 语义事实将在 S-030c 实现")
 
     # ── 内部 ────────────────────────────────────────────────────────────────
 

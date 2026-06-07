@@ -17,9 +17,11 @@ from domain.ports import (
     AuditLogPort,
     AuthPort,
     ChatPort,
+    ConsolidationStatePort,
     DocumentLoaderPort,
     EmbedPort,
     EvidencePort,
+    FactStorePort,
     KbDocumentRepoPort,
     MemoryJobSchedulerPort,
     MemoryPort,
@@ -36,11 +38,21 @@ from infra.auth import AnonymousProvider, AuthService, GitHubOAuthProvider, JwtI
 from infra.chat import OpenAIChatAdapter
 from infra.evidence import MockEvidenceClient
 from infra.kb import ChromaKbRepo, UnifiedLoaderAdapter
-from infra.memory import TaskBackedMemory, ThreadPoolMemoryScheduler
+from infra.memory import (
+    ChromaFactStore,
+    ConsolidationWorker,
+    TaskBackedMemory,
+    ThreadPoolMemoryScheduler,
+)
 from infra.research import AgenticResearchAdapter
 from infra.risk_profile import StubRiskProfileService
 from infra.search import EmbedderAdapter, HybridRetrieverAdapter
-from infra.storage import SqliteSummaryStore, SqliteTaskRepo, SqliteUserRepo
+from infra.storage import (
+    SqliteConsolidationStateStore,
+    SqliteSummaryStore,
+    SqliteTaskRepo,
+    SqliteUserRepo,
+)
 from infra.storage._db import SqliteConnectionPool
 from infra.web import DuckDuckGoAdapter
 
@@ -102,12 +114,15 @@ def build_memory(
     *,
     task_repo: TaskRepoPort,
     chat: ChatPort | None = None,
+    fact_store: FactStorePort | None = None,
+    embedder: EmbedPort | None = None,
 ) -> MemoryPort | None:
-    """构造 ``MemoryPort``（S-030a L1 + S-030b L2）；禁用时返回 None。
+    """构造 ``MemoryPort``（S-030a L1 + S-030b L2 + S-030c L4 读）；禁用时返回 None。
 
     None 是合法状态：表示"记忆关闭"，装配器据此退回无状态旧行为。
-    L2 摘要依赖 summary_store + chat；任一缺失则退化为纯 L1。
-    `chat=None` 时按配置自建（容器一般注入自己的 chat 以复用注入的 fake）。
+    L2 摘要依赖 summary_store + chat；L4 语义召回依赖 fact_store + embedder；
+    任一缺失则该层静默退化。容器一般传入共享的 fact_store/embedder，
+    以与固化 worker 复用同一 Chroma collection。
     """
     if not settings.memory_enabled:
         return None
@@ -115,12 +130,20 @@ def build_memory(
     summary_chat: ChatPort | None = None
     if settings.memory_summary_enabled:
         summary_chat = chat if chat is not None else build_chat(settings)
+    if settings.memory_consolidation_enabled:
+        if fact_store is None:
+            fact_store = build_fact_store(settings)
+        if embedder is None:
+            embedder = build_embedder(settings)
     return TaskBackedMemory(
         task_repo,
         summary_store=summary_store,
         chat=summary_chat,
+        fact_store=fact_store,
+        embedder=embedder,
         l1_ttl_days=settings.memory_l1_ttl_days,
         l2_ttl_days=settings.memory_l2_ttl_days,
+        l4_ttl_days=settings.memory_l4_ttl_days,
         summary_threshold=settings.memory_summary_threshold,
     )
 
@@ -140,13 +163,79 @@ def build_summary_store(
 
 
 def build_memory_scheduler(
-    settings: Settings, *, memory: MemoryPort | None
+    settings: Settings,
+    *,
+    memory: MemoryPort | None,
+    consolidation_worker: ConsolidationWorker | None = None,
 ) -> MemoryJobSchedulerPort | None:
-    """构造 L2 后台调度器；记忆禁用 / 摘要禁用时返回 None。"""
-    if memory is None or not settings.memory_summary_enabled:
+    """构造记忆后台调度器；记忆禁用 / （摘要与固化均禁用）时返回 None。"""
+    if memory is None:
+        return None
+    if not settings.memory_summary_enabled and consolidation_worker is None:
         return None
     return ThreadPoolMemoryScheduler(
-        memory, summary_threshold=settings.memory_summary_threshold
+        memory,
+        summary_threshold=settings.memory_summary_threshold,
+        consolidation_worker=consolidation_worker,
+    )
+
+
+def build_fact_store(settings: Settings) -> FactStorePort | None:
+    """构造 L4 语义事实存储（独立 Chroma collection）；记忆/固化禁用时返回 None。"""
+    if not (settings.memory_enabled and settings.memory_consolidation_enabled):
+        return None
+    return ChromaFactStore()
+
+
+def build_consolidation_state_store(
+    settings: Settings, *, task_repo: TaskRepoPort
+) -> ConsolidationStatePort | None:
+    """构造 L4 固化进度水位存储；记忆/固化禁用时返回 None。复用 task 连接池。"""
+    if not (settings.memory_enabled and settings.memory_consolidation_enabled):
+        return None
+    if isinstance(task_repo, SqliteTaskRepo):
+        return SqliteConsolidationStateStore(task_repo._pool)  # noqa: SLF001 — 同包复用连接池
+    return SqliteConsolidationStateStore(build_sqlite_pool(settings))
+
+
+def build_consolidation_worker(
+    settings: Settings,
+    *,
+    task_repo: TaskRepoPort,
+    fact_store: FactStorePort | None = None,
+    embedder: EmbedPort | None = None,
+    chat: ChatPort | None = None,
+    state_store: ConsolidationStatePort | None = None,
+) -> ConsolidationWorker | None:
+    """构造 L4 提取-验证-巩固 worker；记忆/固化禁用或依赖缺失时返回 None。
+
+    依赖（fact_store/embedder/chat/state_store）未传入时按配置自建；
+    容器一般传入与 ``build_memory`` 共享的实例，保证读写同一 collection。
+    """
+    if not (settings.memory_enabled and settings.memory_consolidation_enabled):
+        return None
+    fact_store = fact_store if fact_store is not None else build_fact_store(settings)
+    state_store = (
+        state_store
+        if state_store is not None
+        else build_consolidation_state_store(settings, task_repo=task_repo)
+    )
+    if fact_store is None or state_store is None:
+        return None
+    embedder = embedder if embedder is not None else build_embedder(settings)
+    chat = chat if chat is not None else build_chat(settings)
+    return ConsolidationWorker(
+        task_repo=task_repo,
+        fact_store=fact_store,
+        embedder=embedder,
+        chat=chat,
+        state_store=state_store,
+        min_backlog=settings.memory_consolidation_min_backlog,
+        salience_threshold=settings.memory_fact_salience_threshold,
+        dedup_threshold=settings.memory_fact_dedup_threshold,
+        conflict_threshold=settings.memory_fact_conflict_threshold,
+        fact_cap_per_owner=settings.memory_fact_cap_per_owner,
+        decay_lambda=settings.memory_decay_lambda,
     )
 
 
@@ -205,9 +294,12 @@ __all__ = [
     "build_audit_log",
     "build_auth",
     "build_chat",
+    "build_consolidation_state_store",
+    "build_consolidation_worker",
     "build_document_loader",
     "build_embedder",
     "build_evidence",
+    "build_fact_store",
     "build_kb_repo",
     "build_memory",
     "build_memory_scheduler",

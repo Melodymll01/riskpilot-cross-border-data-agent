@@ -8,7 +8,7 @@ from __future__ import annotations
 import pytest
 
 from app.memory import MemoryAssembler
-from domain.models import Message
+from domain.models import Fact, Message
 from tests.fakes.fake_memory import FakeMemory
 
 pytestmark = pytest.mark.unit
@@ -160,4 +160,84 @@ class TestSummaryInjection:
 
         assert "用户：仍可用的历史" in block
         assert "【对话摘要" not in block
+
+
+def _fact(text: str, owner_id: str = "o1") -> Fact:
+    return Fact(fact_id=f"f_{abs(hash(text)) % 99999}", owner_id=owner_id, text=text)
+
+
+class TestFactInjection:
+    def test_no_recall_when_recall_k_zero(self) -> None:
+        mem = FakeMemory(
+            messages={"t1": [_msg("user", "x", 1.0)]},
+            facts={"o1": [_fact("用户在跨境电商行业")]},
+        )
+        asm = MemoryAssembler(mem, recent_n=6, token_budget=1500, recall_k=0)
+
+        block = asm.assemble(owner_id="o1", task_id="t1", query="行业")
+
+        assert "【相关长期记忆" not in block
+        assert mem.recall_calls == []
+
+    def test_no_recall_when_query_blank(self) -> None:
+        mem = FakeMemory(
+            messages={"t1": [_msg("user", "x", 1.0)]},
+            facts={"o1": [_fact("用户在跨境电商行业")]},
+        )
+        asm = MemoryAssembler(mem, recent_n=6, token_budget=1500, recall_k=3)
+
+        block = asm.assemble(owner_id="o1", task_id="t1", query="   ")
+
+        assert "【相关长期记忆" not in block
+        assert mem.recall_calls == []
+
+    def test_facts_injected_and_passed_query(self) -> None:
+        mem = FakeMemory(
+            messages={"t1": [_msg("user", "最近问题", 2.0)]},
+            facts={
+                "anon:o1": [
+                    _fact("用户在跨境电商行业", owner_id="anon:o1"),
+                    _fact("用户偏好中文回答", owner_id="anon:o1"),
+                ]
+            },
+        )
+        asm = MemoryAssembler(mem, recent_n=6, token_budget=1500, recall_k=3)
+
+        block = asm.assemble(owner_id="anon:o1", task_id="t1", query="数据出境")
+
+        assert "【相关长期记忆" in block
+        assert "用户在跨境电商行业" in block
+        assert "用户偏好中文回答" in block
+        assert mem.recall_calls == [("anon:o1", "数据出境", 3)]
+
+    def test_facts_rank_first_before_summary_and_recent(self) -> None:
+        mem = FakeMemory(
+            messages={"t1": [_msg("user", "最近问题", 2.0)]},
+            summaries={"t1": "更早聊过评估"},
+            facts={"o1": [_fact("用户在跨境电商行业")]},
+        )
+        asm = MemoryAssembler(mem, recent_n=6, token_budget=1500, recall_k=3)
+
+        block = asm.assemble(owner_id="o1", task_id="t1", query="数据出境")
+
+        assert block.index("【相关长期记忆") < block.index("【对话摘要")
+        assert block.index("【对话摘要") < block.index("【历史对话")
+
+    def test_recall_failure_degrades(self) -> None:
+        class _Boom:
+            def recall_semantic(self, *a: object, **k: object) -> list[Fact]:
+                raise RuntimeError("boom")
+
+            def get_summary(self, *a: object, **k: object) -> None:
+                return None
+
+            def recent_messages(self, *a: object, **k: object) -> list[Message]:
+                return [_msg("user", "仍可用", 1.0)]
+
+        asm = MemoryAssembler(_Boom(), recent_n=6, token_budget=1500, recall_k=3)  # type: ignore[arg-type]
+
+        block = asm.assemble(owner_id="o1", task_id="t1", query="q")
+
+        assert "用户：仍可用" in block
+        assert "【相关长期记忆" not in block
 

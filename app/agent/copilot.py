@@ -140,7 +140,9 @@ class ComplianceCopilotAgent:
 
         # 0) 读取 L1 历史记忆——必须在当前用户消息入库之前，
         #    这样注入块只含先前轮次，不会把当前问题重复塞回去。
-        memory_block = self._memory_block(owner_id=owner_id, task_id=task_id)
+        memory_block = self._memory_block(
+            owner_id=owner_id, task_id=task_id, query=user_message
+        )
 
         # 1) 持久化用户消息
         self._task_repo.append_message(
@@ -213,11 +215,13 @@ class ComplianceCopilotAgent:
 
     # ── 内部 ─────────────────────────────────────────────────────────
 
-    def _memory_block(self, *, owner_id: str, task_id: str) -> str:
-        """装配 L1 历史记忆块；无装配器时返回空串（降级）。"""
+    def _memory_block(self, *, owner_id: str, task_id: str, query: str) -> str:
+        """装配分层记忆块（L4 事实 + L2 摘要 + L1 历史）；无装配器时返回空串（降级）。"""
         if self._memory_assembler is None:
             return ""
-        return self._memory_assembler.assemble(owner_id=owner_id, task_id=task_id)
+        return self._memory_assembler.assemble(
+            owner_id=owner_id, task_id=task_id, query=query
+        )
 
     def _build_messages(
         self,

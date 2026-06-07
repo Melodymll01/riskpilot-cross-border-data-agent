@@ -93,6 +93,17 @@ CREATE TABLE IF NOT EXISTS task_summaries (
 
 CREATE INDEX IF NOT EXISTS idx_task_summaries_owner
     ON task_summaries(owner_id, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS consolidation_state (
+    task_id       TEXT PRIMARY KEY,
+    owner_id      TEXT NOT NULL,
+    msg_watermark INTEGER NOT NULL DEFAULT 0,
+    updated_at    REAL NOT NULL,
+    FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_consolidation_state_owner
+    ON consolidation_state(owner_id, updated_at DESC);
 """
 
 
