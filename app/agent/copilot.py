@@ -29,6 +29,7 @@ from app.agent.tools import ToolSpec
 from domain.models import Citation, Message, ToolCall
 
 if TYPE_CHECKING:
+    from app.memory import MemoryAssembler
     from domain.ports import ChatPort, TaskRepoPort
 
 
@@ -106,6 +107,7 @@ class ComplianceCopilotAgent:
         tool_registry: dict[str, ToolSpec],
         max_steps: int = DEFAULT_MAX_STEPS,
         temperature: float = DEFAULT_TEMPERATURE,
+        memory_assembler: MemoryAssembler | None = None,
     ) -> None:
         if max_steps < 1:
             msg = f"max_steps must be >= 1, got {max_steps}"
@@ -116,6 +118,8 @@ class ComplianceCopilotAgent:
         self._max_steps = max_steps
         self._temperature = temperature
         self._system = _system_prompt(self._tools)
+        # memory_assembler=None → 无状态旧行为（降级），见 S-030a。
+        self._memory_assembler = memory_assembler
 
     # ── 主接口 ────────────────────────────────────────────────────────
 
@@ -134,6 +138,10 @@ class ComplianceCopilotAgent:
             msg = "task_id 必填"
             raise ValueError(msg)
 
+        # 0) 读取 L1 历史记忆——必须在当前用户消息入库之前，
+        #    这样注入块只含先前轮次，不会把当前问题重复塞回去。
+        memory_block = self._memory_block(owner_id=owner_id, task_id=task_id)
+
         # 1) 持久化用户消息
         self._task_repo.append_message(
             Message(
@@ -148,7 +156,7 @@ class ComplianceCopilotAgent:
         observations: list[tuple[str, Any]] = []
         last_thought = ""
         for _step in range(self._max_steps):
-            messages = self._build_messages(user_message, observations)
+            messages = self._build_messages(memory_block, user_message, observations)
             # json_mode=True：让支持的网关在模型层强制输出语法合法 JSON（根治决策解析崩溃）；
             # 不支持时适配器自动降级，parse_decision 仍有 _repair_unescaped_quotes 兜底。
             raw = self._chat.chat(
@@ -205,13 +213,24 @@ class ComplianceCopilotAgent:
 
     # ── 内部 ─────────────────────────────────────────────────────────
 
+    def _memory_block(self, *, owner_id: str, task_id: str) -> str:
+        """装配 L1 历史记忆块；无装配器时返回空串（降级）。"""
+        if self._memory_assembler is None:
+            return ""
+        return self._memory_assembler.assemble(owner_id=owner_id, task_id=task_id)
+
     def _build_messages(
-        self, user_message: str, observations: list[tuple[str, Any]]
+        self,
+        memory_block: str,
+        user_message: str,
+        observations: list[tuple[str, Any]],
     ) -> list[dict[str, str]]:
         msgs: list[dict[str, str]] = [
             {"role": "system", "content": self._system},
-            {"role": "user", "content": user_message},
         ]
+        if memory_block:
+            msgs.append({"role": "system", "content": memory_block})
+        msgs.append({"role": "user", "content": user_message})
         obs_text = _format_observations(observations)
         if obs_text:
             msgs.append({"role": "user", "content": f"【观察值】\n{obs_text}"})

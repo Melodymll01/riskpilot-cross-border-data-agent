@@ -29,6 +29,7 @@ from app.factories import (
     build_embedder,
     build_evidence,
     build_kb_repo,
+    build_memory,
     build_research,
     build_retriever,
     build_risk_profile,
@@ -37,6 +38,7 @@ from app.factories import (
     build_user_repo,
     build_web_search,
 )
+from app.memory import MemoryAssembler
 from app.use_cases import (
     AuthLoginUseCase,
     IngestionUseCase,
@@ -56,6 +58,7 @@ if TYPE_CHECKING:
         EmbedPort,
         EvidencePort,
         KbDocumentRepoPort,
+        MemoryPort,
         ResearchPort,
         RetrievePort,
         RiskProfilePort,
@@ -66,7 +69,7 @@ if TYPE_CHECKING:
 
 
 class AppContainer:
-    """12 个 Port + 5 个 use case 的中央配电盘。"""
+    """13 个 Port + 5 个 use case 的中央配电盘。"""
 
     def __init__(
         self,
@@ -85,6 +88,7 @@ class AppContainer:
         kb_repo: KbDocumentRepoPort | None = None,
         document_loader: DocumentLoaderPort | None = None,
         auth: AuthPort | None = None,
+        memory: MemoryPort | None = None,
     ) -> None:
         self.settings = settings
 
@@ -122,6 +126,17 @@ class AppContainer:
         # ── 鉴权（依赖 user_repo） ────────────────────────────────────
         self.auth: AuthPort = auth or build_auth(settings, self.user_repo)
 
+        # ── 记忆系统（Step 030：S-030a 仅 L1，依赖 task_repo） ────────
+        # memory 可为 None（禁用）；显式注入优先，否则按配置装配。
+        self.memory: MemoryPort | None = memory or build_memory(
+            settings, task_repo=self.task_repo
+        )
+        self.memory_assembler = MemoryAssembler(
+            self.memory,
+            recent_n=settings.memory_recent_n,
+            token_budget=settings.memory_token_budget,
+        )
+
         # ── use case 装配 ─────────────────────────────────────────────
         self.auth_login = AuthLoginUseCase(self.auth, audit_log=self.audit_log)
         self.task_management = TaskManagementUseCase(self.task_repo)
@@ -140,6 +155,7 @@ class AppContainer:
             chat=self.chat,
             task_repo=self.task_repo,
             tool_registry=self.tool_registry,
+            memory_assembler=self.memory_assembler,
         )
         self.run_copilot = RunCopilotUseCase(
             agent=self.copilot_agent,

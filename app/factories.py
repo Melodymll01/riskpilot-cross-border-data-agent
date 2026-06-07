@@ -21,6 +21,7 @@ from domain.ports import (
     EmbedPort,
     EvidencePort,
     KbDocumentRepoPort,
+    MemoryPort,
     ResearchPort,
     RetrievePort,
     RiskProfilePort,
@@ -33,6 +34,7 @@ from infra.auth import AnonymousProvider, AuthService, GitHubOAuthProvider, JwtI
 from infra.chat import OpenAIChatAdapter
 from infra.evidence import MockEvidenceClient
 from infra.kb import ChromaKbRepo, UnifiedLoaderAdapter
+from infra.memory import TaskBackedMemory
 from infra.research import AgenticResearchAdapter
 from infra.risk_profile import StubRiskProfileService
 from infra.search import EmbedderAdapter, HybridRetrieverAdapter
@@ -91,6 +93,16 @@ def build_evidence(_settings: Settings) -> EvidencePort:
 def build_risk_profile(_settings: Settings) -> RiskProfilePort:
     """默认返回占位实现：evidence-state 模型部署后在此切到 HTTP client。"""
     return StubRiskProfileService(mode="raise")
+
+
+def build_memory(settings: Settings, *, task_repo: TaskRepoPort) -> MemoryPort | None:
+    """构造 ``MemoryPort``（S-030a 仅 L1）；禁用时返回 None。
+
+    None 是合法状态：表示"记忆关闭"，装配器据此退回无状态旧行为。
+    """
+    if not settings.memory_enabled:
+        return None
+    return TaskBackedMemory(task_repo)
 
 
 def build_research(_settings: Settings) -> ResearchPort:
@@ -152,6 +164,7 @@ __all__ = [
     "build_embedder",
     "build_evidence",
     "build_kb_repo",
+    "build_memory",
     "build_research",
     "build_retriever",
     "build_risk_profile",

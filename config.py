@@ -135,6 +135,14 @@ class Settings(BaseSettings):
     # SSE 心跳间隔：长 SSE 流期间每 N 秒发一个注释行，防中间代理超时断开
     sse_keepalive_seconds: int = Field(15, ge=5, le=120)
 
+    # ── 记忆系统（Step 030：分层记忆，S-030a 仅 L1 短期）────────────────────────
+    # memory_enabled=False 时容器装配 memory=None，agent 退回无状态旧行为。
+    memory_enabled: bool = True
+    # 注入 prompt 的最近 N 条历史消息（不含当前轮）；0 等价于关闭注入。
+    memory_recent_n: int = Field(6, ge=0, le=50)
+    # 记忆块 token 预算上限（字符数近似）；超出时从最旧消息开始丢弃。
+    memory_token_budget: int = Field(1500, ge=0, le=8000)
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",
