@@ -108,7 +108,20 @@ onUserChange((user) => {
 
   // KB 入口：任意登录用户可见（只读）；admin 额外看到 admin 标签 + 上传/删除 UI
   applyKbGate(!!user, !!user?.is_admin);
+  // 记忆与隐私：仅「真实登录」用户可用（匿名访客不显示）
+  applyMemoryGate(!!user && user.provider !== "anonymous");
 });
+
+// 控制「记忆与隐私」入口的可见性：匿名访客隐藏，真实登录用户显示
+function applyMemoryGate(isRealUser) {
+  const item = $("#btn-memory-settings");
+  if (item) {
+    item.classList.toggle("hidden", !isRealUser);
+    item.hidden = !isRealUser;
+  }
+  // 退出登录 / 掉到匿名时若模态还开着，关掉它
+  if (!isRealUser) settings.close();
+}
 
 // 控制 KB 入口与写入 UI 的可见性
 function applyKbGate(isLoggedIn, isAdmin) {
@@ -222,9 +235,11 @@ function bindUI() {
     await refreshTasks();
   });
 
-  // 记忆与隐私设置（Step 031b）
+  // 记忆与隐私设置（Step 031b）：仅真实登录用户可用
   $("#btn-memory-settings")?.addEventListener("click", () => {
     $("#user-menu").classList.add("hidden");
+    const user = getUser();
+    if (!user || user.provider === "anonymous") return;
     settings.open();
   });
   // 清空全部（含对话）后：刷新任务列表并重置当前对话
