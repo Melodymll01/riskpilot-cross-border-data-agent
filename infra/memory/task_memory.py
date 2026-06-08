@@ -242,6 +242,18 @@ class TaskBackedMemory:
         facts.sort(key=lambda f: f.created_at, reverse=True)
         return facts
 
+    def delete_fact(self, owner_id: str, fact_id: str) -> bool:
+        """物理删除该 owner 的单条长期事实（被遗忘权细粒度，Step 034）。
+
+        返回是否真的删了：未配置 fact_store / 事实不存在 / 不属于该 owner
+        都返回 ``False``（供 API 层映射 404）。owner 隔离由 fact_store.get 保证。
+        """
+        if self._fact_store is None:
+            return False
+        if self._fact_store.get(owner_id, fact_id) is None:
+            return False
+        self._fact_store.delete(owner_id, fact_id)
+        return True
 
     # ── L3 用户画像 ──────────────────────────────────────────────────────────
 

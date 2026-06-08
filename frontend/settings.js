@@ -5,6 +5,7 @@
  *   GET/PUT /api/v2/memory/settings   两个开关（参考保存的记忆 / 参考会话上下文）
  *   GET     /api/v2/memory/profile    L3 用户画像
  *   GET     /api/v2/memory/facts      生效的长期事实 + 容量上限
+ *   DELETE  /api/v2/memory/facts/{id} 删单条长期事实（被遗忘权细粒度，Step 034）
  *   POST    /api/v2/memory/forget     主动遗忘（scope = memory | all）
  *
  * 交互约定：
@@ -177,11 +178,42 @@ async function loadFacts() {
         tags.textContent = f.tags.map((t) => `#${t}`).join(" ");
         li.appendChild(tags);
       }
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "memory-fact-del";
+      del.title = "删除这条记忆";
+      del.setAttribute("aria-label", "删除这条记忆");
+      del.textContent = "×";
+      del.addEventListener("click", () => onDeleteFact(f.fact_id, f.text));
+      li.appendChild(del);
       list.appendChild(li);
     }
   } catch (err) {
     count.textContent = "—";
     setStatus(`读取事实失败：${errMsg(err)}`, "err");
+  }
+}
+
+/** 删除单条长期事实（二次确认，删后刷新清单）。 */
+async function onDeleteFact(factId, text) {
+  if (_busy || !factId) return;
+  const preview = (text || "").length > 40 ? `${text.slice(0, 40)}…` : text || "";
+  if (!window.confirm(`确定删除这条记忆吗？\n\n“${preview}”\n\n此操作不可恢复。`)) return;
+  _busy = true;
+  setStatus("删除中…", "busy");
+  try {
+    await memory.deleteFact(factId);
+    setStatus("已删除", "ok");
+    await loadFacts();
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) {
+      setStatus("这条记忆已不存在", "ok");
+      await loadFacts();
+    } else {
+      setStatus(`删除失败：${errMsg(err)}`, "err");
+    }
+  } finally {
+    _busy = false;
   }
 }
 

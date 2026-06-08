@@ -9,14 +9,17 @@
 - ``GET/PUT /memory/settings``：读/改两个开关（参考保存的记忆 / 参考会话上下文），
   ``PUT`` 部分更新并落同意变更审计（``MemorySettingsUseCase``）。
 - ``GET /memory/facts``：列当前生效的长期事实 + 容量上限，供管理面板渲染。
-- 记忆系统禁用（``container.memory is None``）时各端点优雅降级（空/默认值），均 200。
+- ``DELETE /memory/facts/{id}``：删当前 owner 的单条事实（被遗忘权细粒度，Step 034），
+  成功 204；事实不存在 / 不属于该 owner → 404；删除落 ``MEMORY_FACT_DELETE`` 审计。
+- 记忆系统禁用（``container.memory is None``）时读端点优雅降级（空/默认值，200）；
+  单条删除因资源不存在返回 404。
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from api.v2.deps import make_require_owner
 from api.v2.schemas import (
@@ -128,5 +131,19 @@ def build_memory_routes(container: AppContainer) -> APIRouter:
             for f in facts
         ]
         return MemoryFactsResponse(facts=items, count=len(items), cap=cap)
+
+    @router.delete(
+        "/facts/{fact_id}",
+        status_code=status.HTTP_204_NO_CONTENT,
+        summary="删除当前 owner 的单条长期事实（被遗忘权细粒度）",
+    )
+    def delete_fact(
+        fact_id: str,
+        owner_id: str = Depends(require_owner),
+    ) -> Response:
+        deleted = container.forget_memory.delete_fact(owner_id, fact_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="fact not found")
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     return router

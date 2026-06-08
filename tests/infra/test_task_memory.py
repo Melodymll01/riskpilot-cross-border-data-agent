@@ -648,3 +648,42 @@ class TestL4ListFacts:
         mem = TaskBackedMemory(InMemoryTaskRepo(), fact_store=store, embedder=embed)
 
         assert mem.list_facts("anon:owner_b") == []
+
+
+class TestL4DeleteFact:
+    @staticmethod
+    def _fact(owner_id: str, fact_id: str, text: str) -> Fact:
+        return Fact(fact_id=fact_id, owner_id=owner_id, text=text, created_at=_NOW)
+
+    def test_no_fact_store_returns_false(self) -> None:
+        mem = TaskBackedMemory(InMemoryTaskRepo())  # 无 fact_store
+        assert mem.delete_fact("anon:o1", "f1") is False
+
+    def test_deletes_existing_fact(self) -> None:
+        store = FakeFactStore()
+        embed = FakeEmbed()
+        f = self._fact("anon:o1", "f1", "用户在跨境电商行业")
+        store.add(f, embed.embed([f.text])[0])
+        mem = TaskBackedMemory(InMemoryTaskRepo(), fact_store=store, embedder=embed)
+
+        assert mem.delete_fact("anon:o1", "f1") is True
+        assert store.get("anon:o1", "f1") is None
+        assert store.count("anon:o1") == 0
+
+    def test_missing_fact_returns_false(self) -> None:
+        store = FakeFactStore()
+        mem = TaskBackedMemory(InMemoryTaskRepo(), fact_store=store)
+
+        assert mem.delete_fact("anon:o1", "f_missing") is False
+
+    def test_other_owner_not_deleted(self) -> None:
+        store = FakeFactStore()
+        embed = FakeEmbed()
+        f = self._fact("anon:owner_a", "f1", "机密事实")
+        store.add(f, embed.embed([f.text])[0])
+        mem = TaskBackedMemory(InMemoryTaskRepo(), fact_store=store, embedder=embed)
+
+        # owner_b 不能删 owner_a 的事实
+        assert mem.delete_fact("anon:owner_b", "f1") is False
+        assert store.get("anon:owner_a", "f1") is not None
+

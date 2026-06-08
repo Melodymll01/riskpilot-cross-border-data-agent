@@ -330,6 +330,9 @@ class MemoryPort(Protocol):
     # L4 事实列表（管理面板展示，过滤已 superseded / 过期，Step 031a）
     def list_facts(self, owner_id: str) -> list[Fact]: ...
 
+    # L4 单条事实删除（被遗忘权细粒度，Step 034）：返回是否真删了
+    def delete_fact(self, owner_id: str, fact_id: str) -> bool: ...
+
     # 主动遗忘（被遗忘权）：按 owner_id 级联清除（Step 030d）
     def forget(self, owner_id: str, *, scope: str = "memory") -> ForgetResult: ...
 

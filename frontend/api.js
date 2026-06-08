@@ -178,6 +178,14 @@ export const memory = {
   facts: () => request("GET", "/memory/facts"),
 
   /**
+   * 删除当前 owner 的单条长期事实（被遗忘权细粒度，Step 034）。
+   * 成功 204（request 返回 null）；事实不存在抛 ApiError(404)。
+   * @param {string} factId
+   */
+  deleteFact: (factId) =>
+    request("DELETE", `/memory/facts/${encodeURIComponent(factId)}`),
+
+  /**
    * 主动遗忘（被遗忘权）。
    * @param {"memory"|"all"} scope "memory"=只清派生记忆；"all"=连带原始对话
    */

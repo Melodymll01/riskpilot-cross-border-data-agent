@@ -52,15 +52,17 @@ class ForgetMemoryUseCase:
             result = self._memory.forget(owner_id, scope=scope)
         except Exception as exc:  # noqa: BLE001 — 失败也要留痕，再抛给上层
             self._record_audit(
-                actor_id=owner_id,
-                resource=owner_id,
-                request_id=request_id,
-                success=False,
-                error=str(exc),
-                extra={"scope": scope},
+            action=AuditAction.MEMORY_FORGET,
+            actor_id=owner_id,
+            resource=owner_id,
+            request_id=request_id,
+            success=False,
+            error=str(exc),
+            extra={"scope": scope},
             )
             raise
         self._record_audit(
+            action=AuditAction.MEMORY_FORGET,
             actor_id=owner_id,
             resource=owner_id,
             request_id=request_id,
@@ -78,9 +80,50 @@ class ForgetMemoryUseCase:
         )
         return result
 
+    def delete_fact(
+        self,
+        owner_id: str,
+        fact_id: str,
+        *,
+        request_id: str | None = None,
+    ) -> bool:
+        """删除该 owner 的单条长期事实并落审计（被遗忘权细粒度，Step 034）。
+
+        返回是否真的删了（``False`` = 事实不存在 / 不属于该 owner / 记忆禁用）。
+        记忆禁用（``memory=None``）时返回 ``False`` 且不落审计；只有真发生删除
+        才记一条 ``success=True`` 审计（只记 fact_id，不回存被删文本，数据最小化）。
+        删除异常：记一条 ``success=False`` 审计后向上抛。
+        """
+        if self._memory is None:
+            return False
+        try:
+            deleted = self._memory.delete_fact(owner_id, fact_id)
+        except Exception as exc:  # noqa: BLE001 — 失败也要留痕，再抛给上层
+            self._record_audit(
+                action=AuditAction.MEMORY_FACT_DELETE,
+                actor_id=owner_id,
+                resource=owner_id,
+                request_id=request_id,
+                success=False,
+                error=str(exc),
+                extra={"fact_id": fact_id},
+            )
+            raise
+        if deleted:
+            self._record_audit(
+                action=AuditAction.MEMORY_FACT_DELETE,
+                actor_id=owner_id,
+                resource=owner_id,
+                request_id=request_id,
+                success=True,
+                error=None,
+                extra={"fact_id": fact_id},
+            )
+        return deleted
     def _record_audit(
         self,
         *,
+        action: str,
         actor_id: str,
         resource: str,
         request_id: str | None,
@@ -95,7 +138,7 @@ class ForgetMemoryUseCase:
             self._audit.record(
                 AuditEntry(
                     actor_id=actor_id or "system:unknown",
-                    action=AuditAction.MEMORY_FORGET,
+                    action=action,
                     resource=resource,
                     request_id=effective_request_id,
                     success=success,
@@ -106,7 +149,7 @@ class ForgetMemoryUseCase:
         except Exception:  # pragma: no cover - defense in depth
             logger.warning(
                 "audit log write failed action=%s resource=%s",
-                AuditAction.MEMORY_FORGET,
+                action,
                 resource,
                 exc_info=True,
             )

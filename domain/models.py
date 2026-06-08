@@ -466,3 +466,5 @@ class AuditAction:
     MEMORY_PROFILE_UPDATE = "memory.profile_update"
     # ── Step 031a：记忆开关（用户同意 / 偏好变更）────────────────────
     MEMORY_SETTINGS_UPDATE = "memory.settings_update"
+    # ── Step 034：单条事实删除（被遗忘权细粒度）──────────────────────
+    MEMORY_FACT_DELETE = "memory.fact_delete"

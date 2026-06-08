@@ -251,4 +251,61 @@ class TestFacts:
         assert resp.json()["count"] == 0
 
 
+class TestDeleteFact:
+    def test_delete_unauthed_returns_401(self, client: TestClient) -> None:
+        resp = client.delete("/api/v2/memory/facts/f1")
+        assert resp.status_code == 401
+
+    def test_deletes_owner_fact_204(
+        self, authed_client: tuple[TestClient, dict[str, Any]]
+    ) -> None:
+        client, user = authed_client
+        owner = user["user_id"]
+        fact = _fact(owner, "用户在跨境电商行业")
+        mem = FakeMemory(facts={owner: [fact]})
+        _inject_memory(client, mem)
+
+        resp = client.delete(f"/api/v2/memory/facts/{fact.fact_id}")
+
+        assert resp.status_code == 204
+        assert mem.delete_fact_calls == [(owner, fact.fact_id)]
+        # 删后清单为空
+        assert client.get("/api/v2/memory/facts").json()["count"] == 0
+
+    def test_delete_missing_fact_404(
+        self, authed_client: tuple[TestClient, dict[str, Any]]
+    ) -> None:
+        client, user = authed_client
+        owner = user["user_id"]
+        _inject_memory(client, FakeMemory(facts={owner: [_fact(owner, "x")]}))
+
+        resp = client.delete("/api/v2/memory/facts/f_missing")
+
+        assert resp.status_code == 404
+
+    def test_delete_other_owner_fact_404(
+        self, authed_client: tuple[TestClient, dict[str, Any]]
+    ) -> None:
+        client, _ = authed_client
+        other = _fact("someone_else", "别人的事实")
+        _inject_memory(client, FakeMemory(facts={"someone_else": [other]}))
+
+        # 当前 owner 删别人的事实 → 查不到 → 404，不越权
+        resp = client.delete(f"/api/v2/memory/facts/{other.fact_id}")
+
+        assert resp.status_code == 404
+
+    def test_delete_when_memory_disabled_404(
+        self, authed_client: tuple[TestClient, dict[str, Any]]
+    ) -> None:
+        client, _ = authed_client
+        container: AppContainer = client.app.state.container  # type: ignore[attr-defined]
+        container.memory = None
+        container.forget_memory = ForgetMemoryUseCase(None, audit_log=container.audit_log)
+
+        resp = client.delete("/api/v2/memory/facts/f1")
+
+        assert resp.status_code == 404
+
+
 pytestmark = pytest.mark.integration
