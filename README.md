@@ -1,37 +1,71 @@
-# 数智合规 · 基于 Agentic RAG 的数据出境合规问答系统
+# 数智合规 · 基于 Agentic RAG 的数据出境合规智能体
 
 [![CI](https://github.com/Melodymll01/riskpilot-cross-border-data-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Melodymll01/riskpilot-cross-border-data-agent/actions/workflows/ci.yml)
-[![tests](https://img.shields.io/badge/tests-527%20passed-brightgreen)](https://github.com/Melodymll01/riskpilot-cross-border-data-agent/actions/workflows/ci.yml)
+[![tests](https://img.shields.io/badge/tests-791%20passed-brightgreen)](https://github.com/Melodymll01/riskpilot-cross-border-data-agent/actions/workflows/ci.yml)
 [![python](https://img.shields.io/badge/python-3.12-blue)](pyproject.toml)
 [![ruff](https://img.shields.io/badge/ruff-scoped--clean-46a)](.github/workflows/ci.yml)
 [![arch](https://img.shields.io/badge/arch-DDD%204--layer-9b5bff)](docs/architecture/overview.md)
+[![agent](https://img.shields.io/badge/agent-ReAct%20%C2%B7%204%20tools-ff7a59)](retrieval/agent/agentic_rag.py)
+[![memory](https://img.shields.io/badge/memory-5--layer-00b3a4)](infra/memory/)
 
-> 面向 **数据出境合规**（《个人信息保护法》《数据安全法》《网络安全法》三法 + 标准合同 / 安全评估 / 个保认证三路径）场景的对话式合规助手。
+> 一个**自主决策的合规领域智能体**：面向 **数据出境合规**（《个人信息保护法》《数据安全法》《网络安全法》三法 + 安全评估 / 标准合同 / 个保认证三路径）场景，Agent 会**自主分类问题 → 改写检索 → 调用工具取证 → 研判证据质量 → 多步追检 / Web 兜底 → 生成带溯源引用的回答**。
 >
-> 工程上从 v1 单体 Service 演进到 **v2 DDD 4 层架构（13 Port + 6 Use Case）**，两套 API 通过 Strangler Fig 模式并存，渐进迁移不停服。
+> 不依赖 LangChain，**纯 Python 自实现 ReAct 决策环路 + 4 个领域工具**；配套 **5 层记忆系统**（对齐 ChatGPT 的「当前上下文恒开 + 长期记忆按需 + 跨会话回忆按需 + 被遗忘权」）。工程上采用 **DDD 4 层架构（20 Port + 8 Use Case）**，791 个测试 + GitHub Actions CI 守护。
+
+---
+
+## 🎬 产品速览
+
+| 多步自主推理（ReAct 决策环路） | 带溯源引用的结构化回答 |
+| :---: | :---: |
+| ![Agent 推理过程](docs/screenshots/02-agent-reasoning.png) | ![带引用的回答](docs/screenshots/03-answer-citations.png) |
+| Agent 自主判断「先检索法条」，实时推送 `💭 思考` 与 `🛠 search_law` 工具调用，证据不足时自动追加第 2 轮检索 | 回答按合规路径结构化拆解，并附 **可点击溯源**（链接到 cac.gov.cn 原文条款） |
+
+| 三模式工作台 · 4 工具就绪 | 知识库治理（多租户 · 公共/私人库） |
+| :---: | :---: |
+| ![首页](docs/screenshots/01-home.png) | ![知识库](docs/screenshots/04-knowledge-base.png) |
+| 知识问答 / 深度研究 / 风险画像三种业务模式，顶栏实时显示 Agent 就绪状态与可用工具数 | 用户私人库 + 管理员公共库；上传 PDF/TXT/DOCX 或采集网页，写操作全程落审计日志 |
+
+> 在线体验同款界面：克隆后 `docker compose up -d` 一键启动（见[快速开始](#快速开始)）。
+
+---
+
+## 🤖 作为「智能体」，它做了什么
+
+| 能力维度 | 实现要点 | 代码位置 |
+| --- | --- | --- |
+| **自主工具调用** | LLM 输出 JSON 决策协议，运行时分发到 4 个工具：`evidence_judge`（证据研判）/ `search_law`（法条库）/ `search_user_docs`（用户私库）/ `web_search`（联网兜底） | [retrieval/agent/agentic_rag.py](retrieval/agent/agentic_rag.py) |
+| **多步推理与自反思** | 单轮证据不足时回到查询变换重新检索，最多 N 轮；每步以 9 类 `AgentEvent` 流式推送给前端，过程完全可观测 | [retrieval/agent/](retrieval/agent/) |
+| **问题分类 / OOD 拦截** | 进入检索前先做 5 类意图分类，域外问题（OOD）直接拒答，避免「一本正经地胡说」 | [retrieval/agent/question_classifier.py](retrieval/agent/question_classifier.py) |
+| **查询变换** | 对模糊/复合问题做改写、拆解、HyDE 假设文档生成，提升召回 | [retrieval/agent/query_transformer.py](retrieval/agent/query_transformer.py) |
+| **证据质量分级** | 检索后由 `quality_grader` 判定 sufficient / partial / insufficient，决定继续追检还是 Web 兜底 | [retrieval/agent/quality_grader.py](retrieval/agent/quality_grader.py) |
+| **长期记忆 + 被遗忘权** | 5 层记忆（最近消息 / 滚动摘要 / 用户画像 / 语义事实 / 跨会话回忆），对齐 ChatGPT 交互；支持单条事实删除与全量遗忘 | [infra/memory/](infra/memory/) |
+| **答案可溯源** | 每条回答携带引用 chunk + 原文链接，杜绝幻觉式断言 | [retrieval/generation/](retrieval/generation/) |
 
 ## 项目演进
 
 ```text
-v1 (Step 001-007)              v2 重构 (Step 008-023)
-─────────────────              ─────────────────────────────────
-单体 service.py     ──┐        ┌── DDD 4 层：domain / infra / app / api
-api/routes.py         │        │
-单一前端 HTML/JS      │        │   13 Port + 6 Use Case
-                      │   ───▶ │   GitHub OAuth + JWT + admin 白名单
-评测脚本              │        │   KB 管理面（admin 写 / 用户读）
-ChromaDB + jieba BM25 │        │   admin 审计日志（写入 + UI 闭环）
-                      └────────┤   GitHub Actions CI（scoped ruff + pytest）
-                               │   13 ADR 全量索引
-                               └── ⇄ v1 API 共存（Strangler Fig，渐进迁移）
+阶段一 · v1 原型              阶段二 · DDD 重构              阶段三 · 智能体增强
+(Step 001-007)               (Step 008-029)                (Step 030-034)
+────────────────             ─────────────────────────     ─────────────────────────
+单体 service.py    ──┐       ┌─ DDD 4 层 domain/infra/      ┌─ 5 层记忆系统（L1-L5）
+api/routes.py        │       │   app/api · 20 Port/8 UC     │   滚动摘要 + TTL
+单一前端 HTML/JS     │  ───▶ │   GitHub OAuth + JWT + RBAC  │   语义事实抽取/去重
+评测脚本             │       │   KB 管理面 + admin 审计      │   跨会话回忆（opt-in）
+ChromaDB + BM25     │       │   GitHub Actions CI          │   被遗忘权（单条删除）
+                     └───────┤   Strangler Fig 渐进迁移      └─ v1 API 全量退役（Step 029）
+                             └─ 13 ADR 架构决策索引
 ```
 
 ## 关键指标
 
 | 维度 | 数值 | 来源 |
 | --- | --- | --- |
-| 测试用例 | **527 passed** | `pytest -q --ignore=evaluations/ood/eval_ood.py --ignore=tests/smoke_bm25_rrf.py` |
-| 代码质量 | scoped ruff 0 errors（14 路径） | [.github/workflows/ci.yml](.github/workflows/ci.yml) |
+| 测试用例 | **791 passed · 1 skipped** | `pytest -q`（DDD 分层布局，覆盖 domain / app / infra / api） |
+| 架构规模 | **20 Port + 8 Use Case** · 4 层 DDD | [docs/architecture/overview.md](docs/architecture/overview.md) |
+| Agent 工具 | **4 个领域工具** + 9 类流式 AgentEvent | [retrieval/agent/agentic_rag.py](retrieval/agent/agentic_rag.py) |
+| 记忆系统 | **5 层**（L1 最近消息 → L5 跨会话回忆） | [infra/memory/](infra/memory/) |
+| 代码质量 | scoped ruff 0 errors | [.github/workflows/ci.yml](.github/workflows/ci.yml) |
 | Top-K=2 检索命中率 | **93.3%** | [chunk_eval_latest.json](evaluations/chunk_params/reports/chunk_eval_latest.json)（chunk_size=300, overlap=60） |
 | Top-1 平均语义相似度 | **0.641** | 同上 |
 | OOD 误杀率（in-domain） | **0.0%** | [ood_eval_latest.md](evaluations/ood/reports/ood_eval_latest.md) |
@@ -52,7 +86,7 @@ flowchart TB
     end
 
     subgraph APP[app · 用例编排层]
-        C[AppContainer · 装配 13 Port]
+        C[AppContainer · 装配 20 Port]
         U1[AuthLoginUseCase]
         U2[RunCopilotUseCase]
         U3[KbManagementUseCase]
@@ -62,7 +96,7 @@ flowchart TB
     end
 
     subgraph DOMAIN[domain · 纯模型 + 端口]
-        P[13 Port Protocol<br/>AuthPort / RetrievePort / EvidencePort<br/>KbDocumentRepoPort / AuditLogPort ...]
+        P[20 Port Protocol<br/>AuthPort / RetrievePort / EvidencePort<br/>MemoryPort / FactStorePort / AuditLogPort ...]
         M[Frozen Models<br/>User / Task / KbChunk / AuditEntry ...]
     end
 
@@ -113,6 +147,43 @@ flowchart LR
     GEN --> ANS[回答 + 引用 + AgentEvent 流]
 ```
 
+## 记忆系统（5 层 · 对齐 ChatGPT）
+
+很多「Agent」只有单轮上下文。本项目实现了一套**分层记忆**，让智能体在多轮、跨会话中保持连贯，同时把**隐私控制权交还用户**（GDPR / PIPL 的「被遗忘权」）。
+
+```mermaid
+flowchart TB
+    subgraph 恒开[恒开 · 当前任务上下文]
+        L1[L1 最近消息<br/>原文滑动窗口]
+        L2[L2 滚动摘要<br/>超窗自动压缩 + TTL]
+    end
+    subgraph 按需[按需 · 用户可开关]
+        L3[L3 用户画像<br/>稳定偏好/职业背景]
+        L4[L4 语义事实<br/>抽取 + 去重合并]
+        L5[L5 跨会话回忆<br/>复用其它任务的 L2 摘要]
+    end
+    L1 --> ASM[记忆装配器<br/>按预算拼接进 Prompt]
+    L2 --> ASM
+    L3 --> ASM
+    L4 --> ASM
+    L5 --> ASM
+    ASM --> AGENT[Agent 推理]
+    AGENT -.写回.-> L2
+    AGENT -.异步抽取.-> L4
+```
+
+| 层 | 作用 | 默认 | 关键设计 |
+| --- | --- | :---: | --- |
+| **L1 最近消息** | 原文短期上下文 | 恒开 | 滑动窗口，超出转 L2 |
+| **L2 滚动摘要** | 长对话压缩记忆 | 恒开 | 触发式摘要 + TTL 过期，控制 token 成本 |
+| **L3 用户画像** | 稳定的身份/偏好 | 按需 | 结构化字段，跨任务复用 |
+| **L4 语义事实** | 可检索的长期事实 | 按需 | 抽取后**去重合并**，避免记忆膨胀 |
+| **L5 跨会话回忆** | 引用历史会话 | **默认关闭** | 复用其它任务的 L2 摘要（对齐 ChatGPT「引用历史聊天」的 opt-in 语义） |
+
+**被遗忘权（Right to be Forgotten）**：用户可在「记忆与隐私」面板里**逐条删除**某条长期事实（`DELETE /api/v2/memory/facts/{id}`，owner 隔离 + 物理删除 + 审计留痕），或一键全量遗忘。开关项默认遵循「最小记忆」原则——只有用户主动打开，Agent 才会读写长期记忆。
+
+> 设计取舍记录见 [docs/decisions/](docs/decisions/) 与 [docs/process/](docs/process/) 的对应 Step。
+
 ## 功能矩阵
 
 | 能力 | 匿名用户 | 普通登录用户 | admin |
@@ -124,16 +195,18 @@ flowchart LR
 | 知识库查看（list / stats / detail） | ❌ | ✅ | ✅ |
 | 知识库写入（上传 / 采集 / 删除） | ❌ | ❌ | ✅ |
 | 审计日志查看 | ❌ | ❌ | ✅ |
+| 长期记忆 / 被遗忘权（记忆与隐私面板） | ❌ | ✅ | ✅ |
 | SSE 流式输出 | ✅ | ✅ | ✅ |
 
 身份模型：`AuthPort` 支持 **匿名兜底**（首访自动 POST `/auth/anonymous` 落 cookie）+ **GitHub OAuth**（state 防 CSRF + JWT 颁发）+ **admin 白名单**（`ADMIN_USER_IDS` 命中即 `is_admin=True`）。
 
 ## 工程亮点
 
-- **DDD 4 层架构**：domain 纯 Python + 13 Port Protocol；infra 适配器；app 用例编排 + Container DI；api 入口（v1 + v2 双栈）
-- **Strangler Fig 渐进重构**：v1 `service.py` 不动，v2 路由通过闭包 `build_*_routes(container)` 注入依赖；旧端点逐步下线（Step 016d 已删 5 个 KB 写端点）
+- **DDD 4 层架构**：domain 纯 Python + 20 Port Protocol；infra 适配器；app 用例编排 + Container DI；api 入口（v2 单栈）
+- **Strangler Fig 渐进重构**：v2 路由通过闭包 `build_*_routes(container)` 注入依赖，旧端点分阶段下线；至 Step 029 v1 HTTP 层（`service.py` / `api/routes.py` / `api/schemas.py`）已**整体退役**，现行接口全部在 `/api/v2/*`
 - **审计副作用语义**：admin 在 KB 上的写操作（delete / ingest_file / ingest_web）成功失败都落 audit；audit 写失败仅 `logger.warning` 不影响主业务（[ADR-013](docs/decisions/ADR-013-audit-side-effect-semantics.md)）
-- **自实现 ReAct Agent**：不依赖 LangChain，纯 Python + LLM JSON 决策协议；9 类 `AgentEvent` 流式推送给前端（[ADR-001](docs/decisions/ADR-001-no-langchain.md) / [ADR-011](docs/decisions/ADR-011-react-agent-self-implemented.md)）
+- **自实现 ReAct Agent**：不依赖 LangChain，纯 Python + LLM JSON 决策协议；4 个领域工具 + 9 类 `AgentEvent` 流式推送给前端，推理过程完全可观测（[ADR-001](docs/decisions/ADR-001-no-langchain.md) / [ADR-011](docs/decisions/ADR-011-react-agent-self-implemented.md)）
+- **5 层记忆系统**：最近消息 / 滚动摘要+TTL / 用户画像 / 语义事实去重 / 跨会话回忆；对齐 ChatGPT 的 opt-in 语义，内置**被遗忘权**（单条事实删除 + 审计留痕）
 - **混合检索**：向量 + BM25 + **RRF 融合** + Cross-Encoder 重排序，4 级检索增强
 - **CI 持续集成**：GitHub Actions 复活后 scoped ruff（14 路径）+ pytest 8 个 Fake 环境变量，每 push 自动跑
 
@@ -156,9 +229,8 @@ flowchart LR
 
 ```
 RagDataOut/
-├── main.py                 # FastAPI 主入口（v1 + v2 双路由挂载）
+├── main.py                 # FastAPI 主入口（挂载 v2 路由 + 静态前端）
 ├── config.py               # 全局配置（pydantic-settings + 启动期校验）
-├── service.py              # v1 单体服务层（保留，逐步收敛）
 ├── pyproject.toml          # 项目元数据 & 测试/工具配置
 ├── requirements.txt        # 运行时依赖
 ├── requirements-dev.txt    # 开发依赖（ruff / mypy / pytest）
@@ -171,27 +243,24 @@ RagDataOut/
 ├── .github/workflows/      # CI 流水线（scoped ruff + pytest）
 │
 ├── domain/                 # ★ 纯模型 + Port Protocol（不依赖任何框架）
-│   ├── models.py           # User / Task / Message / KbChunk / AuditEntry ...（frozen）
-│   └── ports.py            # 13 个 Port Protocol（runtime_checkable）
+│   ├── models.py           # User / Task / Message / KbChunk / AuditEntry / MemoryFact ...（frozen）
+│   └── ports.py            # 20 个 Port Protocol（runtime_checkable）
 │
 ├── app/                    # ★ 用例编排层
 │   ├── container.py        # AppContainer · 装配所有 Port
 │   ├── factories.py        # 各 Port 的默认 build_* 工厂
-│   └── use_cases/          # 6 个 Use Case（AuthLogin / RunCopilot / KbManagement ...）
+│   └── use_cases/          # 8 个 Use Case（AuthLogin / RunCopilot / KbManagement / MemorySettings / ForgetMemory ...）
 │
 ├── infra/                  # ★ 适配器实现层
 │   ├── auth/               # GitHubOAuth + JwtIssuer + FakeAuth（测试）
 │   ├── kb/                 # ChromaKbRepo
 │   ├── storage/            # SQLite Pool + User/Task Repo
-│   ├── audit/              # SqliteAuditLogRepo（Step 021）
+│   ├── audit/              # SqliteAuditLogRepo
 │   ├── llm/                # OpenAIChatPort 适配
-│   ├── memory/             # 会话画像 + 事实抽取
+│   ├── memory/             # task_memory / fact_store / consolidation / scheduler（L1-L5）
 │   └── risk/               # RiskProfile Stub（接口预留）
 │
-├── api/                    # FastAPI 入口
-│   ├── routes.py           # v1（兼容老前端，逐步收敛）
-│   ├── schemas.py
-│   └── v2/                 # ★ v2 新栈（auth / copilot / documents / audit / tasks / sse / health）
+├── api/v2/                 # ★ v2 入口层（auth / copilot / documents / audit / tasks / memory / sse / health）
 │
 ├── retrieval/              # 检索 + 生成 + Agent
 │   ├── search/             # embedder / vector_store / bm25 / fusion / reranker / retriever
@@ -203,11 +272,12 @@ RagDataOut/
 │
 ├── frontend/               # 单页前端（ES module，无构建依赖）
 │   ├── index.html
-│   ├── app.js              # 入口 + view 切换（chat / kb / audit 三态）
+│   ├── app.js              # 入口 + view 切换（chat / kb / audit / 记忆与隐私）
 │   ├── api.js              # /api/v2/* REST 客户端
 │   ├── auth.js / chat.js / tasks.js / sse.js
 │   ├── kb.js               # KB 管理面板（admin 写 / 用户读）
-│   └── admin-audit.js      # 审计日志面板（admin-only，Step 023）
+│   ├── settings.js         # 记忆与隐私面板（事实清单 / 开关 / 被遗忘权）
+│   └── admin-audit.js      # 审计日志面板（admin-only）
 │
 ├── data/                   # 运行时数据（不提交内容）
 │   ├── chat_db.py          # 多表 SQLite 封装（user/task/message/kb/audit）
@@ -220,14 +290,14 @@ RagDataOut/
 │   ├── chunk_params/run.py # 切块参数网格搜索
 │   └── ood/                # OOD 分类评测（脚本在 tests/eval_ood.py）
 │
-├── tests/                  # pytest（527 passed · DDD 分层布局）
+├── tests/                  # pytest（791 passed · DDD 分层布局）
 │   ├── domain/  app/  infra/  api/  fakes/
 │   └── conftest.py
 │
 ├── docs/                   # ★ 工程文档
-│   ├── architecture/overview.md      # 4 层 + 13 Port 全景（推荐先读）
+│   ├── architecture/overview.md      # 4 层 + 20 Port 全景（推荐先读）
 │   ├── decisions/                    # 13 个 ADR（架构决策记录）
-│   └── process/                      # Step 001-023 演进日志（每个 Step 一篇）
+│   └── process/                      # Step 001-034 演进日志（每个 Step 一篇）
 │
 └── logs/                   # 运行日志（不提交）
 ```
@@ -388,6 +458,13 @@ uvicorn main:app --host 0.0.0.0 --port 8001 --workers 2
 - 表格列：时间 / actor / action / resource / 状态徽章 / extra_json 摘要
 - 支持按 action 下拉 + actor_id 输入框过滤；下方分页（50/页，offset 模式）
 
+### 记忆与隐私（登录用户）
+
+- 侧栏「记忆与隐私」面板：查看 Agent 记住的**长期事实**与**用户画像**
+- 两个开关（默认遵循最小记忆）：**参考保存的记忆**、**参考会话上下文**（跨会话回忆，默认关闭）
+- **被遗忘权**：逐条点 `×` 删除单条事实（owner 隔离 + 物理删除 + 审计留痕），或一键全量遗忘
+- 匿名访客不显示该入口；登录后归属到 GitHub user_id
+
 ### Web 搜索兜底
 
 当知识库证据不足且配置了搜索引擎 API 时，Agent 自动触发 Web 搜索补充检索；不依赖外部 API 也能跑（仅退化为知识库内回答 + 拒答信号）。
@@ -412,6 +489,11 @@ uvicorn main:app --host 0.0.0.0 --port 8001 --workers 2
 | POST | `/api/v2/documents/file` `/web` | **admin** | KB 写入（上传 / 采集） |
 | DELETE | `/api/v2/documents/{name}` | **admin** | KB 删除 |
 | GET | `/api/v2/audit/logs` | **admin** | 审计日志查询（`limit/offset/action/actor_id` 过滤） |
+| GET / PUT | `/api/v2/memory/settings` | owner | 记忆开关（参考保存的记忆 / 参考会话上下文，PUT 落同意审计） |
+| GET | `/api/v2/memory/profile` | owner | L3 用户画像（稳定偏好） |
+| GET | `/api/v2/memory/facts` | owner | 生效的长期事实清单（管理面板） |
+| DELETE | `/api/v2/memory/facts/{id}` | owner | **删除单条事实（被遗忘权细粒度，204/404）** |
+| POST | `/api/v2/memory/forget` | owner | 级联遗忘，返回各层删除计数 |
 | GET | `/api/v2/health` `/health/ready` | 公开 | 健康检查 |
 
 ### v1 端点（已于 Step 029 全部退役删除）
@@ -455,25 +537,26 @@ RERANKER_SCORE_THRESHOLD=0.0                      # 分数阈值过滤
 ## 技术栈
 
 - **后端**：FastAPI + Pydantic v2 + pydantic-settings
-- **架构**：DDD 4 层 + 13 Port Protocol + AppContainer 依赖注入
-- **存储**：SQLite（user / task / message / audit）+ ChromaDB（向量库）
+- **架构**：DDD 4 层 + 20 Port Protocol + AppContainer 依赖注入
+- **存储**：SQLite（user / task / message / audit / memory）+ ChromaDB（向量库）
 - **鉴权**：GitHub OAuth + JWT（HS256）+ admin 白名单
 - **LLM**：OpenAI 兼容接口（智谱 GLM 默认，可换 Ollama / vLLM）
 - **检索**：ChromaDB（向量）+ jieba BM25 + RRF 融合 + bge-reranker-base 重排序
-- **Agent**：自实现 ReAct + LLM JSON 决策协议 + 9 类 AgentEvent
+- **Agent**：自实现 ReAct + LLM JSON 决策协议 + 4 领域工具 + 9 类 AgentEvent
+- **记忆**：5 层分层记忆（滚动摘要 + TTL + 语义事实去重 + 跨会话回忆 + 被遗忘权）
 - **文档解析**：PyPDF2 + python-docx + BeautifulSoup4
 - **前端**：原生 HTML + ES module + CSS（无构建依赖）
-- **质量**：pytest（527 passed）+ ruff（scoped-clean）+ GitHub Actions CI
+- **质量**：pytest（791 passed）+ ruff（scoped-clean）+ GitHub Actions CI
 
 ## 项目文档
 
 工程文档全部在 [`docs/`](docs/) 下，建议按下面顺序阅读：
 
-1. **架构全景**：[`docs/architecture/overview.md`](docs/architecture/overview.md) — 4 层 + 13 Port + 6 Use Case + 3 张时序图 + KB 权限矩阵 + CI 现状
+1. **架构全景**：[`docs/architecture/overview.md`](docs/architecture/overview.md) — 4 层 + 20 Port + 8 Use Case + 3 张时序图 + KB 权限矩阵 + CI 现状
 2. **架构决策**：[`docs/decisions/`](docs/decisions/) — 13 个 ADR（含演化标记 Augmented-by）
    - [ADR-001 No LangChain](docs/decisions/ADR-001-no-langchain.md) · [ADR-006 4-layer Architecture](docs/decisions/ADR-006-4-layer-architecture.md) · [ADR-007 GitHub OAuth + Anonymous](docs/decisions/ADR-007-github-oauth-with-anonymous.md) · [ADR-008 Owner-ID Tenancy](docs/decisions/ADR-008-owner-id-tenancy.md)
    - [ADR-009 Closure Router + Container DI](docs/decisions/ADR-009-closure-router-container-di.md) · [ADR-010 Strangler Fig v1/v2](docs/decisions/ADR-010-strangler-fig-v1-v2.md) · [ADR-011 ReAct 自实现](docs/decisions/ADR-011-react-agent-self-implemented.md) · [ADR-012 Admin RBAC 白名单](docs/decisions/ADR-012-admin-rbac-allowlist.md) · [ADR-013 审计副作用语义](docs/decisions/ADR-013-audit-side-effect-semantics.md)
-3. **演进日志**：[`docs/process/`](docs/process/) — Step 001-023 每步一篇，含改动清单 / 决策 / 验证 / 下一步候选
+3. **演进日志**：[`docs/process/`](docs/process/) — Step 001-034 每步一篇，含改动清单 / 决策 / 验证 / 下一步候选
 
 ## 协议
 
