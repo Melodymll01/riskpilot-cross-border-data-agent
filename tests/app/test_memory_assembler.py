@@ -340,7 +340,12 @@ class TestProfileInjection:
 
 
 class TestSettingsGating:
-    """每用户双开关门控（S-031a）：use_saved_memory→L3/L4，reference_history→L1/L2。"""
+    """记忆注入门控（S-032，对齐 ChatGPT）：
+
+    - 当前任务上下文（L1 最近原文 + L2 摘要）**永远注入**，不受开关控制；
+    - ``use_saved_memory`` 门控 L4 长期事实 + L3 用户画像（跨会话保存的记忆）；
+    - ``reference_history`` 不再参与本轮注入门控（预留给未来跨对话检索）。
+    """
 
     def _mem(self) -> FakeMemory:
         return FakeMemory(
@@ -401,7 +406,8 @@ class TestSettingsGating:
         assert "【对话摘要" in block
         assert "【历史对话" in block
 
-    def test_reference_history_off_drops_summary_and_recent(self) -> None:
+    def test_reference_history_off_keeps_current_context(self) -> None:
+        # reference_history 关不再影响当前任务上下文（L1/L2 永远注入）
         from tests.fakes.fake_memory_settings_store import InMemoryMemorySettingsStore
 
         store = InMemoryMemorySettingsStore()
@@ -413,10 +419,12 @@ class TestSettingsGating:
         )
         assert "【相关长期记忆" in block
         assert "【用户画像" in block
-        assert "【对话摘要" not in block
-        assert "【历史对话" not in block
+        # 当前任务上下文不受开关影响，依然注入
+        assert "【对话摘要" in block
+        assert "【历史对话" in block
 
-    def test_both_off_returns_empty(self) -> None:
+    def test_use_saved_memory_off_keeps_current_context(self) -> None:
+        # use_saved_memory 关只掉 L4/L3；当前任务上下文（L1/L2）仍注入，非空
         from tests.fakes.fake_memory_settings_store import InMemoryMemorySettingsStore
 
         store = InMemoryMemorySettingsStore()
@@ -428,7 +436,10 @@ class TestSettingsGating:
         block = self._asm(self._mem(), store).assemble(
             owner_id="o1", task_id="t1", query="数据出境"
         )
-        assert block == ""
+        assert "【相关长期记忆" not in block
+        assert "【用户画像" not in block
+        assert "【对话摘要" in block
+        assert "【历史对话" in block
 
     def test_settings_read_failure_fails_open(self) -> None:
         class _Boom:

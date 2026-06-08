@@ -287,7 +287,7 @@
           <div class="switch-row">
             <div class="switch-text">
               <div class="switch-label">参考保存的记忆</div>
-              <div class="switch-desc">允许助手参考你的长期偏好画像与跨会话事实，回答更贴合你的情况。</div>
+              <div class="switch-desc">允许助手参考你的长期偏好画像与跨会话事实，回答更贴合你的情况。当前对话内的上下文不受此开关影响，始终保持连贯。</div>
             </div>
             <label class="switch" title="参考保存的记忆">
               <input type="checkbox" id="toggle-use-saved-memory" />
@@ -295,13 +295,14 @@
             </label>
           </div>
 
-          <div class="switch-row">
+          <!-- 「参考历史聊天记录」（跨对话检索）开关预留，待后端跨任务召回实现后再开放（Step 032） -->
+          <div class="switch-row hidden" id="switch-row-reference-history" hidden>
             <div class="switch-text">
-              <div class="switch-label">参考会话上下文</div>
-              <div class="switch-desc">允许助手参考当前任务的历史摘要与原文，保持多轮连贯。关闭后每轮都从零开始。</div>
+              <div class="switch-label">参考历史聊天记录</div>
+              <div class="switch-desc">允许助手参考你过去其他对话的内容（跨对话检索）。即将推出。</div>
             </div>
-            <label class="switch" title="参考会话上下文">
-              <input type="checkbox" id="toggle-reference-history" />
+            <label class="switch" title="参考历史聊天记录">
+              <input type="checkbox" id="toggle-reference-history" disabled />
               <span class="switch-track"><span class="switch-thumb"></span></span>
             </label>
           </div>
