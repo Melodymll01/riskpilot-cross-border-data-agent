@@ -179,6 +179,11 @@ class Settings(BaseSettings):
     # 注入 prompt 的画像偏好条数上限；0 关闭 L3 注入。
     memory_profile_max_facts: int = Field(8, ge=0, le=50)
 
+    # ── 记忆 L5 跨对话历史召回（参考历史聊天记录，Step 033）───────────────────
+    # 注入 prompt 的"过往对话摘要"条数（来自该 owner 其它 task 的 L2 摘要）；
+    # 0 关闭。仅当用户开启 reference_history（默认关）时才注入。
+    memory_history_recall_k: int = Field(3, ge=0, le=20)
+
 
     model_config = {
         "env_file": ".env",

@@ -170,7 +170,7 @@ class TestSettingsAuthGating:
 
 
 class TestSettings:
-    def test_default_both_on_for_fresh_owner(
+    def test_default_fresh_owner(
         self, authed_client: tuple[TestClient, dict[str, Any]]
     ) -> None:
         client, _ = authed_client
@@ -181,7 +181,8 @@ class TestSettings:
         assert resp.status_code == 200
         body = resp.json()
         assert body["use_saved_memory"] is True
-        assert body["reference_history"] is True
+        # 对齐 ChatGPT：参考历史聊天记录默认关
+        assert body["reference_history"] is False
 
     def test_put_then_get_roundtrip(
         self, authed_client: tuple[TestClient, dict[str, Any]]
@@ -194,7 +195,7 @@ class TestSettings:
         )
         assert put.status_code == 200
         assert put.json()["use_saved_memory"] is False
-        assert put.json()["reference_history"] is True  # 未传 → 保持默认
+        assert put.json()["reference_history"] is False  # 未传 → 保持默认（关）
 
         got = client.get("/api/v2/memory/settings")
         assert got.json()["use_saved_memory"] is False

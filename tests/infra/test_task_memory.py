@@ -265,6 +265,109 @@ class TestL2Ttl:
         assert mem.get_summary("anon:o1", "t1") is None
 
 
+class TestL5RecallHistory:
+    """跨对话历史召回（参考历史聊天记录，Step 033）。"""
+
+    def _seed(self, repo: InMemoryTaskRepo, task_id: str, owner: str, updated: float) -> None:
+        repo.create(
+            Task(
+                task_id=task_id,
+                owner_id=owner,
+                title="t",
+                state="planning",
+                user_goal="",
+                collected_facts={},
+                created_at=_NOW,
+                updated_at=updated,
+            )
+        )
+
+    def test_returns_other_task_summaries_recency_ordered(self) -> None:
+        repo = InMemoryTaskRepo()
+        self._seed(repo, "cur", "anon:o1", _NOW)
+        self._seed(repo, "old", "anon:o1", _NOW - 100)
+        self._seed(repo, "new", "anon:o1", _NOW - 10)
+        store = InMemorySummaryStore()
+        store.upsert(TaskSummary(task_id="cur", owner_id="anon:o1", summary="当前对话"))
+        store.upsert(TaskSummary(task_id="old", owner_id="anon:o1", summary="较旧对话"))
+        store.upsert(TaskSummary(task_id="new", owner_id="anon:o1", summary="较新对话"))
+        mem = TaskBackedMemory(repo, summary_store=store)
+
+        out = mem.recall_history("anon:o1", "cur", 5)
+
+        # 排除当前 task，按 updated_at 倒序（new 先于 old）
+        assert [r.summary for r in out] == ["较新对话", "较旧对话"]
+
+    def test_excludes_current_task(self) -> None:
+        repo = InMemoryTaskRepo()
+        self._seed(repo, "cur", "anon:o1", _NOW)
+        store = InMemorySummaryStore()
+        store.upsert(TaskSummary(task_id="cur", owner_id="anon:o1", summary="当前对话"))
+        mem = TaskBackedMemory(repo, summary_store=store)
+
+        assert mem.recall_history("anon:o1", "cur", 5) == []
+
+    def test_respects_k_limit(self) -> None:
+        repo = InMemoryTaskRepo()
+        self._seed(repo, "cur", "anon:o1", _NOW)
+        for i in range(4):
+            self._seed(repo, f"o{i}", "anon:o1", _NOW - i - 1)
+        store = InMemorySummaryStore()
+        for i in range(4):
+            store.upsert(
+                TaskSummary(task_id=f"o{i}", owner_id="anon:o1", summary=f"对话{i}")
+            )
+        mem = TaskBackedMemory(repo, summary_store=store)
+
+        out = mem.recall_history("anon:o1", "cur", 2)
+
+        assert len(out) == 2
+
+    def test_owner_isolation(self) -> None:
+        repo = InMemoryTaskRepo()
+        self._seed(repo, "cur", "anon:o1", _NOW)
+        self._seed(repo, "other", "anon:o2", _NOW - 10)
+        store = InMemorySummaryStore()
+        store.upsert(TaskSummary(task_id="other", owner_id="anon:o2", summary="别人的对话"))
+        mem = TaskBackedMemory(repo, summary_store=store)
+
+        assert mem.recall_history("anon:o1", "cur", 5) == []
+
+    def test_skips_expired_summaries(self) -> None:
+        repo = InMemoryTaskRepo()
+        self._seed(repo, "cur", "anon:o1", _NOW)
+        self._seed(repo, "stale", "anon:o1", _NOW - 10)
+        store = InMemorySummaryStore()
+        store.upsert(
+            TaskSummary(
+                task_id="stale",
+                owner_id="anon:o1",
+                summary="陈旧对话",
+                updated_at=_NOW - 200 * 86400,  # > 180 天 TTL
+            )
+        )
+        mem = TaskBackedMemory(repo, summary_store=store, l2_ttl_days=180.0)
+
+        assert mem.recall_history("anon:o1", "cur", 5) == []
+
+    def test_no_store_returns_empty(self) -> None:
+        repo = InMemoryTaskRepo()
+        self._seed(repo, "cur", "anon:o1", _NOW)
+        mem = TaskBackedMemory(repo)
+
+        assert mem.recall_history("anon:o1", "cur", 5) == []
+
+    def test_k_zero_returns_empty(self) -> None:
+        repo = InMemoryTaskRepo()
+        self._seed(repo, "cur", "anon:o1", _NOW)
+        self._seed(repo, "other", "anon:o1", _NOW - 10)
+        store = InMemorySummaryStore()
+        store.upsert(TaskSummary(task_id="other", owner_id="anon:o1", summary="对话"))
+        mem = TaskBackedMemory(repo, summary_store=store)
+
+        assert mem.recall_history("anon:o1", "cur", 0) == []
+
+
 class TestL3Profile:
     def test_no_store_returns_empty_profile(self) -> None:
         mem = TaskBackedMemory(InMemoryTaskRepo())  # 无 profile_store

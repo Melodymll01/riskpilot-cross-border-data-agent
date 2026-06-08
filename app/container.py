@@ -167,6 +167,7 @@ class AppContainer:
             token_budget=settings.memory_token_budget,
             recall_k=settings.memory_fact_recall_k,
             profile_max_facts=settings.memory_profile_max_facts,
+            history_k=settings.memory_history_recall_k,
             settings_store=self.memory_settings_store,
         )
         # L4 提取-验证-巩固 worker（后台固化）

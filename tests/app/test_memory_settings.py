@@ -13,17 +13,17 @@ pytestmark = pytest.mark.unit
 
 
 class TestGet:
-    def test_no_store_returns_default_both_on(self) -> None:
+    def test_no_store_returns_default(self) -> None:
         uc = MemorySettingsUseCase(None)
         s = uc.get("o1")
         assert s.use_saved_memory is True
-        assert s.reference_history is True
+        assert s.reference_history is False
 
-    def test_unset_owner_returns_default_both_on(self) -> None:
+    def test_unset_owner_returns_default(self) -> None:
         uc = MemorySettingsUseCase(InMemoryMemorySettingsStore())
         s = uc.get("o1")
         assert s.use_saved_memory is True
-        assert s.reference_history is True
+        assert s.reference_history is False
 
     def test_returns_persisted(self) -> None:
         store = InMemoryMemorySettingsStore()
