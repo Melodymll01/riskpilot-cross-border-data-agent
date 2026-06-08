@@ -397,6 +397,21 @@ class ForgetResult(BaseDomainModel):
         )
 
 
+class MemorySettings(BaseDomainModel):
+    """每用户记忆偏好开关（按 `owner_id`，Step 031a）。
+
+    两个一键开关，缺省双开（向后兼容、与全局 `memory_enabled` 默认一致）：
+    - ``use_saved_memory``：是否在回复时参考"保存的记忆"（L3 画像 + L4 语义事实）。
+    - ``reference_history``：是否参考会话历史上下文（L1 最近原文 + L2 摘要）。
+    关掉只影响"注入与否"，不删除已存记忆（删除走主动遗忘 `forget`）。
+    """
+
+    owner_id: str = Field(min_length=1)
+    use_saved_memory: bool = True
+    reference_history: bool = True
+    updated_at: float = Field(default_factory=lambda: time.time())
+
+
 
 # === 审计（Step 021） ===
 
@@ -447,3 +462,5 @@ class AuditAction:
     # ── Step 030d：记忆侧（主动遗忘 / 画像更新）─────────────────────
     MEMORY_FORGET = "memory.forget"
     MEMORY_PROFILE_UPDATE = "memory.profile_update"
+    # ── Step 031a：记忆开关（用户同意 / 偏好变更）────────────────────
+    MEMORY_SETTINGS_UPDATE = "memory.settings_update"

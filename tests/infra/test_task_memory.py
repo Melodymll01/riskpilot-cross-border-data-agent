@@ -474,3 +474,74 @@ class TestL4RecallSemantic:
         )
 
         assert mem.recall_semantic("anon:owner_b", "事实", 3) == []
+
+
+class TestL4ListFacts:
+    @staticmethod
+    def _fact(
+        owner_id: str,
+        text: str,
+        *,
+        superseded_by: str | None = None,
+        created_offset: float = 0.0,
+    ) -> Fact:
+        return Fact(
+            fact_id=f"f_{abs(hash(text)) % 99999}",
+            owner_id=owner_id,
+            text=text,
+            superseded_by=superseded_by,
+            created_at=_NOW + created_offset,
+        )
+
+    def test_no_fact_store_returns_empty(self) -> None:
+        mem = TaskBackedMemory(InMemoryTaskRepo())
+        assert mem.list_facts("anon:o1") == []
+
+    def test_lists_active_facts_newest_first(self) -> None:
+        store = FakeFactStore()
+        embed = FakeEmbed()
+        old = self._fact("anon:o1", "较早的事实", created_offset=-10.0)
+        new = self._fact("anon:o1", "较新的事实", created_offset=-1.0)
+        store.add(old, embed.embed([old.text])[0])
+        store.add(new, embed.embed([new.text])[0])
+        mem = TaskBackedMemory(InMemoryTaskRepo(), fact_store=store, embedder=embed)
+
+        out = mem.list_facts("anon:o1")
+
+        assert [f.text for f in out] == ["较新的事实", "较早的事实"]
+
+    def test_superseded_filtered(self) -> None:
+        store = FakeFactStore()
+        embed = FakeEmbed()
+        dead = self._fact("anon:o1", "被取代的事实", superseded_by="f_new")
+        live = self._fact("anon:o1", "生效的事实")
+        store.add(dead, embed.embed([dead.text])[0])
+        store.add(live, embed.embed([live.text])[0])
+        mem = TaskBackedMemory(InMemoryTaskRepo(), fact_store=store, embedder=embed)
+
+        out = mem.list_facts("anon:o1")
+
+        assert [f.text for f in out] == ["生效的事实"]
+
+    def test_expired_filtered_by_ttl(self) -> None:
+        store = FakeFactStore()
+        embed = FakeEmbed()
+        old = self._fact("anon:o1", "很久以前", created_offset=-400 * 86400)
+        store.add(old, embed.embed([old.text])[0])
+        mem = TaskBackedMemory(
+            InMemoryTaskRepo(),
+            fact_store=store,
+            embedder=embed,
+            l4_ttl_days=365.0,
+        )
+
+        assert mem.list_facts("anon:o1") == []
+
+    def test_owner_isolation(self) -> None:
+        store = FakeFactStore()
+        embed = FakeEmbed()
+        a = self._fact("anon:owner_a", "A 的事实")
+        store.add(a, embed.embed([a.text])[0])
+        mem = TaskBackedMemory(InMemoryTaskRepo(), fact_store=store, embedder=embed)
+
+        assert mem.list_facts("anon:owner_b") == []

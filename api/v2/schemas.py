@@ -248,3 +248,39 @@ class ForgetResponse(BaseModel):
     states_deleted: int = Field(ge=0)
     tasks_deleted: int = Field(ge=0)
     total_deleted: int = Field(ge=0)
+
+
+# ── Memory Settings（Step 031a）─────────────────────────────────────────
+
+
+class MemorySettingsResponse(BaseModel):
+    """``GET/PUT /memory/settings`` 返回：当前 owner 的记忆开关。"""
+
+    use_saved_memory: bool
+    reference_history: bool
+    updated_at: float
+
+
+class UpdateMemorySettingsRequest(BaseModel):
+    """``PUT /memory/settings`` 请求体：部分更新（None 字段保持原值）。"""
+
+    use_saved_memory: bool | None = None
+    reference_history: bool | None = None
+
+
+class MemoryFactItem(BaseModel):
+    """单条长期事实（管理面板展示）。"""
+
+    fact_id: str
+    text: str
+    tags: list[str] = Field(default_factory=list)
+    created_at: float
+
+
+class MemoryFactsResponse(BaseModel):
+    """``GET /memory/facts`` 返回：当前生效的长期事实 + 容量信息。"""
+
+    facts: list[MemoryFactItem] = Field(default_factory=list)
+    count: int = Field(ge=0)
+    cap: int = Field(ge=0)
+

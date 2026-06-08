@@ -1,12 +1,15 @@
-"""``/api/v2/memory/*`` 路由：L3 用户画像查询 + 主动遗忘（被遗忘权，Step 030d）。
+"""``/api/v2/memory/*`` 路由：L3 用户画像查询 + 主动遗忘（被遗忘权，Step 030d）
++ 每用户记忆开关读写 + 长期事实清单（Step 031a）。
 
 设计要点：
-- 全部端点过 ``require_owner``，只能读/删**自己**的记忆（owner 隔离，合规底线）。
+- 全部端点过 ``require_owner``，只能读/改**自己**的记忆（owner 隔离，合规底线）。
 - ``GET /memory/profile``：返回当前 owner 的稳定偏好画像；记忆禁用时返回空画像。
 - ``POST /memory/forget``：级联清除记忆（``scope`` 控制是否连带 L1 原始 task），
   返回各层删除计数；业务层 ``ForgetMemoryUseCase`` 同步落审计。
-- 记忆系统禁用（``container.memory is None``）时：profile 返回空、forget 返回零计数，
-  均 200——保持优雅降级，不对外暴露内部装配状态。
+- ``GET/PUT /memory/settings``：读/改两个开关（参考保存的记忆 / 参考会话上下文），
+  ``PUT`` 部分更新并落同意变更审计（``MemorySettingsUseCase``）。
+- ``GET /memory/facts``：列当前生效的长期事实 + 容量上限，供管理面板渲染。
+- 记忆系统禁用（``container.memory is None``）时各端点优雅降级（空/默认值），均 200。
 """
 
 from __future__ import annotations
@@ -16,7 +19,15 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter, Depends
 
 from api.v2.deps import make_require_owner
-from api.v2.schemas import ForgetRequest, ForgetResponse, ProfileResponse
+from api.v2.schemas import (
+    ForgetRequest,
+    ForgetResponse,
+    MemoryFactItem,
+    MemoryFactsResponse,
+    MemorySettingsResponse,
+    ProfileResponse,
+    UpdateMemorySettingsRequest,
+)
 
 if TYPE_CHECKING:
     from app.container import AppContainer
@@ -62,5 +73,60 @@ def build_memory_routes(container: AppContainer) -> APIRouter:
             tasks_deleted=result.tasks_deleted,
             total_deleted=result.total_deleted,
         )
+
+    @router.get(
+        "/settings",
+        response_model=MemorySettingsResponse,
+        summary="当前 owner 的记忆开关（参考保存的记忆 / 参考会话上下文）",
+    )
+    def get_settings(owner_id: str = Depends(require_owner)) -> MemorySettingsResponse:
+        settings = container.memory_settings.get(owner_id)
+        return MemorySettingsResponse(
+            use_saved_memory=settings.use_saved_memory,
+            reference_history=settings.reference_history,
+            updated_at=settings.updated_at,
+        )
+
+    @router.put(
+        "/settings",
+        response_model=MemorySettingsResponse,
+        summary="更新记忆开关（部分更新，落同意变更审计）",
+    )
+    def update_settings(
+        body: UpdateMemorySettingsRequest,
+        owner_id: str = Depends(require_owner),
+    ) -> MemorySettingsResponse:
+        updated = container.memory_settings.update(
+            owner_id,
+            use_saved_memory=body.use_saved_memory,
+            reference_history=body.reference_history,
+        )
+        return MemorySettingsResponse(
+            use_saved_memory=updated.use_saved_memory,
+            reference_history=updated.reference_history,
+            updated_at=updated.updated_at,
+        )
+
+    @router.get(
+        "/facts",
+        response_model=MemoryFactsResponse,
+        summary="当前 owner 生效的长期事实清单（管理面板）",
+    )
+    def list_facts(owner_id: str = Depends(require_owner)) -> MemoryFactsResponse:
+        cap = container.settings.memory_fact_cap_per_owner
+        memory = container.memory
+        if memory is None:
+            return MemoryFactsResponse(facts=[], count=0, cap=cap)
+        facts = memory.list_facts(owner_id)
+        items = [
+            MemoryFactItem(
+                fact_id=f.fact_id,
+                text=f.text,
+                tags=list(f.tags),
+                created_at=f.created_at,
+            )
+            for f in facts
+        ]
+        return MemoryFactsResponse(facts=items, count=len(items), cap=cap)
 
     return router

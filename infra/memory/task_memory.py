@@ -184,6 +184,35 @@ class TaskBackedMemory:
             facts.append(fact)
         return facts
 
+    def list_facts(self, owner_id: str) -> list[Fact]:
+        """列出该 owner 当前生效的长期事实（管理面板展示，Step 031a）。
+
+        过滤口径与 ``recall_semantic`` 一致：剔除已 superseded / 过 TTL 的事实，
+        只回"用户此刻真实可被召回"的那批。未配置 fact_store 时安全返回空列表。
+        按 ``created_at`` 倒序（新在前），便于前端直接渲染。
+        """
+        if self._fact_store is None:
+            return []
+        try:
+            all_facts = self._fact_store.list_owner(owner_id)
+        except Exception:  # noqa: BLE001 — 读取失败降级为空，不影响主流程
+            logger.warning("L4 事实列举失败（已降级为空）", exc_info=True)
+            return []
+        cutoff = (
+            time.time() - self._l4_ttl_days * _SECONDS_PER_DAY
+            if self._l4_ttl_days > 0
+            else None
+        )
+        facts = [
+            f
+            for f in all_facts
+            if f.superseded_by is None
+            and not (cutoff is not None and f.created_at < cutoff)
+        ]
+        facts.sort(key=lambda f: f.created_at, reverse=True)
+        return facts
+
+
     # ── L3 用户画像 ──────────────────────────────────────────────────────────
 
     def get_profile(self, owner_id: str) -> SessionProfile:

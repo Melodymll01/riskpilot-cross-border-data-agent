@@ -34,6 +34,7 @@ from app.factories import (
     build_kb_repo,
     build_memory,
     build_memory_scheduler,
+    build_memory_settings_store,
     build_profile_store,
     build_research,
     build_retriever,
@@ -52,6 +53,7 @@ from app.use_cases import (
     TaskManagementUseCase,
 )
 from app.use_cases.forget_memory import ForgetMemoryUseCase
+from app.use_cases.memory_settings import MemorySettingsUseCase
 from app.use_cases.run_copilot import RunCopilotUseCase
 
 if TYPE_CHECKING:
@@ -68,6 +70,7 @@ if TYPE_CHECKING:
         KbDocumentRepoPort,
         MemoryJobSchedulerPort,
         MemoryPort,
+        MemorySettingsStorePort,
         ProfileStorePort,
         ResearchPort,
         RetrievePort,
@@ -146,6 +149,9 @@ class AppContainer:
         self.profile_store: ProfileStorePort | None = build_profile_store(
             settings, task_repo=self.task_repo
         )
+        self.memory_settings_store: MemorySettingsStorePort | None = (
+            build_memory_settings_store(settings, task_repo=self.task_repo)
+        )
         self.memory: MemoryPort | None = memory or build_memory(
             settings,
             task_repo=self.task_repo,
@@ -161,6 +167,7 @@ class AppContainer:
             token_budget=settings.memory_token_budget,
             recall_k=settings.memory_fact_recall_k,
             profile_max_facts=settings.memory_profile_max_facts,
+            settings_store=self.memory_settings_store,
         )
         # L4 提取-验证-巩固 worker（后台固化）
         self.consolidation_worker = build_consolidation_worker(
@@ -183,6 +190,9 @@ class AppContainer:
         self.task_management = TaskManagementUseCase(self.task_repo)
         self.forget_memory = ForgetMemoryUseCase(
             self.memory, audit_log=self.audit_log
+        )
+        self.memory_settings = MemorySettingsUseCase(
+            self.memory_settings_store, audit_log=self.audit_log
         )
         self.ingest = IngestionUseCase(self.embedder)
         self.run_query = RunQueryUseCase(retriever=self.retriever, chat=self.chat)

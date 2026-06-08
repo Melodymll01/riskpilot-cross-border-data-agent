@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 
 from domain.models import Fact, Message, SessionProfile
-from domain.ports import MemoryPort
+from domain.ports import MemoryPort, MemorySettingsStorePort
 
 logger = logging.getLogger(__name__)
 
@@ -43,29 +43,63 @@ class MemoryAssembler:
         token_budget: int,
         recall_k: int = 0,
         profile_max_facts: int = 0,
+        settings_store: MemorySettingsStorePort | None = None,
     ) -> None:
         self._memory = memory
         self._recent_n = recent_n
         self._token_budget = token_budget
         self._recall_k = recall_k
         self._profile_max_facts = profile_max_facts
+        self._settings_store = settings_store
 
     def assemble(self, *, owner_id: str, task_id: str, query: str | None = None) -> str:
         """组装注入文本；无记忆 / 无内容 / 出错均返回空串。
 
         ``query`` 为本轮用户问题，用于 L4 语义召回（缺省不召回）。
+
+        每用户开关门控（Step 031a，缺省 / 出错均双开，与全局默认开一致）：
+        - ``use_saved_memory`` 关 → 不注入 L4 长期事实 + L3 用户画像；
+        - ``reference_history`` 关 → 不注入 L2 摘要 + L1 最近原文。
         """
         if self._memory is None:
             return ""
-        facts = self._safe_facts(owner_id=owner_id, query=query)
-        summary = self._safe_summary(owner_id=owner_id, task_id=task_id)
-        profile = self._safe_profile(owner_id=owner_id)
-        msgs = self._safe_recent(owner_id=owner_id, task_id=task_id)
+        use_saved_memory, reference_history = self._safe_settings(owner_id=owner_id)
+        facts = (
+            self._safe_facts(owner_id=owner_id, query=query) if use_saved_memory else []
+        )
+        summary = (
+            self._safe_summary(owner_id=owner_id, task_id=task_id)
+            if reference_history
+            else ""
+        )
+        profile = self._safe_profile(owner_id=owner_id) if use_saved_memory else None
+        msgs = (
+            self._safe_recent(owner_id=owner_id, task_id=task_id)
+            if reference_history
+            else []
+        )
         if not facts and not summary and not profile and not msgs:
             return ""
         return self._render(facts, summary, profile, msgs)
 
     # ── 读取（全程降级） ───────────────────────────────────
+
+    def _safe_settings(self, *, owner_id: str) -> tuple[bool, bool]:
+        """读取该 owner 的记忆开关；无 store / 未设置 / 出错均返回双开（True, True）。
+
+        fail-open 语义：设置读取异常不应静默关闭记忆，与全局 ``memory_enabled``
+        默认开保持一致；用户主动关闭由 ``upsert`` 持久化，正常路径仍精确生效。
+        """
+        if self._settings_store is None:
+            return True, True
+        try:
+            settings = self._settings_store.get(owner_id)
+        except Exception:  # noqa: BLE001 — 设置读取故障降级为默认双开，不中断主流程
+            logger.warning("记忆开关读取失败，降级为双开默认", exc_info=True)
+            return True, True
+        if settings is None:
+            return True, True
+        return settings.use_saved_memory, settings.reference_history
 
     def _safe_facts(self, *, owner_id: str, query: str | None) -> list[Fact]:
         if self._recall_k <= 0 or not (query or "").strip():

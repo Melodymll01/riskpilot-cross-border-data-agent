@@ -25,6 +25,7 @@ from domain.ports import (
     KbDocumentRepoPort,
     MemoryJobSchedulerPort,
     MemoryPort,
+    MemorySettingsStorePort,
     ProfileStorePort,
     ResearchPort,
     RetrievePort,
@@ -50,6 +51,7 @@ from infra.risk_profile import StubRiskProfileService
 from infra.search import EmbedderAdapter, HybridRetrieverAdapter
 from infra.storage import (
     SqliteConsolidationStateStore,
+    SqliteMemorySettingsStore,
     SqliteProfileStore,
     SqliteSummaryStore,
     SqliteTaskRepo,
@@ -168,6 +170,21 @@ def build_profile_store(
     if isinstance(task_repo, SqliteTaskRepo):
         return SqliteProfileStore(task_repo._pool)  # noqa: SLF001 — 同包复用连接池
     return SqliteProfileStore(build_sqlite_pool(settings))
+
+
+def build_memory_settings_store(
+    settings: Settings, *, task_repo: TaskRepoPort
+) -> MemorySettingsStorePort | None:
+    """构造每用户记忆开关存储；记忆全局禁用时返回 None。复用 task 连接池。
+
+    与画像 / 摘要不同：开关不受 ``memory_summary_enabled`` 等子开关影响，
+    只要 ``memory_enabled`` 即启用——用户始终可读写自己的偏好。
+    """
+    if not settings.memory_enabled:
+        return None
+    if isinstance(task_repo, SqliteTaskRepo):
+        return SqliteMemorySettingsStore(task_repo._pool)  # noqa: SLF001 — 同包复用连接池
+    return SqliteMemorySettingsStore(build_sqlite_pool(settings))
 
 
 def build_summary_store(

@@ -36,6 +36,7 @@ class FakeMemory:
         self.recall_calls: list[tuple[str, str, int]] = []
         self.profile_updates: list[tuple[str, dict[str, str]]] = []
         self.forget_calls: list[tuple[str, str]] = []
+        self.list_facts_calls: list[str] = []
 
     def append_message(self, task_id: str, msg: Message) -> None:
         self._messages.setdefault(task_id, []).append(msg)
@@ -80,6 +81,10 @@ class FakeMemory:
         if k <= 0:
             return []
         return self._facts.get(owner_id, [])[:k]
+
+    def list_facts(self, owner_id: str) -> list[Fact]:
+        self.list_facts_calls.append(owner_id)
+        return [f for f in self._facts.get(owner_id, []) if f.superseded_by is None]
 
     # ── 主动遗忘 ────────────────────────────────────────────────────────────
 

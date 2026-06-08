@@ -8,7 +8,7 @@ from __future__ import annotations
 import pytest
 
 from app.memory import MemoryAssembler
-from domain.models import Fact, Message, SessionProfile
+from domain.models import Fact, MemorySettings, Message, SessionProfile
 from tests.fakes.fake_memory import FakeMemory
 
 pytestmark = pytest.mark.unit
@@ -337,4 +337,109 @@ class TestProfileInjection:
 
         assert "用户：仍可用" in block
         assert "【用户画像" not in block
+
+
+class TestSettingsGating:
+    """每用户双开关门控（S-031a）：use_saved_memory→L3/L4，reference_history→L1/L2。"""
+
+    def _mem(self) -> FakeMemory:
+        return FakeMemory(
+            messages={"t1": [_msg("user", "最近问题", 2.0)]},
+            summaries={"t1": "更早聊过评估"},
+            facts={"o1": [_fact("用户在跨境电商行业")]},
+            profiles={"o1": SessionProfile(owner_id="o1", facts={"语言": "中文"})},
+        )
+
+    def _asm(self, mem: FakeMemory, store: object) -> MemoryAssembler:
+        return MemoryAssembler(
+            mem,
+            recent_n=6,
+            token_budget=1500,
+            recall_k=3,
+            profile_max_facts=8,
+            settings_store=store,  # type: ignore[arg-type]
+        )
+
+    def test_no_store_defaults_all_on(self) -> None:
+        mem = self._mem()
+        asm = MemoryAssembler(
+            mem, recent_n=6, token_budget=1500, recall_k=3, profile_max_facts=8
+        )
+        block = asm.assemble(owner_id="o1", task_id="t1", query="数据出境")
+        assert "【相关长期记忆" in block
+        assert "【用户画像" in block
+        assert "【对话摘要" in block
+        assert "【历史对话" in block
+
+    def test_both_on(self) -> None:
+        from tests.fakes.fake_memory_settings_store import InMemoryMemorySettingsStore
+
+        store = InMemoryMemorySettingsStore()
+        store.upsert(
+            MemorySettings(owner_id="o1", use_saved_memory=True, reference_history=True)
+        )
+        block = self._asm(self._mem(), store).assemble(
+            owner_id="o1", task_id="t1", query="数据出境"
+        )
+        assert "【相关长期记忆" in block
+        assert "【用户画像" in block
+        assert "【对话摘要" in block
+        assert "【历史对话" in block
+
+    def test_use_saved_memory_off_drops_facts_and_profile(self) -> None:
+        from tests.fakes.fake_memory_settings_store import InMemoryMemorySettingsStore
+
+        store = InMemoryMemorySettingsStore()
+        store.upsert(
+            MemorySettings(owner_id="o1", use_saved_memory=False, reference_history=True)
+        )
+        block = self._asm(self._mem(), store).assemble(
+            owner_id="o1", task_id="t1", query="数据出境"
+        )
+        assert "【相关长期记忆" not in block
+        assert "【用户画像" not in block
+        assert "【对话摘要" in block
+        assert "【历史对话" in block
+
+    def test_reference_history_off_drops_summary_and_recent(self) -> None:
+        from tests.fakes.fake_memory_settings_store import InMemoryMemorySettingsStore
+
+        store = InMemoryMemorySettingsStore()
+        store.upsert(
+            MemorySettings(owner_id="o1", use_saved_memory=True, reference_history=False)
+        )
+        block = self._asm(self._mem(), store).assemble(
+            owner_id="o1", task_id="t1", query="数据出境"
+        )
+        assert "【相关长期记忆" in block
+        assert "【用户画像" in block
+        assert "【对话摘要" not in block
+        assert "【历史对话" not in block
+
+    def test_both_off_returns_empty(self) -> None:
+        from tests.fakes.fake_memory_settings_store import InMemoryMemorySettingsStore
+
+        store = InMemoryMemorySettingsStore()
+        store.upsert(
+            MemorySettings(
+                owner_id="o1", use_saved_memory=False, reference_history=False
+            )
+        )
+        block = self._asm(self._mem(), store).assemble(
+            owner_id="o1", task_id="t1", query="数据出境"
+        )
+        assert block == ""
+
+    def test_settings_read_failure_fails_open(self) -> None:
+        class _Boom:
+            def get(self, owner_id: str) -> MemorySettings:
+                raise RuntimeError("boom")
+
+        block = self._asm(self._mem(), _Boom()).assemble(
+            owner_id="o1", task_id="t1", query="数据出境"
+        )
+        # fail-open：读取异常退回双开默认，记忆照常注入
+        assert "【相关长期记忆" in block
+        assert "【历史对话" in block
+
 

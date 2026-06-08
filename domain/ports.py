@@ -26,6 +26,7 @@ from domain.models import (
     ForgetResult,
     KbChunk,
     KbDocument,
+    MemorySettings,
     Message,
     ResearchReport,
     RiskProfile,
@@ -321,6 +322,9 @@ class MemoryPort(Protocol):
     # L4 语义事实：按 owner_id
     def recall_semantic(self, owner_id: str, query: str, k: int) -> list[Fact]: ...
 
+    # L4 事实列表（管理面板展示，过滤已 superseded / 过期，Step 031a）
+    def list_facts(self, owner_id: str) -> list[Fact]: ...
+
     # 主动遗忘（被遗忘权）：按 owner_id 级联清除（Step 030d）
     def forget(self, owner_id: str, *, scope: str = "memory") -> ForgetResult: ...
 
@@ -352,6 +356,18 @@ class ProfileStorePort(Protocol):
     def delete_owner(self, owner_id: str) -> int:
         """删除该 owner 的画像，返回删除条数（0 或 1）。"""
         ...
+
+
+@runtime_checkable
+class MemorySettingsStorePort(Protocol):
+    """每用户记忆开关存储（``memory_settings`` 表，Step 031a）。
+
+    按 ``owner_id`` 存两个布尔偏好；``get`` 缺失返回 None（调用方视为双开默认）。
+    """
+
+    def get(self, owner_id: str) -> MemorySettings | None: ...
+
+    def upsert(self, settings: MemorySettings) -> None: ...
 
 
 @runtime_checkable

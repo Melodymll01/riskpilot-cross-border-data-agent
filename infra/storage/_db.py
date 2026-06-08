@@ -110,6 +110,13 @@ CREATE TABLE IF NOT EXISTS profiles (
     facts      TEXT NOT NULL DEFAULT '{}',
     updated_at REAL NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS memory_settings (
+    owner_id          TEXT PRIMARY KEY,
+    use_saved_memory  INTEGER NOT NULL DEFAULT 1,
+    reference_history INTEGER NOT NULL DEFAULT 1,
+    updated_at        REAL NOT NULL
+);
 """
 
 
