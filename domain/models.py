@@ -370,6 +370,33 @@ class ConsolidationState(BaseDomainModel):
     updated_at: float = Field(default_factory=lambda: time.time())
 
 
+class ForgetResult(BaseDomainModel):
+    """主动遗忘（被遗忘权）执行结果：各层删除计数，供审计与可解释（Step 030d）。
+
+    只记"删了多少条/哪些范围"，不回存被删内容——审计自身也守数据最小化。
+    ``scope`` 标识遗忘范围：``"memory"`` 只清派生记忆（L2/L3/L4），
+    ``"all"`` 额外级联删 L1 原始 task（连同消息）。
+    """
+
+    owner_id: str = Field(min_length=1)
+    scope: str = "memory"
+    summaries_deleted: int = Field(default=0, ge=0)
+    profile_deleted: int = Field(default=0, ge=0)
+    facts_deleted: int = Field(default=0, ge=0)
+    states_deleted: int = Field(default=0, ge=0)
+    tasks_deleted: int = Field(default=0, ge=0)
+
+    @property
+    def total_deleted(self) -> int:
+        return (
+            self.summaries_deleted
+            + self.profile_deleted
+            + self.facts_deleted
+            + self.states_deleted
+            + self.tasks_deleted
+        )
+
+
 
 # === 审计（Step 021） ===
 
@@ -417,3 +444,6 @@ class AuditAction:
     AUTH_ANONYMOUS_CREATE = "auth.anonymous_create"
     # ── Step 025e：登出侧 ────────────────────────────────────────────
     AUTH_LOGOUT = "auth.logout"
+    # ── Step 030d：记忆侧（主动遗忘 / 画像更新）─────────────────────
+    MEMORY_FORGET = "memory.forget"
+    MEMORY_PROFILE_UPDATE = "memory.profile_update"

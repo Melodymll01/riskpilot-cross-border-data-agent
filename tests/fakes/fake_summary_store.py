@@ -19,3 +19,9 @@ class InMemorySummaryStore:
 
     def upsert(self, summary: TaskSummary) -> None:
         self._data[summary.task_id] = summary
+
+    def delete_owner(self, owner_id: str) -> int:
+        ids = [t for t, s in self._data.items() if s.owner_id == owner_id]
+        for t in ids:
+            del self._data[t]
+        return len(ids)

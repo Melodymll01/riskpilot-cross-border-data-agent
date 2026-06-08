@@ -23,6 +23,7 @@ from domain.models import (
     ConsolidationState,
     EvidenceJudgement,
     Fact,
+    ForgetResult,
     KbChunk,
     KbDocument,
     Message,
@@ -320,6 +321,9 @@ class MemoryPort(Protocol):
     # L4 语义事实：按 owner_id
     def recall_semantic(self, owner_id: str, query: str, k: int) -> list[Fact]: ...
 
+    # 主动遗忘（被遗忘权）：按 owner_id 级联清除（Step 030d）
+    def forget(self, owner_id: str, *, scope: str = "memory") -> ForgetResult: ...
+
 
 @runtime_checkable
 class SummaryStorePort(Protocol):
@@ -328,6 +332,26 @@ class SummaryStorePort(Protocol):
     def get(self, task_id: str, owner_id: str) -> TaskSummary | None: ...
 
     def upsert(self, summary: TaskSummary) -> None: ...
+
+    def delete_owner(self, owner_id: str) -> int:
+        """删除该 owner 的全部摘要，返回删除条数（主动遗忘，Step 030d）。"""
+        ...
+
+
+@runtime_checkable
+class ProfileStorePort(Protocol):
+    """L3 用户画像存储（``profiles`` 表，Step 030d）。
+
+    画像是跨 task 的稳定偏好快照（按 ``owner_id``），无 TTL，靠主动遗忘清除。
+    """
+
+    def get(self, owner_id: str) -> SessionProfile | None: ...
+
+    def upsert(self, profile: SessionProfile) -> None: ...
+
+    def delete_owner(self, owner_id: str) -> int:
+        """删除该 owner 的画像，返回删除条数（0 或 1）。"""
+        ...
 
 
 @runtime_checkable
@@ -369,6 +393,10 @@ class FactStorePort(Protocol):
 
     def delete(self, owner_id: str, fact_id: str) -> None: ...
 
+    def delete_owner(self, owner_id: str) -> int:
+        """删除该 owner 的全部事实，返回删除条数（主动遗忘，Step 030d）。"""
+        ...
+
     def count(self, owner_id: str) -> int: ...
 
 
@@ -379,6 +407,10 @@ class ConsolidationStatePort(Protocol):
     def get(self, task_id: str, owner_id: str) -> ConsolidationState | None: ...
 
     def upsert(self, state: ConsolidationState) -> None: ...
+
+    def delete_owner(self, owner_id: str) -> int:
+        """删除该 owner 的全部固化水位，返回删除条数（主动遗忘，Step 030d）。"""
+        ...
 
 
 # === 审计（Step 021） ===

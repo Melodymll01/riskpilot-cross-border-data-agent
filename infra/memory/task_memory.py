@@ -10,7 +10,9 @@
 - TTL 逻辑遗忘：读取时过滤过期记忆（L1 原文 / L2 摘要 / L4 事实），过期永不注入。
 - L4 语义事实读路径（``recall_semantic``）走独立 ``FactStorePort``（Chroma），
   写路径（提取-验证-巩固）在 ``ConsolidationWorker`` 后台完成，本类只读。
-- L3 仍保留接口但抛 ``NotImplementedError``，由 S-030d 补齐。
+- L3 用户画像（``get_profile`` / ``update_profile``）走独立 ``ProfileStorePort``
+  （``profiles`` 表），起步只承载显式偏好声明 + 系统配置偏好（设计 §14.5）。
+- 主动遗忘（``forget``）级联清除 L2/L3/L4（+ 可选 L1 task），实现被遗忘权。
 """
 
 from __future__ import annotations
@@ -18,8 +20,16 @@ from __future__ import annotations
 import logging
 import time
 
-from domain.models import Fact, Message, SessionProfile, TaskSummary
-from domain.ports import ChatPort, EmbedPort, FactStorePort, SummaryStorePort, TaskRepoPort
+from domain.models import Fact, ForgetResult, Message, SessionProfile, TaskSummary
+from domain.ports import (
+    ChatPort,
+    ConsolidationStatePort,
+    EmbedPort,
+    FactStorePort,
+    ProfileStorePort,
+    SummaryStorePort,
+    TaskRepoPort,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +53,8 @@ class TaskBackedMemory:
         chat: ChatPort | None = None,
         fact_store: FactStorePort | None = None,
         embedder: EmbedPort | None = None,
+        profile_store: ProfileStorePort | None = None,
+        state_store: ConsolidationStatePort | None = None,
         l1_ttl_days: float = 30.0,
         l2_ttl_days: float = 180.0,
         l4_ttl_days: float = 365.0,
@@ -53,6 +65,8 @@ class TaskBackedMemory:
         self._chat = chat
         self._fact_store = fact_store
         self._embedder = embedder
+        self._profile_store = profile_store
+        self._state_store = state_store
         self._l1_ttl_days = l1_ttl_days
         self._l2_ttl_days = l2_ttl_days
         self._l4_ttl_days = l4_ttl_days
@@ -170,13 +184,73 @@ class TaskBackedMemory:
             facts.append(fact)
         return facts
 
-    # ── L3：占位，S-030d 实现 ──────────────────────────────────────────────
+    # ── L3 用户画像 ──────────────────────────────────────────────────────────
 
-    def get_profile(self, owner_id: str) -> SessionProfile:  # pragma: no cover
-        raise NotImplementedError("L3 用户画像将在 S-030d 实现")
+    def get_profile(self, owner_id: str) -> SessionProfile:
+        """返回该 owner 的画像；未配置 / 不存在时返回空画像（不抛）。
 
-    def update_profile(self, owner_id: str, facts: dict[str, str]) -> None:  # pragma: no cover
-        raise NotImplementedError("L3 用户画像将在 S-030d 实现")
+        起步只承载显式偏好声明 + 系统配置偏好（设计 §14.5），自动抽取推迟。
+        """
+        if self._profile_store is None:
+            return SessionProfile(owner_id=owner_id, facts={})
+        profile = self._profile_store.get(owner_id)
+        if profile is None:
+            return SessionProfile(owner_id=owner_id, facts={})
+        return profile
+
+    def update_profile(self, owner_id: str, facts: dict[str, str]) -> None:
+        """合并写入画像偏好（浅合并：同名 key 覆盖）；未配置 store 时静默跳过。
+
+        空 ``facts`` 视为无操作，避免无谓写库。
+        """
+        if self._profile_store is None or not facts:
+            return
+        existing = self._profile_store.get(owner_id)
+        merged: dict[str, object] = dict(existing.facts) if existing else {}
+        merged.update(facts)
+        self._profile_store.upsert(
+            SessionProfile(owner_id=owner_id, facts=merged, updated_at=time.time())
+        )
+
+    # ── 主动遗忘（被遗忘权） ──────────────────────────────────────────────────
+
+    def forget(self, owner_id: str, *, scope: str = "memory") -> ForgetResult:
+        """级联清除该 owner 的记忆，返回各层删除计数（Step 030d）。
+
+        - ``scope="memory"``（默认）：只清派生记忆 L2 摘要 / L3 画像 / L4 事实 /
+          固化水位，保留 L1 原始 task 与消息。
+        - ``scope="all"``：额外删 L1 原始 task（FK 级联连带消息），实现完整被遗忘权。
+
+        各层 store 缺失（未启用）时该层计 0，不抛。删除异常向上抛由调用方审计失败。
+        """
+        normalized = scope if scope in ("memory", "all") else "memory"
+        summaries_deleted = (
+            self._summary_store.delete_owner(owner_id) if self._summary_store else 0
+        )
+        states_deleted = (
+            self._state_store.delete_owner(owner_id) if self._state_store else 0
+        )
+        profile_deleted = (
+            self._profile_store.delete_owner(owner_id) if self._profile_store else 0
+        )
+        facts_deleted = (
+            self._fact_store.delete_owner(owner_id) if self._fact_store else 0
+        )
+        tasks_deleted = 0
+        if normalized == "all":
+            # 先删派生记忆（上面已做），再删 L1 task（级联连带消息/残留摘要/水位）。
+            for task in self._repo.list_for_owner(owner_id, limit=100_000):
+                if self._repo.delete(task.task_id, owner_id):
+                    tasks_deleted += 1
+        return ForgetResult(
+            owner_id=owner_id,
+            scope=normalized,
+            summaries_deleted=summaries_deleted,
+            profile_deleted=profile_deleted,
+            facts_deleted=facts_deleted,
+            states_deleted=states_deleted,
+            tasks_deleted=tasks_deleted,
+        )
 
     # ── 内部 ────────────────────────────────────────────────────────────────
 

@@ -1,12 +1,12 @@
-"""``MemoryPort`` 内存 Fake：用于装配 / 注入 / 降级测试（S-030a）。
+"""``MemoryPort`` 内存 Fake：用于装配 / 注入 / 降级测试（S-030a/d）。
 
-只实现 L1 ``recent_messages``（带 owner 归属校验语义）+ ``append_message``；
-L2/L3/L4 抛 ``NotImplementedError``，与生产适配器对齐。
+实现 L1 ``recent_messages`` + L2 ``get_summary`` + L3 画像 + L4 ``recall_semantic``
++ 主动遗忘 ``forget``，可预置数据并断言调用参数。
 """
 
 from __future__ import annotations
 
-from domain.models import Fact, Message, SessionProfile
+from domain.models import Fact, ForgetResult, Message, SessionProfile
 
 
 class FakeMemory:
@@ -19,6 +19,7 @@ class FakeMemory:
         owners: dict[str, str] | None = None,
         summaries: dict[str, str] | None = None,
         facts: dict[str, list[Fact]] | None = None,
+        profiles: dict[str, SessionProfile] | None = None,
     ) -> None:
         # task_id -> 消息列表
         self._messages: dict[str, list[Message]] = messages or {}
@@ -28,9 +29,13 @@ class FakeMemory:
         self._summaries: dict[str, str] = summaries or {}
         # owner_id -> L4 事实列表（recall_semantic 返回值）
         self._facts: dict[str, list[Fact]] = facts or {}
+        # owner_id -> L3 画像（get_profile 返回值）
+        self._profiles: dict[str, SessionProfile] = profiles or {}
         self.recent_calls: list[tuple[str, str, int]] = []
         self.summarize_calls: list[tuple[str, str, int]] = []
         self.recall_calls: list[tuple[str, str, int]] = []
+        self.profile_updates: list[tuple[str, dict[str, str]]] = []
+        self.forget_calls: list[tuple[str, str]] = []
 
     def append_message(self, task_id: str, msg: Message) -> None:
         self._messages.setdefault(task_id, []).append(msg)
@@ -61,13 +66,32 @@ class FakeMemory:
     # ── L3/L4 ──────────────────────────────────────────────────────────────
 
     def get_profile(self, owner_id: str) -> SessionProfile:
-        raise NotImplementedError
+        return self._profiles.get(owner_id) or SessionProfile(owner_id=owner_id, facts={})
 
     def update_profile(self, owner_id: str, facts: dict[str, str]) -> None:
-        raise NotImplementedError
+        self.profile_updates.append((owner_id, dict(facts)))
+        existing = self._profiles.get(owner_id)
+        merged: dict = dict(existing.facts) if existing else {}
+        merged.update(facts)
+        self._profiles[owner_id] = SessionProfile(owner_id=owner_id, facts=merged)
 
     def recall_semantic(self, owner_id: str, query: str, k: int) -> list[Fact]:
         self.recall_calls.append((owner_id, query, k))
         if k <= 0:
             return []
         return self._facts.get(owner_id, [])[:k]
+
+    # ── 主动遗忘 ────────────────────────────────────────────────────────────
+
+    def forget(self, owner_id: str, *, scope: str = "memory") -> ForgetResult:
+        self.forget_calls.append((owner_id, scope))
+        facts = self._facts.pop(owner_id, [])
+        summaries = [t for t, o in self._owners.items() if o == owner_id]
+        profile = self._profiles.pop(owner_id, None)
+        return ForgetResult(
+            owner_id=owner_id,
+            scope=scope,
+            summaries_deleted=len(summaries),
+            profile_deleted=1 if profile is not None else 0,
+            facts_deleted=len(facts),
+        )

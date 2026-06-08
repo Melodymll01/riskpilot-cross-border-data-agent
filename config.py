@@ -172,6 +172,13 @@ class Settings(BaseSettings):
     # 冲突相似度门控：相似度落在 [conflict, dedup) 视为更新/矛盾 → 旧事实标 superseded。
     memory_fact_conflict_threshold: float = Field(0.72, ge=0.0, le=1.0)
 
+    # ── 记忆 L3 用户画像 + 主动遗忘（Step 030d）───────────────────────────────
+    # L3 用户画像：跨 task 的稳定偏好聚合（无 TTL，靠主动遗忘清除）。
+    # 起步只支持显式偏好声明 + 系统配置偏好（自动抽取推迟，见设计 §14.5）。
+    memory_profile_enabled: bool = True
+    # 注入 prompt 的画像偏好条数上限；0 关闭 L3 注入。
+    memory_profile_max_facts: int = Field(8, ge=0, le=50)
+
 
     model_config = {
         "env_file": ".env",

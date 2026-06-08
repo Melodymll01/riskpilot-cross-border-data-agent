@@ -46,3 +46,11 @@ class SqliteConsolidationStateStore:
             ),
         )
         conn.commit()
+
+    def delete_owner(self, owner_id: str) -> int:
+        conn = self._pool.get()
+        cur = conn.execute(
+            "DELETE FROM consolidation_state WHERE owner_id = ?", (owner_id,)
+        )
+        conn.commit()
+        return cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0

@@ -34,6 +34,7 @@ from app.factories import (
     build_kb_repo,
     build_memory,
     build_memory_scheduler,
+    build_profile_store,
     build_research,
     build_retriever,
     build_risk_profile,
@@ -50,6 +51,7 @@ from app.use_cases import (
     RunQueryUseCase,
     TaskManagementUseCase,
 )
+from app.use_cases.forget_memory import ForgetMemoryUseCase
 from app.use_cases.run_copilot import RunCopilotUseCase
 
 if TYPE_CHECKING:
@@ -66,6 +68,7 @@ if TYPE_CHECKING:
         KbDocumentRepoPort,
         MemoryJobSchedulerPort,
         MemoryPort,
+        ProfileStorePort,
         ResearchPort,
         RetrievePort,
         RiskProfilePort,
@@ -133,12 +136,15 @@ class AppContainer:
         # ── 鉴权（依赖 user_repo） ────────────────────────────────────
         self.auth: AuthPort = auth or build_auth(settings, self.user_repo)
 
-        # ── 记忆系统（Step 030：S-030a L1 + S-030b L2 + S-030c L4，依赖 task_repo） ───
+        # ── 记忆系统（Step 030：S-030a L1 + S-030b L2 + S-030c L4 + S-030d L3/遗忘，依赖 task_repo） ───
         # memory 可为 None（禁用）；显式注入优先，否则按配置装配。
         # L4 fact_store / state_store 在 memory 与 worker 间共享，保证读写同一 collection。
         self.fact_store: FactStorePort | None = build_fact_store(settings)
         self.consolidation_state_store: ConsolidationStatePort | None = (
             build_consolidation_state_store(settings, task_repo=self.task_repo)
+        )
+        self.profile_store: ProfileStorePort | None = build_profile_store(
+            settings, task_repo=self.task_repo
         )
         self.memory: MemoryPort | None = memory or build_memory(
             settings,
@@ -146,12 +152,15 @@ class AppContainer:
             chat=self.chat,
             fact_store=self.fact_store,
             embedder=self.embedder,
+            profile_store=self.profile_store,
+            state_store=self.consolidation_state_store,
         )
         self.memory_assembler = MemoryAssembler(
             self.memory,
             recent_n=settings.memory_recent_n,
             token_budget=settings.memory_token_budget,
             recall_k=settings.memory_fact_recall_k,
+            profile_max_facts=settings.memory_profile_max_facts,
         )
         # L4 提取-验证-巩固 worker（后台固化）
         self.consolidation_worker = build_consolidation_worker(
@@ -172,6 +181,9 @@ class AppContainer:
         # ── use case 装配 ─────────────────────────────────────────────
         self.auth_login = AuthLoginUseCase(self.auth, audit_log=self.audit_log)
         self.task_management = TaskManagementUseCase(self.task_repo)
+        self.forget_memory = ForgetMemoryUseCase(
+            self.memory, audit_log=self.audit_log
+        )
         self.ingest = IngestionUseCase(self.embedder)
         self.run_query = RunQueryUseCase(retriever=self.retriever, chat=self.chat)
         self.kb_management = KbManagementUseCase(

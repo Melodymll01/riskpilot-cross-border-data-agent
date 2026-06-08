@@ -15,6 +15,7 @@ from api.v2.auth import build_auth_routes
 from api.v2.copilot import build_copilot_routes
 from api.v2.documents import build_documents_routes
 from api.v2.health import build_health_routes
+from api.v2.memory import build_memory_routes
 from api.v2.tasks import build_task_routes
 
 if TYPE_CHECKING:
@@ -22,12 +23,13 @@ if TYPE_CHECKING:
 
 
 def build_v2_router(container: AppContainer) -> APIRouter:
-    """构造 v2 根 router；包含 auth/tasks/documents/audit/copilot/health 全部子路由。"""
+    """构造 v2 根 router；包含 auth/tasks/documents/audit/memory/copilot/health 全部子路由。"""
     root = APIRouter()
     root.include_router(build_auth_routes(container))
     root.include_router(build_task_routes(container))
     root.include_router(build_documents_routes(container))
     root.include_router(build_audit_routes(container))
+    root.include_router(build_memory_routes(container))
     root.include_router(build_copilot_routes(container))
     root.include_router(build_health_routes(container))
     return root

@@ -9,11 +9,12 @@ import time
 
 import pytest
 
-from domain.models import Fact, Message, Task
+from domain.models import ConsolidationState, Fact, Message, Task, TaskSummary
 from infra.memory import TaskBackedMemory
 from tests.fakes.fake_chat import FakeChat
 from tests.fakes.fake_embed import FakeEmbed
-from tests.fakes.fake_fact_store import FakeFactStore
+from tests.fakes.fake_fact_store import FakeConsolidationStateStore, FakeFactStore
+from tests.fakes.fake_profile_store import InMemoryProfileStore
 from tests.fakes.fake_repos import InMemoryTaskRepo
 from tests.fakes.fake_summary_store import InMemorySummaryStore
 
@@ -250,8 +251,6 @@ class TestL2Ttl:
         repo = InMemoryTaskRepo()
         _seed_task(repo, task_id="t1", owner_id="anon:o1")
         store = InMemorySummaryStore()
-        from domain.models import TaskSummary
-
         store.upsert(
             TaskSummary(
                 task_id="t1",
@@ -266,11 +265,133 @@ class TestL2Ttl:
         assert mem.get_summary("anon:o1", "t1") is None
 
 
-class TestL3NotImplemented:
-    def test_profile_raises(self) -> None:
-        mem = TaskBackedMemory(InMemoryTaskRepo())
-        with pytest.raises(NotImplementedError):
-            mem.get_profile("anon:o1")
+class TestL3Profile:
+    def test_no_store_returns_empty_profile(self) -> None:
+        mem = TaskBackedMemory(InMemoryTaskRepo())  # 无 profile_store
+        prof = mem.get_profile("anon:o1")
+        assert prof.owner_id == "anon:o1"
+        assert prof.facts == {}
+
+    def test_update_then_get_merges(self) -> None:
+        store = InMemoryProfileStore()
+        mem = TaskBackedMemory(InMemoryTaskRepo(), profile_store=store)
+
+        mem.update_profile("anon:o1", {"语言": "中文"})
+        mem.update_profile("anon:o1", {"行业": "跨境电商", "语言": "英文"})
+
+        prof = mem.get_profile("anon:o1")
+        assert prof.facts == {"语言": "英文", "行业": "跨境电商"}
+
+    def test_update_empty_is_noop(self) -> None:
+        store = InMemoryProfileStore()
+        mem = TaskBackedMemory(InMemoryTaskRepo(), profile_store=store)
+        mem.update_profile("anon:o1", {})
+        assert store.get("anon:o1") is None
+
+    def test_no_store_update_silently_skips(self) -> None:
+        mem = TaskBackedMemory(InMemoryTaskRepo())  # 无 profile_store
+        mem.update_profile("anon:o1", {"k": "v"})  # 不抛
+        assert mem.get_profile("anon:o1").facts == {}
+
+
+class TestForget:
+    @staticmethod
+    def _fact(owner_id: str, text: str) -> Fact:
+        return Fact(
+            fact_id=f"f_{abs(hash(text)) % 99999}",
+            owner_id=owner_id,
+            text=text,
+            created_at=_NOW,
+        )
+
+    def _mem(self) -> tuple[TaskBackedMemory, dict]:
+        repo = InMemoryTaskRepo()
+        summary = InMemorySummaryStore()
+        profile = InMemoryProfileStore()
+        facts = FakeFactStore()
+        state = FakeConsolidationStateStore()
+        embed = FakeEmbed()
+        mem = TaskBackedMemory(
+            repo,
+            summary_store=summary,
+            profile_store=profile,
+            fact_store=facts,
+            state_store=state,
+        )
+        return mem, {
+            "repo": repo,
+            "summary": summary,
+            "profile": profile,
+            "facts": facts,
+            "state": state,
+            "embed": embed,
+        }
+
+    def _seed_owner(self, mem: TaskBackedMemory, dep: dict, owner: str) -> None:
+        _seed_task(dep["repo"], task_id=f"{owner}_t", owner_id=owner)
+        dep["summary"].upsert(
+            TaskSummary(task_id=f"{owner}_t", owner_id=owner, summary="s", msg_watermark=1)
+        )
+        dep["state"].upsert(
+            ConsolidationState(task_id=f"{owner}_t", owner_id=owner, msg_watermark=1)
+        )
+        mem.update_profile(owner, {"语言": "中文"})
+        f = self._fact(owner, f"{owner} 的事实")
+        dep["facts"].add(f, dep["embed"].embed([f.text])[0])
+
+    def test_memory_scope_clears_derived_keeps_tasks(self) -> None:
+        mem, dep = self._mem()
+        self._seed_owner(mem, dep, "anon:o1")
+
+        result = mem.forget("anon:o1", scope="memory")
+
+        assert result.scope == "memory"
+        assert result.summaries_deleted == 1
+        assert result.profile_deleted == 1
+        assert result.facts_deleted == 1
+        assert result.states_deleted == 1
+        assert result.tasks_deleted == 0
+        # L1 原始 task 保留
+        assert dep["repo"].get("anon:o1_t", "anon:o1") is not None
+        # 派生记忆清空
+        assert mem.get_profile("anon:o1").facts == {}
+        assert dep["facts"].count("anon:o1") == 0
+
+    def test_all_scope_also_deletes_tasks(self) -> None:
+        mem, dep = self._mem()
+        self._seed_owner(mem, dep, "anon:o1")
+
+        result = mem.forget("anon:o1", scope="all")
+
+        assert result.scope == "all"
+        assert result.tasks_deleted == 1
+        assert dep["repo"].get("anon:o1_t", "anon:o1") is None
+
+    def test_owner_isolation(self) -> None:
+        mem, dep = self._mem()
+        self._seed_owner(mem, dep, "anon:o1")
+        self._seed_owner(mem, dep, "anon:o2")
+
+        mem.forget("anon:o1", scope="all")
+
+        # o2 完全不受影响
+        assert dep["repo"].get("anon:o2_t", "anon:o2") is not None
+        assert mem.get_profile("anon:o2").facts == {"语言": "中文"}
+        assert dep["facts"].count("anon:o2") == 1
+
+    def test_unknown_scope_falls_back_to_memory(self) -> None:
+        mem, dep = self._mem()
+        self._seed_owner(mem, dep, "anon:o1")
+
+        result = mem.forget("anon:o1", scope="weird")
+
+        assert result.scope == "memory"
+        assert result.tasks_deleted == 0
+
+    def test_missing_stores_count_zero(self) -> None:
+        mem = TaskBackedMemory(InMemoryTaskRepo())  # 无任何派生 store
+        result = mem.forget("anon:o1", scope="memory")
+        assert result.total_deleted == 0
 
 
 class TestL4RecallSemantic:

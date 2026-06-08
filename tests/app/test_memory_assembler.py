@@ -8,7 +8,7 @@ from __future__ import annotations
 import pytest
 
 from app.memory import MemoryAssembler
-from domain.models import Fact, Message
+from domain.models import Fact, Message, SessionProfile
 from tests.fakes.fake_memory import FakeMemory
 
 pytestmark = pytest.mark.unit
@@ -240,4 +240,101 @@ class TestFactInjection:
 
         assert "用户：仍可用" in block
         assert "【相关长期记忆" not in block
+
+
+class TestProfileInjection:
+    def test_not_injected_when_max_facts_zero(self) -> None:
+        mem = FakeMemory(
+            messages={"t1": [_msg("user", "x", 1.0)]},
+            profiles={"o1": SessionProfile(owner_id="o1", facts={"语言": "中文"})},
+        )
+        asm = MemoryAssembler(mem, recent_n=6, token_budget=1500)  # profile_max_facts=0
+
+        block = asm.assemble(owner_id="o1", task_id="t1")
+
+        assert "【用户画像" not in block
+
+    def test_profile_rendered_when_enabled(self) -> None:
+        mem = FakeMemory(
+            messages={"t1": [_msg("user", "x", 1.0)]},
+            profiles={
+                "o1": SessionProfile(
+                    owner_id="o1", facts={"语言": "中文", "行业": "跨境电商"}
+                )
+            },
+        )
+        asm = MemoryAssembler(
+            mem, recent_n=6, token_budget=1500, profile_max_facts=8
+        )
+
+        block = asm.assemble(owner_id="o1", task_id="t1")
+
+        assert "【用户画像" in block
+        assert "- 语言：中文" in block
+        assert "- 行业：跨境电商" in block
+
+    def test_profile_truncated_at_max_facts(self) -> None:
+        mem = FakeMemory(
+            messages={"t1": [_msg("user", "x", 1.0)]},
+            profiles={
+                "o1": SessionProfile(
+                    owner_id="o1", facts={"a": "1", "b": "2", "c": "3"}
+                )
+            },
+        )
+        asm = MemoryAssembler(
+            mem, recent_n=6, token_budget=1500, profile_max_facts=2
+        )
+
+        block = asm.assemble(owner_id="o1", task_id="t1")
+
+        assert block.count("- ") == 2
+
+    def test_empty_profile_not_injected(self) -> None:
+        mem = FakeMemory(
+            messages={"t1": [_msg("user", "x", 1.0)]},
+            profiles={"o1": SessionProfile(owner_id="o1", facts={})},
+        )
+        asm = MemoryAssembler(
+            mem, recent_n=6, token_budget=1500, profile_max_facts=8
+        )
+
+        block = asm.assemble(owner_id="o1", task_id="t1")
+
+        assert "【用户画像" not in block
+
+    def test_profile_ranks_after_summary_before_recent(self) -> None:
+        mem = FakeMemory(
+            messages={"t1": [_msg("user", "最近问题", 2.0)]},
+            summaries={"t1": "更早聊过评估"},
+            profiles={"o1": SessionProfile(owner_id="o1", facts={"语言": "中文"})},
+        )
+        asm = MemoryAssembler(
+            mem, recent_n=6, token_budget=1500, profile_max_facts=8
+        )
+
+        block = asm.assemble(owner_id="o1", task_id="t1")
+
+        assert block.index("【对话摘要") < block.index("【用户画像")
+        assert block.index("【用户画像") < block.index("【历史对话")
+
+    def test_profile_failure_degrades(self) -> None:
+        class _Boom:
+            def get_profile(self, *a: object, **k: object) -> SessionProfile:
+                raise RuntimeError("boom")
+
+            def get_summary(self, *a: object, **k: object) -> None:
+                return None
+
+            def recent_messages(self, *a: object, **k: object) -> list[Message]:
+                return [_msg("user", "仍可用", 1.0)]
+
+        asm = MemoryAssembler(
+            _Boom(), recent_n=6, token_budget=1500, profile_max_facts=8  # type: ignore[arg-type]
+        )
+
+        block = asm.assemble(owner_id="o1", task_id="t1")
+
+        assert "用户：仍可用" in block
+        assert "【用户画像" not in block
 

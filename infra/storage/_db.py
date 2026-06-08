@@ -104,6 +104,12 @@ CREATE TABLE IF NOT EXISTS consolidation_state (
 
 CREATE INDEX IF NOT EXISTS idx_consolidation_state_owner
     ON consolidation_state(owner_id, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS profiles (
+    owner_id   TEXT PRIMARY KEY,
+    facts      TEXT NOT NULL DEFAULT '{}',
+    updated_at REAL NOT NULL
+);
 """
 
 

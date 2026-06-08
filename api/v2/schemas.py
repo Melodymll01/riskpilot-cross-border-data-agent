@@ -215,3 +215,36 @@ class AuditLogListResponse(BaseModel):
 
     entries: list[AuditEntryOut]
     count: int = Field(ge=0)
+
+
+# ── Memory（Step 030d）──────────────────────────────────────────────────
+
+
+class ProfileResponse(BaseModel):
+    """``GET /memory/profile`` 返回：当前 owner 的 L3 用户画像。"""
+
+    owner_id: str
+    facts: dict[str, Any] = Field(default_factory=dict)
+    updated_at: float
+
+
+class ForgetRequest(BaseModel):
+    """``POST /memory/forget`` 请求体：遗忘范围。
+
+    ``scope="memory"`` 只清派生记忆（L2/L3/L4）；``"all"`` 额外删 L1 原始 task。
+    """
+
+    scope: Literal["memory", "all"] = "memory"
+
+
+class ForgetResponse(BaseModel):
+    """``POST /memory/forget`` 返回：各层删除计数（被遗忘权回执）。"""
+
+    owner_id: str
+    scope: str
+    summaries_deleted: int = Field(ge=0)
+    profile_deleted: int = Field(ge=0)
+    facts_deleted: int = Field(ge=0)
+    states_deleted: int = Field(ge=0)
+    tasks_deleted: int = Field(ge=0)
+    total_deleted: int = Field(ge=0)

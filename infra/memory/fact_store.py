@@ -66,6 +66,14 @@ class ChromaFactStore:
             return
         self._col.delete(ids=[fact_id])
 
+    def delete_owner(self, owner_id: str) -> int:
+        """删除该 owner 的全部事实（主动遗忘，Step 030d），返回删除条数。"""
+        n = self.count(owner_id)
+        if n == 0:
+            return 0
+        self._col.delete(where={"owner_id": owner_id})
+        return n
+
     # ── 读 ────────────────────────────────────────────────────────────────
 
     def query(

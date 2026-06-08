@@ -25,6 +25,7 @@ from domain.ports import (
     KbDocumentRepoPort,
     MemoryJobSchedulerPort,
     MemoryPort,
+    ProfileStorePort,
     ResearchPort,
     RetrievePort,
     RiskProfilePort,
@@ -49,6 +50,7 @@ from infra.risk_profile import StubRiskProfileService
 from infra.search import EmbedderAdapter, HybridRetrieverAdapter
 from infra.storage import (
     SqliteConsolidationStateStore,
+    SqliteProfileStore,
     SqliteSummaryStore,
     SqliteTaskRepo,
     SqliteUserRepo,
@@ -116,13 +118,16 @@ def build_memory(
     chat: ChatPort | None = None,
     fact_store: FactStorePort | None = None,
     embedder: EmbedPort | None = None,
+    profile_store: ProfileStorePort | None = None,
+    state_store: ConsolidationStatePort | None = None,
 ) -> MemoryPort | None:
-    """构造 ``MemoryPort``（S-030a L1 + S-030b L2 + S-030c L4 读）；禁用时返回 None。
+    """构造 ``MemoryPort``（S-030a L1 + S-030b L2 + S-030c L4 + S-030d L3/遗忘）；禁用时返回 None。
 
     None 是合法状态：表示"记忆关闭"，装配器据此退回无状态旧行为。
     L2 摘要依赖 summary_store + chat；L4 语义召回依赖 fact_store + embedder；
-    任一缺失则该层静默退化。容器一般传入共享的 fact_store/embedder，
-    以与固化 worker 复用同一 Chroma collection。
+    L3 画像依赖 profile_store；主动遗忘需 state_store 清固化水位。
+    任一缺失则该层静默退化。容器一般传入共享的 fact_store/embedder/state_store，
+    以与固化 worker 复用同一 Chroma collection / 连接池。
     """
     if not settings.memory_enabled:
         return None
@@ -135,17 +140,34 @@ def build_memory(
             fact_store = build_fact_store(settings)
         if embedder is None:
             embedder = build_embedder(settings)
+        if state_store is None:
+            state_store = build_consolidation_state_store(settings, task_repo=task_repo)
+    if profile_store is None:
+        profile_store = build_profile_store(settings, task_repo=task_repo)
     return TaskBackedMemory(
         task_repo,
         summary_store=summary_store,
         chat=summary_chat,
         fact_store=fact_store,
         embedder=embedder,
+        profile_store=profile_store,
+        state_store=state_store,
         l1_ttl_days=settings.memory_l1_ttl_days,
         l2_ttl_days=settings.memory_l2_ttl_days,
         l4_ttl_days=settings.memory_l4_ttl_days,
         summary_threshold=settings.memory_summary_threshold,
     )
+
+
+def build_profile_store(
+    settings: Settings, *, task_repo: TaskRepoPort
+) -> ProfileStorePort | None:
+    """构造 L3 画像存储；禁用记忆 / 画像时返回 None。复用 task 连接池。"""
+    if not (settings.memory_enabled and settings.memory_profile_enabled):
+        return None
+    if isinstance(task_repo, SqliteTaskRepo):
+        return SqliteProfileStore(task_repo._pool)  # noqa: SLF001 — 同包复用连接池
+    return SqliteProfileStore(build_sqlite_pool(settings))
 
 
 def build_summary_store(
@@ -303,6 +325,7 @@ __all__ = [
     "build_kb_repo",
     "build_memory",
     "build_memory_scheduler",
+    "build_profile_store",
     "build_research",
     "build_retriever",
     "build_risk_profile",

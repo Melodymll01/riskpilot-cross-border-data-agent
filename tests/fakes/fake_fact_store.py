@@ -60,6 +60,14 @@ class FakeFactStore:
         if item is not None and item[0].owner_id == owner_id:
             del self._store[fact_id]
 
+    def delete_owner(self, owner_id: str) -> int:
+        ids = [
+            fid for fid, (f, _) in self._store.items() if f.owner_id == owner_id
+        ]
+        for fid in ids:
+            del self._store[fid]
+        return len(ids)
+
     def count(self, owner_id: str) -> int:
         return sum(1 for f, _ in self._store.values() if f.owner_id == owner_id)
 
@@ -87,3 +95,11 @@ class FakeConsolidationStateStore:
 
     def upsert(self, state: ConsolidationState) -> None:
         self._states[state.task_id] = state
+
+    def delete_owner(self, owner_id: str) -> int:
+        ids = [
+            tid for tid, s in self._states.items() if s.owner_id == owner_id
+        ]
+        for tid in ids:
+            del self._states[tid]
+        return len(ids)
