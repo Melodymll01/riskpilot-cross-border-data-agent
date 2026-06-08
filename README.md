@@ -18,13 +18,18 @@
 
 | 多步自主推理（ReAct 决策环路） | 带溯源引用的结构化回答 |
 | :---: | :---: |
-| ![Agent 推理过程](docs/screenshots/02-agent-reasoning.png) | ![带引用的回答](docs/screenshots/03-answer-citations.png) |
+| ![Agent 推理过程](screenshots/02-回答推理.png) | ![带引用的回答](screenshots/03-回答引用.png) |
 | Agent 自主判断「先检索法条」，实时推送 `💭 思考` 与 `🛠 search_law` 工具调用，证据不足时自动追加第 2 轮检索 | 回答按合规路径结构化拆解，并附 **可点击溯源**（链接到 cac.gov.cn 原文条款） |
 
 | 三模式工作台 · 4 工具就绪 | 知识库治理（多租户 · 公共/私人库） |
 | :---: | :---: |
-| ![首页](docs/screenshots/01-home.png) | ![知识库](docs/screenshots/04-knowledge-base.png) |
+| ![首页](screenshots/01-主页.png) | ![知识库](screenshots/04-知识库.png) |
 | 知识问答 / 深度研究 / 风险画像三种业务模式，顶栏实时显示 Agent 就绪状态与可用工具数 | 用户私人库 + 管理员公共库；上传 PDF/TXT/DOCX 或采集网页，写操作全程落审计日志 |
+
+| 全链路审计日志（写操作可追溯） |
+| :---: |
+| ![审计日志](screenshots/05-审计日志.png) |
+| 上传、采集、删除、记忆变更等敏感操作全部落库审计，支持合规追责 |
 
 > 在线体验同款界面：克隆后 `docker compose up -d` 一键启动（见[快速开始](#快速开始)）。
 
