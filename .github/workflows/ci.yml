@@ -7,11 +7,10 @@ name: CI
 #   遗留代码（service.py / api/routes.py / retrieval / processing / ingestion）暂不强制
 # - mypy 暂未接入：domain/app/infra 等核心层基线 0 错；
 #   全仓存量 ~46 错与 Step 016d 基线持平，留待后续 Step 单独清理
+#
+# ⏸ 暂停自动触发（手动按需运行）：去掉 push / pull_request 触发，
+#   只保留 workflow_dispatch，需要时在 Actions 页手动 Run workflow。
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 
 concurrency:
