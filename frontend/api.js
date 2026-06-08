@@ -159,3 +159,27 @@ export const audit = {
     return `${BASE}/audit/export.csv?${qs.toString()}`;
   },
 };
+
+/* ─────────── memory（每用户记忆 · Step 030d/031a） ─────────── */
+export const memory = {
+  /** 当前 owner 的 L3 用户画像（稳定偏好）。 */
+  profile: () => request("GET", "/memory/profile"),
+
+  /** 读两个记忆开关（参考保存的记忆 / 参考会话上下文）。 */
+  getSettings: () => request("GET", "/memory/settings"),
+
+  /**
+   * 部分更新记忆开关；只传需要改的字段，未传字段保持原值。
+   * @param {{use_saved_memory?: boolean, reference_history?: boolean}} body
+   */
+  updateSettings: (body) => request("PUT", "/memory/settings", body),
+
+  /** 当前 owner 生效的长期事实清单 + 容量上限。 */
+  facts: () => request("GET", "/memory/facts"),
+
+  /**
+   * 主动遗忘（被遗忘权）。
+   * @param {"memory"|"all"} scope "memory"=只清派生记忆；"all"=连带原始对话
+   */
+  forget: (scope = "memory") => request("POST", "/memory/forget", { scope }),
+};

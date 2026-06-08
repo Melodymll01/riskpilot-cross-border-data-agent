@@ -1222,3 +1222,201 @@ select.audit-input { cursor: pointer; }
   .audit-toolbar { width: 100%; justify-content: flex-start; }
   .audit-input { min-width: 120px; }
 }
+
+/* ─────────── 记忆与隐私设置（模态，Step 031b） ─────────── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--bg-overlay);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 1000;
+}
+.modal {
+  width: 100%;
+  max-width: 560px;
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elev);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--line);
+}
+.modal-title { font-size: 16px; font-weight: 600; }
+.modal-body {
+  padding: 8px 18px 18px;
+  overflow-y: auto;
+}
+.modal-status {
+  padding: 10px 18px;
+  border-top: 1px solid var(--line);
+  font-size: 12.5px;
+}
+.modal-status[data-state="ok"] { color: var(--ok); }
+.modal-status[data-state="err"] { color: var(--err); }
+.modal-status[data-state="busy"] { color: var(--fg-mute); }
+
+.settings-section {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+}
+.settings-section:last-child { border-bottom: 0; }
+.settings-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.settings-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg-mute);
+  text-transform: uppercase;
+  letter-spacing: .4px;
+}
+.settings-hint {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--fg-mute);
+}
+.settings-hint.is-err { color: var(--err); }
+
+/* 开关行 */
+.switch-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 0;
+}
+.switch-text { min-width: 0; }
+.switch-label { font-size: 14px; font-weight: 500; }
+.switch-desc {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--fg-mute);
+  line-height: 1.45;
+}
+
+/* iOS 风开关 */
+.switch {
+  position: relative;
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+.switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+.switch-track {
+  display: block;
+  width: 42px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--bg-elev2);
+  border: 1px solid var(--line-strong);
+  transition: background .16s ease, border-color .16s ease;
+}
+.switch-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--fg-mute);
+  transition: transform .16s ease, background .16s ease;
+}
+.switch input:checked + .switch-track {
+  background: var(--brand-strong);
+  border-color: var(--brand-strong);
+}
+.switch input:checked + .switch-track .switch-thumb {
+  transform: translateX(18px);
+  background: #fff;
+}
+.switch input:focus-visible + .switch-track {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+/* 记忆分组（画像 / 事实） */
+.memory-group { margin-top: 12px; }
+.memory-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--fg);
+  margin-bottom: 6px;
+}
+.memory-group-count {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--fg-mute);
+  background: var(--bg-elev2);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+.memory-list { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.memory-item {
+  display: flex;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--bg-elev2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+}
+.memory-item-key {
+  flex: 0 0 auto;
+  color: var(--brand);
+  font-weight: 500;
+}
+.memory-item-val { color: var(--fg); word-break: break-word; }
+.memory-fact { flex-direction: column; gap: 4px; }
+.memory-fact-text { color: var(--fg); line-height: 1.5; }
+.memory-fact-tags { color: var(--fg-faint); font-size: 11px; font-family: var(--font-mono); }
+.memory-empty {
+  padding: 10px;
+  font-size: 12px;
+  color: var(--fg-faint);
+  text-align: center;
+}
+
+/* 危险区 */
+.settings-danger-hint {
+  font-size: 12px;
+  color: var(--fg-mute);
+  line-height: 1.5;
+  margin-bottom: 10px;
+}
+.settings-danger-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.btn-danger {
+  background: var(--err);
+  border-color: var(--err);
+  color: #fff;
+}
+.btn-danger:hover { background: #dc2626; border-color: #dc2626; }
+.btn-danger-soft {
+  background: transparent;
+  border-color: var(--err);
+  color: var(--err);
+}
+.btn-danger-soft:hover { background: rgba(239, 68, 68, .12); }
+
+@media (max-width: 600px) {
+  .modal { max-width: 100%; }
+  .settings-danger-actions { flex-direction: column; }
+  .settings-danger-actions .btn { width: 100%; }
+}

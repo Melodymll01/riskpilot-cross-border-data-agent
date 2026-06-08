@@ -53,6 +53,7 @@
           <button class="btn btn-ghost btn-icon" id="btn-user-menu" title="账户菜单">⋯</button>
         </div>
         <div class="user-menu hidden" id="user-menu">
+          <button class="menu-item" id="btn-memory-settings">⚙ 记忆与隐私</button>
           <button class="menu-item" id="btn-github-login">使用 GitHub 登录</button>
           <button class="menu-item" id="btn-logout">退出登录</button>
         </div>
@@ -270,6 +271,87 @@
         <span class="audit-pager-hint">每页 50 条；同场过滤下翻页</span>
       </footer>
     </main>
+  </div>
+
+  <!-- ─────────── 记忆与隐私设置（模态，Step 031b） ─────────── -->
+  <div class="modal-overlay hidden" id="memory-modal" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="memory-modal-title">
+      <header class="modal-header">
+        <h2 class="modal-title" id="memory-modal-title">⚙ 记忆与隐私</h2>
+        <button class="btn btn-ghost btn-icon" id="memory-modal-close" title="关闭" aria-label="关闭">✕</button>
+      </header>
+
+      <div class="modal-body" id="memory-modal-body">
+        <!-- 双开关 -->
+        <section class="settings-section">
+          <div class="switch-row">
+            <div class="switch-text">
+              <div class="switch-label">参考保存的记忆</div>
+              <div class="switch-desc">允许助手参考你的长期偏好画像与跨会话事实，回答更贴合你的情况。</div>
+            </div>
+            <label class="switch" title="参考保存的记忆">
+              <input type="checkbox" id="toggle-use-saved-memory" />
+              <span class="switch-track"><span class="switch-thumb"></span></span>
+            </label>
+          </div>
+
+          <div class="switch-row">
+            <div class="switch-text">
+              <div class="switch-label">参考会话上下文</div>
+              <div class="switch-desc">允许助手参考当前任务的历史摘要与原文，保持多轮连贯。关闭后每轮都从零开始。</div>
+            </div>
+            <label class="switch" title="参考会话上下文">
+              <input type="checkbox" id="toggle-reference-history" />
+              <span class="switch-track"><span class="switch-thumb"></span></span>
+            </label>
+          </div>
+          <div class="settings-hint" id="memory-settings-hint" hidden></div>
+        </section>
+
+        <!-- 管理：用户画像 + 长期事实 -->
+        <section class="settings-section">
+          <div class="settings-section-head">
+            <h3 class="settings-section-title">已保存的记忆</h3>
+            <button class="btn btn-ghost btn-icon" id="memory-refresh" title="刷新">↻</button>
+          </div>
+
+          <div class="memory-group">
+            <div class="memory-group-head">
+              <span>用户画像</span>
+              <span class="memory-group-count" id="profile-count">0</span>
+            </div>
+            <ul class="memory-list" id="profile-list"></ul>
+            <div class="memory-empty" id="profile-empty" hidden>暂无画像。多聊几句，助手会自动总结你的稳定偏好。</div>
+          </div>
+
+          <div class="memory-group">
+            <div class="memory-group-head">
+              <span>长期事实</span>
+              <span class="memory-group-count" id="facts-count">0 / 0</span>
+            </div>
+            <ul class="memory-list" id="facts-list"></ul>
+            <div class="memory-empty" id="facts-empty" hidden>暂无长期事实。</div>
+          </div>
+        </section>
+
+        <!-- 危险操作：清除 -->
+        <section class="settings-section settings-danger">
+          <div class="settings-section-head">
+            <h3 class="settings-section-title">清除记忆</h3>
+          </div>
+          <p class="settings-danger-hint">
+            行使「被遗忘权」：删除后不可恢复。「清空记忆」保留历史对话，仅清除派生的画像/摘要/事实；
+            「清空全部」连同历史对话一并删除。
+          </p>
+          <div class="settings-danger-actions">
+            <button class="btn btn-danger-soft" id="btn-forget-memory">清空记忆</button>
+            <button class="btn btn-danger" id="btn-forget-all">清空全部（含对话）</button>
+          </div>
+        </section>
+      </div>
+
+      <div class="modal-status" id="memory-modal-status" data-state="idle" hidden></div>
+    </div>
   </div>
 
   <!-- 第三方：Markdown 渲染器（已在仓库中，无构建依赖） -->

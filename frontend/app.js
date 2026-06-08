@@ -20,6 +20,7 @@ import {
 import { refresh as refreshTasks, onSelect as onTaskSelect, setActive as setActiveTask } from "./tasks.js";
 import * as kb from "./kb.js";
 import * as adminAudit from "./admin-audit.js";
+import * as settings from "./settings.js";
 import { health } from "./api.js";
 
 const $ = (sel) => document.querySelector(sel);
@@ -219,6 +220,20 @@ function bindUI() {
     await logout();
     newConversation();
     await refreshTasks();
+  });
+
+  // 记忆与隐私设置（Step 031b）
+  $("#btn-memory-settings")?.addEventListener("click", () => {
+    $("#user-menu").classList.add("hidden");
+    settings.open();
+  });
+  // 清空全部（含对话）后：刷新任务列表并重置当前对话
+  settings.onMemoryCleared((scope) => {
+    if (scope === "all") {
+      setActiveTask(null);
+      newConversation();
+      refreshTasks();
+    }
   });
 
   // 欢迎卡里的建议问题
