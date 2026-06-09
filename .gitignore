@@ -101,6 +101,7 @@ evaluations/**/*.tmp.json
 # =========================
 interview_doc/
 prompts/
+docs/
 .github/skills/
 .copilot/
 .claude/

@@ -6,7 +6,6 @@
 - 不导入任何 infra / app / api 层模块；不允许在此层引入 IO 或网络依赖。
 - `owner_id` 命名空间见 ADR-008：`"anon:{uuid}"` / `"github:{login}"` / `"google:{email}"` / `"email:{email}"`。
 
-字段语义以 `docs/experiment_v1.md` §4.1 为准；本文件是 §4.1 的可执行落地。
 """
 
 from __future__ import annotations
