@@ -46,6 +46,7 @@ from api.v2.schemas import (
 )
 
 if TYPE_CHECKING:
+    from api.v2.ratelimit import RateLimiter
     from app.container import AppContainer
     from app.use_cases.kb_management import KbIngestResult
     from domain.models import KbDocument
@@ -77,11 +78,18 @@ def _to_ingest_response(result: KbIngestResult) -> KbIngestResponse:
     )
 
 
-def build_documents_routes(container: AppContainer) -> APIRouter:
+def build_documents_routes(
+    container: AppContainer, *, limiter: RateLimiter | None = None
+) -> APIRouter:
     """构造 ``/documents`` 子 router；读 / 写均 require_owner，admin 在内部判别。"""
 
     router = APIRouter(prefix="/documents", tags=["documents"])
     require_owner = make_require_owner(container)
+    ingest_deps = (
+        [Depends(limiter.dependency(container.settings.rate_limit_ingest))]
+        if limiter is not None
+        else []
+    )
     upload_dir = Path(container.settings.upload_dir)
     max_upload_bytes = container.settings.max_upload_mb * 1024 * 1024
     admin_set = set(container.settings.admin_user_ids)
@@ -196,6 +204,7 @@ def build_documents_routes(container: AppContainer) -> APIRouter:
         "/file",
         response_model=KbIngestResponse,
         status_code=status.HTTP_201_CREATED,
+        dependencies=ingest_deps,
         summary="上传文件入库（multipart/form-data）。普通用户入私人；admin 默认入公共",
     )
     async def ingest_file(
@@ -282,6 +291,7 @@ def build_documents_routes(container: AppContainer) -> APIRouter:
         "/web",
         response_model=KbIngestResponse,
         status_code=status.HTTP_201_CREATED,
+        dependencies=ingest_deps,
         summary="采集网页入库。普通用户入私人；admin 默认入公共",
     )
     async def ingest_web(

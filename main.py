@@ -22,6 +22,7 @@ from fastapi.staticfiles import StaticFiles
 
 from api.v2 import build_v2_router
 from api.v2.errors import install_exception_handlers
+from api.v2.ratelimit import build_limiter
 from app.container import AppContainer
 from app.logging_setup import configure_logging
 from app.request_context import (
@@ -187,11 +188,18 @@ async def global_exception_handler(request: Request, exc: Exception):
 # 不要放进 lifespan：include_router 在 app 创建时就要拿到 router。
 container = AppContainer(settings)
 app.state.container = container
-app.include_router(build_v2_router(container), prefix="/api/v2")
+
+# Step（v2 限流）：构造限流器并注入 v2 router；limiter 为 None（rate_limit_enabled=False）
+# 时所有限流依赖退化为无操作。限流以 FastAPI 依赖实现，超额时直接抛 HTTPException(429)，
+# 由 FastAPI 默认处理器返回，无需额外异常处理器。测试 app 不挂 limiter 故不受影响。
+limiter = build_limiter(settings)
+
+app.include_router(build_v2_router(container, limiter=limiter), prefix="/api/v2")
 install_exception_handlers(app)
 logger.info(
-    "api/v2 routes mounted (tools=%s)",
+    "api/v2 routes mounted (tools=%s, rate_limit=%s)",
     sorted(container.tool_registry.keys()),
+    "on" if limiter is not None else "off",
 )
 
 # CORS 允许前端跨域请求（origins 可在 .env 中通过 CORS_ORIGINS 配置）

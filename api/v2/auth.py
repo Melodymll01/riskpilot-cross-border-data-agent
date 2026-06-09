@@ -22,6 +22,7 @@ from api.v2.schemas import (
 from domain.errors import AuthError, OAuthFlowError
 
 if TYPE_CHECKING:
+    from api.v2.ratelimit import RateLimiter
     from app.container import AppContainer
     from domain.models import User
 
@@ -37,16 +38,24 @@ def _to_user_out(user: User, admin_ids: Iterable[str]) -> UserOut:
     )
 
 
-def build_auth_routes(container: AppContainer) -> APIRouter:
+def build_auth_routes(
+    container: AppContainer, *, limiter: RateLimiter | None = None
+) -> APIRouter:
     router = APIRouter(prefix="/auth", tags=["auth"])
     identify = make_identify_owner(container)
     admin_ids = container.settings.admin_user_ids
+    default_deps = (
+        [Depends(limiter.dependency(container.settings.rate_limit_default))]
+        if limiter is not None
+        else []
+    )
 
     # ── 匿名登录 ──────────────────────────────────────────────────────
     @router.post(
         "/anonymous",
         response_model=AnonymousLoginResponse,
         status_code=status.HTTP_201_CREATED,
+        dependencies=default_deps,
         summary="创建匿名身份，发 session cookie",
     )
     def login_anonymous(response: Response) -> AnonymousLoginResponse:

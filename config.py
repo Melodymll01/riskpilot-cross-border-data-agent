@@ -80,6 +80,7 @@ class Settings(BaseSettings):
     max_upload_mb: int = Field(50, ge=1, le=500)  # 最大上传文件大小（MB）
 
     # API 限流
+    rate_limit_enabled: bool = True             # 是否启用 v2 HTTP 限流（测试可关）
     rate_limit_default: str = "60/minute"       # 普通接口默认限流
     rate_limit_llm: str = "20/minute"           # LLM 相关接口（问答/研究）限流
     rate_limit_ingest: str = "10/minute"         # 入库接口限流

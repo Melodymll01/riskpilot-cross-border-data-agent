@@ -16,16 +16,25 @@ from api.v2.schemas import ChatEventOut, ChatRequest, ChatResponse
 from api.v2.sse import stream_with_keepalive
 
 if TYPE_CHECKING:
+    from api.v2.ratelimit import RateLimiter
     from app.container import AppContainer
 
 
-def build_copilot_routes(container: AppContainer) -> APIRouter:
+def build_copilot_routes(
+    container: AppContainer, *, limiter: RateLimiter | None = None
+) -> APIRouter:
     router = APIRouter(prefix="/copilot", tags=["copilot"])
     require_owner = make_require_owner(container)
+    llm_deps = (
+        [Depends(limiter.dependency(container.settings.rate_limit_llm))]
+        if limiter is not None
+        else []
+    )
 
     @router.post(
         "/chat",
         response_model=ChatResponse,
+        dependencies=llm_deps,
         summary="同步聚合 Agent 一轮对话（适合不需要流式 UI 的场景）",
     )
     def chat_sync(
@@ -52,6 +61,7 @@ def build_copilot_routes(container: AppContainer) -> APIRouter:
     @router.post(
         "/chat/stream",
         summary="Agent SSE 流式：思考/工具/答复逐事件推送",
+        dependencies=llm_deps,
         responses={
             200: {
                 "description": "text/event-stream，每个 AgentEvent 一帧",
