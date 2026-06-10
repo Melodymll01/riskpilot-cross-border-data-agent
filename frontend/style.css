@@ -607,6 +607,61 @@ a:hover { text-decoration: underline; }
   overflow: hidden;
 }
 
+/* ─────────── 回答操作条：复制 / 点赞 / 点踩 / 时间 ─────────── */
+.answer-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.answer-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-mute);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.answer-action:hover:not(:disabled) {
+  background: var(--bg-elev2);
+  color: var(--fg);
+}
+.answer-action:disabled {
+  opacity: .4;
+  cursor: not-allowed;
+}
+.answer-action .aa-ico {
+  font-size: 14px;
+  line-height: 1;
+  filter: grayscale(1);
+  opacity: .8;
+}
+.answer-action.done { color: var(--ok); }
+.answer-action-up.active {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+}
+.answer-action-down.active {
+  color: var(--err);
+  background: color-mix(in srgb, var(--err) 14%, transparent);
+}
+.answer-action.active .aa-ico { filter: none; opacity: 1; }
+.answer-time {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--fg-faint);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 /* ─────────── 错误/系统提示 ─────────── */
 .notice {
   padding: 10px 14px;

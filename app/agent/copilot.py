@@ -174,8 +174,8 @@ class ComplianceCopilotAgent:
                 yield AgentEvent.decision_parse_error(raw=raw, error=str(exc))
                 # 解析失败：终止本轮，给出兜底回复
                 fallback = "抱歉，我暂时无法给出可靠回答，请稍后再试或换一种问法。"
-                self._persist_assistant(task_id, fallback, [])
-                yield AgentEvent.answer(fallback, [])
+                msg_id = self._persist_assistant(task_id, fallback, [])
+                yield AgentEvent.answer(fallback, [], msg_id=msg_id)
                 return
 
             if decision.thought:
@@ -191,8 +191,10 @@ class ComplianceCopilotAgent:
             if decision.action == "final_answer":
                 assert decision.final_text is not None
                 citations = _to_domain_citations(decision.citations)
-                self._persist_assistant(task_id, decision.final_text, citations)
-                yield AgentEvent.answer(decision.final_text, decision.citations)
+                msg_id = self._persist_assistant(task_id, decision.final_text, citations)
+                yield AgentEvent.answer(
+                    decision.final_text, decision.citations, msg_id=msg_id
+                )
                 return
 
             # action == "tool"
@@ -209,9 +211,9 @@ class ComplianceCopilotAgent:
             if last_thought
             else "已达到最大推理步数，未能完成完整回答。"
         )
-        self._persist_assistant(task_id, fallback, [])
+        msg_id = self._persist_assistant(task_id, fallback, [])
         yield AgentEvent.max_steps_reached(fallback)
-        yield AgentEvent.answer(fallback, [])
+        yield AgentEvent.answer(fallback, [], msg_id=msg_id)
 
     # ── 内部 ─────────────────────────────────────────────────────────
 
@@ -325,16 +327,19 @@ class ComplianceCopilotAgent:
 
     def _persist_assistant(
         self, task_id: str, content: str, citations: list[Citation]
-    ) -> None:
+    ) -> str:
+        """写入 assistant 消息，返回生成的 ``msg_id``（供 answer 事件携带）。"""
+        msg_id = _new_id("msg")
         self._task_repo.append_message(
             Message(
-                msg_id=_new_id("msg"),
+                msg_id=msg_id,
                 task_id=task_id,
                 role="assistant",
                 content=content,
                 citations=citations,
             )
         )
+        return msg_id
 
 
 def _to_domain_citations(raw: list[dict[str, Any]]) -> list[Citation]:

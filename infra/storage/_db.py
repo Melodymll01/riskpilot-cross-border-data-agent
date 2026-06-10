@@ -117,6 +117,21 @@ CREATE TABLE IF NOT EXISTS memory_settings (
     reference_history INTEGER NOT NULL DEFAULT 1,
     updated_at        REAL NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS message_feedback (
+    msg_id     TEXT PRIMARY KEY,
+    task_id    TEXT NOT NULL,
+    owner_id   TEXT NOT NULL,
+    rating     TEXT NOT NULL CHECK(rating IN ('up', 'down')),
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_owner
+    ON message_feedback(owner_id);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_rating
+    ON message_feedback(rating);
 """
 
 

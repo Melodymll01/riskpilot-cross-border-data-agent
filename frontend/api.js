@@ -64,6 +64,24 @@ export const copilot = {
   chat: (body) => request("POST", "/copilot/chat", body),
 };
 
+/* ─────────── feedback（消息点赞/点踩 · 后台统计） ─────────── */
+export const feedback = {
+  /**
+   * 提交点赞/点踩。
+   * @param {{msg_id: string, task_id: string, rating: "up"|"down"|"none"}} body
+   *   rating="none" 表示撤销之前的评价
+   */
+  submit: (body) => request("POST", "/feedback", body),
+
+  /**
+   * 拉取某个 task 下当前用户的全部反馈，用于加载历史时回显按钮状态。
+   * @param {string} taskId
+   * @returns {Promise<{ratings: Record<string,string>}>}
+   */
+  forTask: (taskId) =>
+    request("GET", `/feedback?task_id=${encodeURIComponent(taskId)}`),
+};
+
 /* ─────────── documents (知识库管理 · Step 025a 多租户) ─────────── */
 export const documents = {
   /**

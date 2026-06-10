@@ -76,10 +76,20 @@ class AgentEvent:
         )
 
     @classmethod
-    def answer(cls, text: str, citations: list[dict[str, Any]] | None = None) -> AgentEvent:
+    def answer(
+        cls,
+        text: str,
+        citations: list[dict[str, Any]] | None = None,
+        msg_id: str | None = None,
+    ) -> AgentEvent:
         return cls(
             AgentEventType.ANSWER,
-            {"text": text, "citations": list(citations or [])},
+            {
+                "text": text,
+                "citations": list(citations or []),
+                # msg_id 让前端把"点赞/点踩"反馈挂到这条回答上（Step：消息反馈统计）。
+                "msg_id": msg_id,
+            },
         )
 
     @classmethod

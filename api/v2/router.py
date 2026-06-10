@@ -14,6 +14,7 @@ from api.v2.audit import build_audit_routes
 from api.v2.auth import build_auth_routes
 from api.v2.copilot import build_copilot_routes
 from api.v2.documents import build_documents_routes
+from api.v2.feedback import build_feedback_routes
 from api.v2.health import build_health_routes
 from api.v2.memory import build_memory_routes
 from api.v2.tasks import build_task_routes
@@ -33,6 +34,7 @@ def build_v2_router(
     root = APIRouter()
     root.include_router(build_auth_routes(container, limiter=limiter))
     root.include_router(build_task_routes(container))
+    root.include_router(build_feedback_routes(container))
     root.include_router(build_documents_routes(container, limiter=limiter))
     root.include_router(build_audit_routes(container))
     root.include_router(build_memory_routes(container))

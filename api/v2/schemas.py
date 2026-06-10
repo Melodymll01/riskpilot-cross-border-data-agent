@@ -106,6 +106,31 @@ class UpdateTaskRequest(BaseModel):
     collected_facts: dict[str, Any] | None = None
 
 
+# ── Feedback（消息点赞/点踩） ─────────────────────────────────────────────
+
+
+class FeedbackRequest(BaseModel):
+    """POST /feedback：对某条 assistant 回答提交点赞/点踩。"""
+
+    msg_id: str = Field(min_length=1)
+    task_id: str = Field(min_length=1)
+    # "up"=点赞 / "down"=点踩 / "none"=撤销
+    rating: Literal["up", "down", "none"]
+
+
+class FeedbackResponse(BaseModel):
+    """提交后回传生效的 rating（撤销后为 None）。"""
+
+    msg_id: str
+    rating: Literal["up", "down"] | None = None
+
+
+class FeedbackMapResponse(BaseModel):
+    """GET /feedback?task_id=：返回该 task 下 {msg_id: rating} 映射。"""
+
+    ratings: dict[str, str] = Field(default_factory=dict)
+
+
 # ── Copilot ─────────────────────────────────────────────────────────────
 
 

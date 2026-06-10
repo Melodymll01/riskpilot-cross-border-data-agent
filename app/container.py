@@ -31,6 +31,7 @@ from app.factories import (
     build_embedder,
     build_evidence,
     build_fact_store,
+    build_feedback_repo,
     build_kb_repo,
     build_memory,
     build_memory_scheduler,
@@ -53,6 +54,7 @@ from app.use_cases import (
     TaskManagementUseCase,
 )
 from app.use_cases.forget_memory import ForgetMemoryUseCase
+from app.use_cases.feedback import FeedbackUseCase
 from app.use_cases.memory_settings import MemorySettingsUseCase
 from app.use_cases.run_copilot import RunCopilotUseCase
 
@@ -120,6 +122,8 @@ class AppContainer:
         self.audit_log: AuditLogPort = audit_log or build_audit_log(
             settings, pool=pool
         )
+        # 消息反馈（点赞/点踩统计）复用同一连接池。
+        self.feedback_repo = build_feedback_repo(settings, pool=pool)
 
         # ── LLM / 检索 / 外部 ─────────────────────────────────────────
         self.embedder: EmbedPort = embedder or build_embedder(settings)
@@ -189,6 +193,7 @@ class AppContainer:
         # ── use case 装配 ─────────────────────────────────────────────
         self.auth_login = AuthLoginUseCase(self.auth, audit_log=self.audit_log)
         self.task_management = TaskManagementUseCase(self.task_repo)
+        self.feedback = FeedbackUseCase(self.feedback_repo)
         self.forget_memory = ForgetMemoryUseCase(
             self.memory, audit_log=self.audit_log
         )

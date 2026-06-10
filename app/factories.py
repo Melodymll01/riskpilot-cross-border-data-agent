@@ -22,6 +22,7 @@ from domain.ports import (
     EmbedPort,
     EvidencePort,
     FactStorePort,
+    FeedbackRepoPort,
     KbDocumentRepoPort,
     MemoryJobSchedulerPort,
     MemoryPort,
@@ -51,6 +52,7 @@ from infra.risk_profile import StubRiskProfileService
 from infra.search import EmbedderAdapter, HybridRetrieverAdapter
 from infra.storage import (
     SqliteConsolidationStateStore,
+    SqliteFeedbackRepo,
     SqliteMemorySettingsStore,
     SqliteProfileStore,
     SqliteSummaryStore,
@@ -86,6 +88,13 @@ def build_audit_log(
 ) -> AuditLogPort:
     """构造 ``AuditLogPort`` 实现：默认 ``SqliteAuditLogRepo`` 复用同一连接池。"""
     return SqliteAuditLogRepo(pool or build_sqlite_pool(settings))
+
+
+def build_feedback_repo(
+    settings: Settings, *, pool: SqliteConnectionPool | None = None
+) -> FeedbackRepoPort:
+    """构造 ``FeedbackRepoPort`` 实现：复用同一 SQLite 连接池。"""
+    return SqliteFeedbackRepo(pool or build_sqlite_pool(settings))
 
 
 def build_embedder(_settings: Settings) -> EmbedPort:

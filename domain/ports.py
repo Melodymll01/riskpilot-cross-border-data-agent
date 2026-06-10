@@ -28,6 +28,7 @@ from domain.models import (
     KbDocument,
     MemorySettings,
     Message,
+    MessageFeedback,
     ResearchReport,
     RiskProfile,
     SessionProfile,
@@ -99,6 +100,21 @@ class TaskRepoPort(Protocol):
     def append_tool_call(self, call: ToolCall) -> None: ...
 
     def append_artifact(self, art: Artifact) -> None: ...
+
+
+@runtime_checkable
+class FeedbackRepoPort(Protocol):
+    """消息反馈（点赞/点踩）存储。按 ``msg_id`` 幂等上写。"""
+
+    def set(self, feedback: MessageFeedback) -> None: ...
+
+    def clear(self, msg_id: str, owner_id: str) -> bool: ...
+
+    def get_for_task(
+        self, task_id: str, owner_id: str
+    ) -> dict[str, str]: ...
+
+    def counts(self) -> dict[str, int]: ...
 
 
 # === LLM / Embedding / 检索 ===

@@ -6,7 +6,7 @@
  */
 
 import { streamChat } from "./sse.js";
-import { tasks as tasksApi } from "./api.js";
+import { tasks as tasksApi, feedback as feedbackApi } from "./api.js";
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -212,7 +212,116 @@ function renderAnswer(body, payload) {
   if (payload.citations?.length) {
     body.appendChild(renderCitations(payload.citations));
   }
+
+  // 回答下方操作条：复制 / 点赞 / 点踩 / 时间
+  body.appendChild(
+    renderAnswerActions({
+      rawText: md,
+      msgId: payload.msg_id || null,
+      taskId: payload.task_id || _currentTaskId,
+      createdAt: payload.created_at,
+      rating: payload.rating || null,
+    })
+  );
   scrollToBottom();
+}
+
+/**
+ * 渲染单条回答下方的操作条：复制、点赞、点踩、生成时间。
+ * 点赞/点踩通过 /api/v2/feedback 落库供后台统计；需要 msgId 才启用。
+ */
+function renderAnswerActions({ rawText, msgId, taskId, createdAt, rating }) {
+  const bar = document.createElement("div");
+  bar.className = "answer-actions";
+  if (msgId) bar.dataset.msgId = msgId;
+
+  // ── 复制 ──
+  const copyBtn = document.createElement("button");
+  copyBtn.type = "button";
+  copyBtn.className = "answer-action";
+  copyBtn.title = "复制回答";
+  copyBtn.innerHTML = `<span class="aa-ico">⧉</span><span class="aa-label">复制</span>`;
+  copyBtn.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(rawText || "");
+      copyBtn.classList.add("done");
+      copyBtn.querySelector(".aa-label").textContent = "已复制";
+      setTimeout(() => {
+        copyBtn.classList.remove("done");
+        copyBtn.querySelector(".aa-label").textContent = "复制";
+      }, 1500);
+    } catch {
+      copyBtn.querySelector(".aa-label").textContent = "复制失败";
+    }
+  });
+  bar.appendChild(copyBtn);
+
+  // ── 点赞 / 点踩 ──
+  const upBtn = document.createElement("button");
+  upBtn.type = "button";
+  upBtn.className = "answer-action answer-action-up";
+  upBtn.title = "有帮助";
+  upBtn.innerHTML = `<span class="aa-ico">👍</span>`;
+
+  const downBtn = document.createElement("button");
+  downBtn.type = "button";
+  downBtn.className = "answer-action answer-action-down";
+  downBtn.title = "没帮助";
+  downBtn.innerHTML = `<span class="aa-ico">👎</span>`;
+
+  if (!msgId) {
+    // 没有 msg_id（理论上不该发生）→ 反馈不可用
+    upBtn.disabled = true;
+    downBtn.disabled = true;
+  } else {
+    const applyState = (r) => {
+      upBtn.classList.toggle("active", r === "up");
+      downBtn.classList.toggle("active", r === "down");
+      bar.dataset.rating = r || "";
+    };
+    applyState(rating);
+
+    const vote = async (value) => {
+      const current = bar.dataset.rating || "";
+      // 再次点击同一选项 = 撤销
+      const next = current === value ? "none" : value;
+      applyState(next === "none" ? null : next);
+      try {
+        await feedbackApi.submit({ msg_id: msgId, task_id: taskId, rating: next });
+      } catch (err) {
+        // 失败回滚到原状态
+        applyState(current || null);
+        appendNotice(`反馈提交失败：${err.message}`);
+      }
+    };
+    upBtn.addEventListener("click", () => vote("up"));
+    downBtn.addEventListener("click", () => vote("down"));
+  }
+  bar.appendChild(upBtn);
+  bar.appendChild(downBtn);
+
+  // ── 时间 ──
+  const timeEl = document.createElement("span");
+  timeEl.className = "answer-time";
+  const ts = typeof createdAt === "number" ? createdAt * 1000 : Date.now();
+  const d = new Date(ts);
+  timeEl.textContent = formatTime(d);
+  timeEl.title = d.toLocaleString();
+  bar.appendChild(timeEl);
+
+  return bar;
+}
+
+function formatTime(d) {
+  const pad = (n) => String(n).padStart(2, "0");
+  const now = new Date();
+  const sameDay =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate();
+  const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  if (sameDay) return hm;
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${hm}`;
 }
 
 function renderAskUser(body, payload) {
@@ -361,12 +470,28 @@ export async function loadTask(taskId) {
     _onModeChanged?.(taskMode);
   }
 
+  // 反馈状态（点赞/点踩）一次性拉取，用于回显按钮高亮；失败不阻塞历史渲染。
+  let ratings = {};
+  try {
+    const fb = await feedbackApi.forTask(taskId);
+    ratings = fb?.ratings || {};
+  } catch {
+    ratings = {};
+  }
+
   for (const m of detail.messages || []) {
     const body = appendMsg(m.role === "user" ? "user" : "assistant");
     if (m.role === "user") {
       body.textContent = m.content || "";
     } else {
-      renderAnswer(body, { text: m.content || "", citations: m.citations || [] });
+      renderAnswer(body, {
+        text: m.content || "",
+        citations: m.citations || [],
+        msg_id: m.msg_id,
+        task_id: taskId,
+        created_at: m.created_at,
+        rating: ratings[m.msg_id] || null,
+      });
     }
   }
 }

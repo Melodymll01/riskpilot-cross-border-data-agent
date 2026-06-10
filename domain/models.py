@@ -133,6 +133,21 @@ class Artifact(BaseDomainModel):
     created_at: float = Field(default_factory=lambda: time.time())
 
 
+class MessageFeedback(BaseDomainModel):
+    """用户对某条 assistant 回答的点赞/点踩反馈（供后台统计）。
+
+    一条 assistant 消息至多一条反馈（按 `msg_id` 唯一）；`rating` 取 `"up"` / `"down"`。
+    `owner_id` 用于权属隔离与按用户聚合。
+    """
+
+    msg_id: str = Field(min_length=1)
+    task_id: str = Field(min_length=1)
+    owner_id: str = Field(min_length=1)
+    rating: Literal["up", "down"]
+    created_at: float = Field(default_factory=lambda: time.time())
+    updated_at: float = Field(default_factory=lambda: time.time())
+
+
 # === 检索 / 外部搜索 / 风险画像 ===
 
 
