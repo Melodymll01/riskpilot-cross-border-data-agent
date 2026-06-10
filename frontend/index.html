@@ -87,6 +87,7 @@
             <span class="mode-badge" id="chat-mode-badge" hidden></span>
           </div>
           <div class="chat-actions">
+            <button class="btn btn-ghost btn-icon" id="btn-theme-toggle" title="切换深色 / 浅色" aria-label="切换深色 / 浅色">🌙</button>
             <span class="status-dot" id="status-dot" data-state="unknown"></span>
             <span class="status-text" id="status-text">检查中…</span>
           </div>
@@ -354,6 +355,28 @@
       <div class="modal-status" id="memory-modal-status" data-state="idle" hidden></div>
     </div>
   </div>
+
+  <!-- 主题切换：深色 / 浅色，持久化到 localStorage；尽早执行避免首屏闪烁 -->
+  <script>
+    (function () {
+      var KEY = "dc-theme";
+      var root = document.documentElement;
+      function apply(theme) {
+        root.setAttribute("data-theme", theme);
+        var btn = document.getElementById("btn-theme-toggle");
+        if (btn) btn.textContent = theme === "light" ? "☀" : "🌙";
+      }
+      var saved = localStorage.getItem(KEY) || "dark";
+      apply(saved);
+      document.addEventListener("click", function (ev) {
+        var btn = ev.target.closest && ev.target.closest("#btn-theme-toggle");
+        if (!btn) return;
+        var next = root.getAttribute("data-theme") === "light" ? "dark" : "light";
+        localStorage.setItem(KEY, next);
+        apply(next);
+      });
+    })();
+  </script>
 
   <!-- 第三方：Markdown 渲染器（已在仓库中，无构建依赖） -->
   <script src="/static/marked.min.js"></script>

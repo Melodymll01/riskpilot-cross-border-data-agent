@@ -27,6 +27,20 @@
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", Roboto, sans-serif;
 }
 
+/* 浅色（白色背景）主题：覆盖同名变量即可整站换皮 */
+:root[data-theme="light"] {
+  --bg: #ffffff;
+  --bg-elev: #f5f6f8;
+  --bg-elev2: #eaecf1;
+  --bg-overlay: rgba(255, 255, 255, 0.85);
+  --line: #e2e5ec;
+  --line-strong: #cdd2dd;
+  --fg: #1a1d26;
+  --fg-mute: #5a6175;
+  --fg-faint: #8d94a7;
+  --shadow-lg: 0 12px 36px rgba(15, 17, 21, .15);
+}
+
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 html, body {
