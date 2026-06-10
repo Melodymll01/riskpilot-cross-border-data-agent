@@ -14,14 +14,13 @@ from __future__ import annotations
 
 import logging
 
-from domain.models import Fact, Message, SessionProfile, TaskSummary
+from domain.models import Fact, Message, SessionProfile
 from domain.ports import MemoryPort, MemorySettingsStorePort
 
 logger = logging.getLogger(__name__)
 
 _HEADER = "【历史对话（仅供参考，避免重复已回答内容）】"
 _SUMMARY_HEADER = "【对话摘要（更早内容已压缩）】"
-_HISTORY_HEADER = "【过往对话（你与该用户更早的其它对话摘要，仅供参考）】"
 _FACTS_HEADER = "【相关长期记忆（你已知的用户事实，仅供参考）】"
 _PROFILE_HEADER = "【用户画像（稳定偏好，跨会话）】"
 
@@ -44,7 +43,6 @@ class MemoryAssembler:
         token_budget: int,
         recall_k: int = 0,
         profile_max_facts: int = 0,
-        history_k: int = 0,
         settings_store: MemorySettingsStorePort | None = None,
     ) -> None:
         self._memory = memory
@@ -52,7 +50,6 @@ class MemoryAssembler:
         self._token_budget = token_budget
         self._recall_k = recall_k
         self._profile_max_facts = profile_max_facts
-        self._history_k = history_k
         self._settings_store = settings_store
 
     def assemble(self, *, owner_id: str, task_id: str, query: str | None = None) -> str:
@@ -60,51 +57,43 @@ class MemoryAssembler:
 
         ``query`` 为本轮用户问题，用于 L4 语义召回（缺省不召回）。
 
-        注入语义（对齐 ChatGPT，Step 032/033）：
+        注入语义（对齐 ChatGPT，Step 032）：
         - **当前任务上下文（L1 最近原文 + L2 本任务摘要）永远自动填充**，不受开关控制，
           对应 ChatGPT「当前对话上下文窗口永远在」，保证多轮连贯；
-        - ``use_saved_memory`` 关 → 不注入 L4 长期事实 + L3 用户画像（跨会话的"保存的记忆"）；
-        - ``reference_history`` 开 → 注入 L5 跨对话召回（该 owner 其它 task 的摘要），
-          默认关，对应 ChatGPT「参考历史聊天记录」。
+        - ``use_saved_memory`` 关 → 不注入 L4 长期事实 + L3 用户画像（跨会话的"保存的记忆"）。
         """
         if self._memory is None:
             return ""
-        use_saved_memory, reference_history = self._safe_settings(owner_id=owner_id)
+        use_saved_memory = self._safe_settings(owner_id=owner_id)
         facts = (
             self._safe_facts(owner_id=owner_id, query=query) if use_saved_memory else []
         )
         # 当前任务上下文：永远注入（不受开关控制）
         summary = self._safe_summary(owner_id=owner_id, task_id=task_id)
         profile = self._safe_profile(owner_id=owner_id) if use_saved_memory else None
-        history = (
-            self._safe_history(owner_id=owner_id, task_id=task_id)
-            if reference_history
-            else []
-        )
         msgs = self._safe_recent(owner_id=owner_id, task_id=task_id)
-        if not facts and not summary and not profile and not history and not msgs:
+        if not facts and not summary and not profile and not msgs:
             return ""
-        return self._render(facts, summary, history, profile, msgs)
+        return self._render(facts, summary, profile, msgs)
 
     # ── 读取（全程降级） ───────────────────────────────────
 
-    def _safe_settings(self, *, owner_id: str) -> tuple[bool, bool]:
-        """读取 ``(use_saved_memory, reference_history)``；无 store / 未设置 / 出错均返回默认。
+    def _safe_settings(self, *, owner_id: str) -> bool:
+        """读取 ``use_saved_memory``；无 store / 未设置 / 出错均返回默认 True。
 
-        默认：use_saved_memory=True（fail-open，与全局 ``memory_enabled`` 默认开一致），
-        reference_history=False（fail-closed，对齐 ChatGPT：默认不参考其它对话）。
-        设置读取异常不应静默打开跨对话召回；当前任务上下文（L1/L2）不受任一开关控制。
+        默认 True（fail-open，与全局 ``memory_enabled`` 默认开一致）。
+        当前任务上下文（L1/L2）不受该开关控制。
         """
         if self._settings_store is None:
-            return True, False
+            return True
         try:
             settings = self._settings_store.get(owner_id)
         except Exception:  # noqa: BLE001 — 设置读取故障降级为默认，不中断主流程
             logger.warning("记忆开关读取失败，降级为默认", exc_info=True)
-            return True, False
+            return True
         if settings is None:
-            return True, False
-        return settings.use_saved_memory, settings.reference_history
+            return True
+        return settings.use_saved_memory
 
     def _safe_facts(self, *, owner_id: str, query: str | None) -> list[Fact]:
         if self._recall_k <= 0 or not (query or "").strip():
@@ -143,23 +132,12 @@ class MemoryAssembler:
             logger.warning("L1 历史读取失败，降级为无历史", exc_info=True)
             return []
 
-    def _safe_history(self, *, owner_id: str, task_id: str) -> list[TaskSummary]:
-        """L5 跨对话召回：该 owner 其它 task 的摘要；未配置 / k≤0 / 出错均返回空。"""
-        if self._history_k <= 0:
-            return []
-        try:
-            return self._memory.recall_history(owner_id, task_id, self._history_k)  # type: ignore[union-attr]
-        except Exception:  # noqa: BLE001 — 记忆故障必须降级，不得中断主流程
-            logger.warning("L5 跨对话历史召回失败，降级为无历史", exc_info=True)
-            return []
-
     # ── 排版 + 预算 ────────────────────────────────────────────────────────
 
     def _render(
         self,
         facts: list[Fact],
         summary: str,
-        history: list[TaskSummary],
         profile: SessionProfile | None,
         msgs: list[Message],
     ) -> str:
@@ -194,22 +172,6 @@ class MemoryAssembler:
                 block = f"{_SUMMARY_HEADER}\n{summary}"
                 sections.append(block)
                 used += self._estimate_tokens(block)
-
-        # L5 跨对话召回（参考历史聊天记录）：过往其它对话的摘要，逐条填到超预算。
-        if history:
-            head_cost = self._estimate_tokens(_HISTORY_HEADER)
-            kept_hist: list[str] = []
-            local_used = used + head_cost
-            for rec in history:
-                line = self._format_history(rec)
-                cost = self._estimate_tokens(line)
-                if local_used + cost > budget and kept_hist:
-                    break
-                local_used += cost
-                kept_hist.append(line)
-            if kept_hist:
-                sections.append("\n".join([_HISTORY_HEADER, *kept_hist]))
-                used = local_used
 
         # L3 画像偏好（优先级最低，预算耗尽时整块丢弃）；不挤占 L1 的≥1条保底。
         if profile is not None:
@@ -248,11 +210,6 @@ class MemoryAssembler:
     @staticmethod
     def _format_fact(fact: Fact) -> str:
         text = (fact.text or "").strip().replace("\n", " ")
-        return f"- {text}"
-
-    @staticmethod
-    def _format_history(rec: TaskSummary) -> str:
-        text = (rec.summary or "").strip().replace("\n", " ")
         return f"- {text}"
 
     def _format_profile(self, profile: SessionProfile) -> list[str]:

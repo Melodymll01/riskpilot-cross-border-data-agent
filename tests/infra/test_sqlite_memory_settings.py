@@ -25,11 +25,10 @@ def store(pool: SqliteConnectionPool) -> SqliteMemorySettingsStore:
     return SqliteMemorySettingsStore(pool)
 
 
-def _settings(owner_id: str, use_saved: bool, ref_hist: bool) -> MemorySettings:
+def _settings(owner_id: str, use_saved: bool) -> MemorySettings:
     return MemorySettings(
         owner_id=owner_id,
         use_saved_memory=use_saved,
-        reference_history=ref_hist,
         updated_at=time.time(),
     )
 
@@ -44,33 +43,30 @@ class TestGetUpsert:
         assert store.get("o1") is None
 
     def test_upsert_then_get_roundtrip(self, store: SqliteMemorySettingsStore) -> None:
-        store.upsert(_settings("o1", use_saved=False, ref_hist=True))
+        store.upsert(_settings("o1", use_saved=False))
 
         rec = store.get("o1")
         assert rec is not None
         assert rec.owner_id == "o1"
         assert rec.use_saved_memory is False
-        assert rec.reference_history is True
 
     def test_bool_roundtrip_both_false(self, store: SqliteMemorySettingsStore) -> None:
-        store.upsert(_settings("o1", use_saved=False, ref_hist=False))
+        store.upsert(_settings("o1", use_saved=False))
         rec = store.get("o1")
         assert rec is not None
         assert rec.use_saved_memory is False
-        assert rec.reference_history is False
 
     def test_upsert_overwrites(self, store: SqliteMemorySettingsStore) -> None:
-        store.upsert(_settings("o1", use_saved=True, ref_hist=True))
-        store.upsert(_settings("o1", use_saved=False, ref_hist=False))
+        store.upsert(_settings("o1", use_saved=True))
+        store.upsert(_settings("o1", use_saved=False))
 
         rec = store.get("o1")
         assert rec is not None
         assert rec.use_saved_memory is False
-        assert rec.reference_history is False
 
     def test_owner_isolation(self, store: SqliteMemorySettingsStore) -> None:
-        store.upsert(_settings("o1", use_saved=False, ref_hist=True))
-        store.upsert(_settings("o2", use_saved=True, ref_hist=False))
+        store.upsert(_settings("o1", use_saved=False))
+        store.upsert(_settings("o2", use_saved=True))
 
         assert store.get("o1").use_saved_memory is False
         assert store.get("o2").use_saved_memory is True

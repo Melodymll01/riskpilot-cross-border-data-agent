@@ -51,7 +51,6 @@ class MemorySettingsUseCase:
         owner_id: str,
         *,
         use_saved_memory: bool | None = None,
-        reference_history: bool | None = None,
         request_id: str | None = None,
     ) -> MemorySettings:
         """部分更新开关并落审计；只覆盖显式传入的字段（None=保持原值）。
@@ -62,13 +61,9 @@ class MemorySettingsUseCase:
         new_use_saved = (
             current.use_saved_memory if use_saved_memory is None else use_saved_memory
         )
-        new_reference = (
-            current.reference_history if reference_history is None else reference_history
-        )
         updated = MemorySettings(
             owner_id=owner_id,
             use_saved_memory=new_use_saved,
-            reference_history=new_reference,
             updated_at=time.time(),
         )
         if self._store is not None:
@@ -81,7 +76,6 @@ class MemorySettingsUseCase:
             error=None,
             extra={
                 "use_saved_memory": updated.use_saved_memory,
-                "reference_history": updated.reference_history,
                 "persisted": self._store is not None,
             },
         )

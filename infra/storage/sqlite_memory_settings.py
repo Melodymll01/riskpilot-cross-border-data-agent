@@ -1,7 +1,7 @@
 """SQLite ``MemorySettingsStorePort`` 实现：每用户记忆开关（Step 031a）。
 
-每个 ``owner_id`` 单行存两个布尔偏好（``use_saved_memory`` / ``reference_history``），
-缺省双开。布尔以 INTEGER 0/1 落盘。``get`` 缺失返回 None（调用方视为默认双开）。
+每个 ``owner_id`` 单行存记忆开关（``use_saved_memory``），缺省开。
+布尔以 INTEGER 0/1 落盘。``get`` 缺失返回 None（调用方视为默认开）。
 """
 
 from __future__ import annotations
@@ -27,7 +27,6 @@ class SqliteMemorySettingsStore:
         return MemorySettings(
             owner_id=row["owner_id"],
             use_saved_memory=bool(row["use_saved_memory"]),
-            reference_history=bool(row["reference_history"]),
             updated_at=row["updated_at"],
         )
 
@@ -36,17 +35,15 @@ class SqliteMemorySettingsStore:
         conn.execute(
             """
             INSERT INTO memory_settings
-                (owner_id, use_saved_memory, reference_history, updated_at)
-            VALUES (?, ?, ?, ?)
+                (owner_id, use_saved_memory, updated_at)
+            VALUES (?, ?, ?)
             ON CONFLICT(owner_id) DO UPDATE SET
                 use_saved_memory  = excluded.use_saved_memory,
-                reference_history = excluded.reference_history,
                 updated_at        = excluded.updated_at
             """,
             (
                 settings.owner_id,
                 int(settings.use_saved_memory),
-                int(settings.reference_history),
                 settings.updated_at,
             ),
         )

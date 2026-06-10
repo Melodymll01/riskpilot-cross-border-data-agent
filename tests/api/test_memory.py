@@ -181,8 +181,6 @@ class TestSettings:
         assert resp.status_code == 200
         body = resp.json()
         assert body["use_saved_memory"] is True
-        # 对齐 ChatGPT：参考历史聊天记录默认关
-        assert body["reference_history"] is False
 
     def test_put_then_get_roundtrip(
         self, authed_client: tuple[TestClient, dict[str, Any]]
@@ -195,7 +193,6 @@ class TestSettings:
         )
         assert put.status_code == 200
         assert put.json()["use_saved_memory"] is False
-        assert put.json()["reference_history"] is False  # 未传 → 保持默认（关）
 
         got = client.get("/api/v2/memory/settings")
         assert got.json()["use_saved_memory"] is False
@@ -209,12 +206,11 @@ class TestSettings:
             MemorySettings(
                 owner_id="someone_else",
                 use_saved_memory=False,
-                reference_history=False,
             )
         )
         _inject_settings(client, store)
 
-        # 当前 owner 没有自己的设置 → 默认双开，不读到别人的
+        # 当前 owner 没有自己的设置 → 默认开，不读到别人的
         resp = client.get("/api/v2/memory/settings")
         assert resp.json()["use_saved_memory"] is True
 

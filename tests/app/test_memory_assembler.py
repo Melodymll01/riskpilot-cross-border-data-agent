@@ -340,17 +340,16 @@ class TestProfileInjection:
 
 
 class TestSettingsGating:
-    """记忆注入门控（S-032/033，对齐 ChatGPT）：
+    """记忆注入门控（S-032，对齐 ChatGPT）：
 
     - 当前任务上下文（L1 最近原文 + L2 本任务摘要）**永远注入**，不受开关控制；
-    - ``use_saved_memory`` 门控 L4 长期事实 + L3 用户画像（跨会话保存的记忆）；
-    - ``reference_history`` 门控 L5 跨对话召回（该 owner 其它 task 的摘要），默认关。
+    - ``use_saved_memory`` 门控 L4 长期事实 + L3 用户画像（跨会话保存的记忆）。
     """
 
     def _mem(self) -> FakeMemory:
         return FakeMemory(
             messages={"t1": [_msg("user", "最近问题", 2.0)]},
-            summaries={"t1": "更早聊过评估", "t2": "另一段对话：标准合同备案"},
+            summaries={"t1": "更早聊过评估"},
             facts={"o1": [_fact("用户在跨境电商行业")]},
             profiles={"o1": SessionProfile(owner_id="o1", facts={"语言": "中文"})},
         )
@@ -362,7 +361,6 @@ class TestSettingsGating:
             token_budget=1500,
             recall_k=3,
             profile_max_facts=8,
-            history_k=3,
             settings_store=store,  # type: ignore[arg-type]
         )
 
@@ -376,15 +374,13 @@ class TestSettingsGating:
         assert "【用户画像" in block
         assert "【对话摘要" in block
         assert "【历史对话" in block
-        # reference_history 默认关 → 不注入 L5 跨对话召回
-        assert "【过往对话" not in block
 
     def test_both_on(self) -> None:
         from tests.fakes.fake_memory_settings_store import InMemoryMemorySettingsStore
 
         store = InMemoryMemorySettingsStore()
         store.upsert(
-            MemorySettings(owner_id="o1", use_saved_memory=True, reference_history=True)
+            MemorySettings(owner_id="o1", use_saved_memory=True)
         )
         block = self._asm(self._mem(), store).assemble(
             owner_id="o1", task_id="t1", query="数据出境"
@@ -393,16 +389,13 @@ class TestSettingsGating:
         assert "【用户画像" in block
         assert "【对话摘要" in block
         assert "【历史对话" in block
-        # reference_history 开 → 注入 L5 跨对话召回（排除当前 task t1）
-        assert "【过往对话" in block
-        assert "另一段对话：标准合同备案" in block
 
     def test_use_saved_memory_off_drops_facts_and_profile(self) -> None:
         from tests.fakes.fake_memory_settings_store import InMemoryMemorySettingsStore
 
         store = InMemoryMemorySettingsStore()
         store.upsert(
-            MemorySettings(owner_id="o1", use_saved_memory=False, reference_history=True)
+            MemorySettings(owner_id="o1", use_saved_memory=False)
         )
         block = self._asm(self._mem(), store).assemble(
             owner_id="o1", task_id="t1", query="数据出境"
@@ -411,44 +404,20 @@ class TestSettingsGating:
         assert "【用户画像" not in block
         assert "【对话摘要" in block
         assert "【历史对话" in block
-        # reference_history 开 → L5 仍注入（与 use_saved_memory 正交）
-        assert "【过往对话" in block
-
-    def test_reference_history_off_keeps_current_context(self) -> None:
-        # reference_history 关只掉 L5 跨对话召回；当前任务上下文（L1/L2）永远注入
-        from tests.fakes.fake_memory_settings_store import InMemoryMemorySettingsStore
-
-        store = InMemoryMemorySettingsStore()
-        store.upsert(
-            MemorySettings(owner_id="o1", use_saved_memory=True, reference_history=False)
-        )
-        block = self._asm(self._mem(), store).assemble(
-            owner_id="o1", task_id="t1", query="数据出境"
-        )
-        assert "【相关长期记忆" in block
-        assert "【用户画像" in block
-        # 当前任务上下文不受开关影响，依然注入
-        assert "【对话摘要" in block
-        assert "【历史对话" in block
-        # reference_history 关 → 不注入 L5 跨对话召回
-        assert "【过往对话" not in block
 
     def test_use_saved_memory_off_keeps_current_context(self) -> None:
-        # 两开关全关：不掉 L4/L3/L5；当前任务上下文（L1/L2）仍注入，非空
+        # 关闭开关：不掉 L4/L3；当前任务上下文（L1/L2）仍注入，非空
         from tests.fakes.fake_memory_settings_store import InMemoryMemorySettingsStore
 
         store = InMemoryMemorySettingsStore()
         store.upsert(
-            MemorySettings(
-                owner_id="o1", use_saved_memory=False, reference_history=False
-            )
+            MemorySettings(owner_id="o1", use_saved_memory=False)
         )
         block = self._asm(self._mem(), store).assemble(
             owner_id="o1", task_id="t1", query="数据出境"
         )
         assert "【相关长期记忆" not in block
         assert "【用户画像" not in block
-        assert "【过往对话" not in block
         assert "【对话摘要" in block
         assert "【历史对话" in block
 
@@ -460,7 +429,7 @@ class TestSettingsGating:
         block = self._asm(self._mem(), _Boom()).assemble(
             owner_id="o1", task_id="t1", query="数据出境"
         )
-        # fail-open：读取异常退回双开默认，记忆照常注入
+        # fail-open：读取异常退回默认开，记忆照常注入
         assert "【相关长期记忆" in block
         assert "【历史对话" in block
 

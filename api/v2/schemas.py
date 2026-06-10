@@ -282,7 +282,6 @@ class MemorySettingsResponse(BaseModel):
     """``GET/PUT /memory/settings`` 返回：当前 owner 的记忆开关。"""
 
     use_saved_memory: bool
-    reference_history: bool
     updated_at: float
 
 
@@ -290,7 +289,6 @@ class UpdateMemorySettingsRequest(BaseModel):
     """``PUT /memory/settings`` 请求体：部分更新（None 字段保持原值）。"""
 
     use_saved_memory: bool | None = None
-    reference_history: bool | None = None
 
 
 class MemoryFactItem(BaseModel):

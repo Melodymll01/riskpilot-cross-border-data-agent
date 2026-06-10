@@ -5,11 +5,11 @@
 [![python](https://img.shields.io/badge/python-3.12-blue)](pyproject.toml)
 [![arch](https://img.shields.io/badge/arch-DDD%204--layer-9b5bff)](docs/architecture/overview.md)
 [![agent](https://img.shields.io/badge/agent-ReAct%20%C2%B7%204%20tools-ff7a59)](retrieval/agent/agentic_rag.py)
-[![memory](https://img.shields.io/badge/memory-5--layer-00b3a4)](infra/memory/)
+[![memory](https://img.shields.io/badge/memory-4--layer-00b3a4)](infra/memory/)
 
 > 面向**数据出境合规**场景的领域智能体，内置以《个人信息保护法》《数据安全法》《网络安全法》及安全评估 / 标准合同 / 个保认证三路径为代表的法规知识库（可自行上传扩充任意 PDF/TXT/DOCX 或采集网页）。
 >
-> Agent **自主分类问题 → 改写检索 → 调用工具取证 → 研判证据 → 多步追检 / Web 兜底 → 生成带溯源引用的回答**。不依赖 LangChain，纯 Python 自实现 ReAct 环路 + 4 个领域工具，配套 5 层记忆系统。工程上采用 DDD 4 层架构，791 测试 + CI 守护。
+> Agent **自主分类问题 → 改写检索 → 调用工具取证 → 研判证据 → 多步追检 / Web 兜底 → 生成带溯源引用的回答**。不依赖 LangChain，纯 Python 自实现 ReAct 环路 + 4 个领域工具，配套 4 层记忆系统。工程上采用 DDD 4 层架构，791 测试 + CI 守护。
 
 ---
 
@@ -36,7 +36,7 @@
 | **OOD 拦截** | 检索前做 5 类意图分类，域外问题直接拒答 | [question_classifier.py](retrieval/agent/question_classifier.py) |
 | **查询变换** | 对模糊 / 复合问题做改写、拆解、HyDE | [query_transformer.py](retrieval/agent/query_transformer.py) |
 | **证据分级** | 判定 sufficient / partial / insufficient，决定追检或兜底 | [quality_grader.py](retrieval/agent/quality_grader.py) |
-| **5 层记忆 + 被遗忘权** | 最近消息 / 滚动摘要 / 用户画像 / 语义事实 / 跨会话回忆；支持单条删除与全量遗忘 | [infra/memory/](infra/memory/) |
+| **4 层记忆 + 被遗忘权** | 最近消息 / 滚动摘要 / 用户画像 / 语义事实；支持单条删除与全量遗忘 | [infra/memory/](infra/memory/) |
 | **答案可溯源** | 每条回答携带引用 chunk + 原文链接 | [retrieval/generation/](retrieval/generation/) |
 
 ## 关键指标
@@ -46,7 +46,7 @@
 | 测试用例 | **791 passed · 1 skipped** |
 | 架构规模 | **20 Port + 8 Use Case** · DDD 4 层 |
 | Agent 工具 | **4 个领域工具** + 9 类流式 AgentEvent |
-| 记忆系统 | **5 层**（L1 最近消息 → L5 跨会话回忆） |
+| 记忆系统 | **4 层**（L1 最近消息 → L4 语义事实） |
 | Top-K=2 检索命中率 | **93.3%**（chunk_size=300, overlap=60） |
 | OOD 误杀率（in-domain） | **0.0%** |
 
@@ -80,7 +80,7 @@ flowchart LR
     EC -- sufficient --> GEN[LLM 生成 + 引用溯源]
 ```
 
-## 5 层记忆系统
+## 4 层记忆系统
 
 让智能体在多轮、跨会话中保持连贯，同时把隐私控制权交还用户（PIPL「被遗忘权」）。
 
@@ -90,7 +90,6 @@ flowchart LR
 | **L2 滚动摘要** | 长对话压缩 | 恒开 | 触发式摘要 + TTL 过期 |
 | **L3 用户画像** | 稳定偏好 | 按需 | 结构化字段，跨任务复用 |
 | **L4 语义事实** | 可检索长期事实 | 按需 | 抽取后去重合并 |
-| **L5 跨会话回忆** | 引用历史会话 | **默认关闭** | 对齐 ChatGPT opt-in 语义 |
 
 **被遗忘权**：可逐条删除长期事实（`DELETE /api/v2/memory/facts/{id}`，owner 隔离 + 物理删除 + 审计留痕）或一键全量遗忘。
 

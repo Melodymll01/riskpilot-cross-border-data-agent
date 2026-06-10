@@ -86,7 +86,6 @@ def build_memory_routes(container: AppContainer) -> APIRouter:
         settings = container.memory_settings.get(owner_id)
         return MemorySettingsResponse(
             use_saved_memory=settings.use_saved_memory,
-            reference_history=settings.reference_history,
             updated_at=settings.updated_at,
         )
 
@@ -102,11 +101,9 @@ def build_memory_routes(container: AppContainer) -> APIRouter:
         updated = container.memory_settings.update(
             owner_id,
             use_saved_memory=body.use_saved_memory,
-            reference_history=body.reference_history,
         )
         return MemorySettingsResponse(
             use_saved_memory=updated.use_saved_memory,
-            reference_history=updated.reference_history,
             updated_at=updated.updated_at,
         )
 

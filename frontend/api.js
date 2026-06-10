@@ -183,12 +183,12 @@ export const memory = {
   /** 当前 owner 的 L3 用户画像（稳定偏好）。 */
   profile: () => request("GET", "/memory/profile"),
 
-  /** 读两个记忆开关（参考保存的记忆 / 参考会话上下文）。 */
+  /** 读记忆开关（参考保存的记忆）。 */
   getSettings: () => request("GET", "/memory/settings"),
 
   /**
    * 部分更新记忆开关；只传需要改的字段，未传字段保持原值。
-   * @param {{use_saved_memory?: boolean, reference_history?: boolean}} body
+   * @param {{use_saved_memory?: boolean}} body
    */
   updateSettings: (body) => request("PUT", "/memory/settings", body),
 

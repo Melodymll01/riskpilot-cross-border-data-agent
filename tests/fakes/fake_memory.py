@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from domain.models import Fact, ForgetResult, Message, SessionProfile, TaskSummary
+from domain.models import Fact, ForgetResult, Message, SessionProfile
 
 
 class FakeMemory:
@@ -34,7 +34,6 @@ class FakeMemory:
         self.recent_calls: list[tuple[str, str, int]] = []
         self.summarize_calls: list[tuple[str, str, int]] = []
         self.recall_calls: list[tuple[str, str, int]] = []
-        self.history_calls: list[tuple[str, str, int]] = []
         self.profile_updates: list[tuple[str, dict[str, str]]] = []
         self.forget_calls: list[tuple[str, str]] = []
         self.list_facts_calls: list[str] = []
@@ -66,27 +65,7 @@ class FakeMemory:
     ) -> None:
         self.summarize_calls.append((owner_id, task_id, threshold))
 
-    def recall_history(
-        self, owner_id: str, exclude_task_id: str, k: int
-    ) -> list[TaskSummary]:
-        self.history_calls.append((owner_id, exclude_task_id, k))
-        if k <= 0:
-            return []
-        out: list[TaskSummary] = []
-        for task_id, summary in self._summaries.items():
-            if task_id == exclude_task_id or not summary:
-                continue
-            owner = self._owners.get(task_id)
-            if owner is not None and owner != owner_id:
-                continue
-            out.append(
-                TaskSummary(task_id=task_id, owner_id=owner_id, summary=summary)
-            )
-            if len(out) >= k:
-                break
-        return out
-
-    # ── L3/L4 ──────────────────────────────────────────────────────────────
+    # ── L3/L4 ────────────────────────────────────────────────────────────
 
     def get_profile(self, owner_id: str) -> SessionProfile:
         return self._profiles.get(owner_id) or SessionProfile(owner_id=owner_id, facts={})

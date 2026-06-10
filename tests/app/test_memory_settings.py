@@ -17,48 +17,35 @@ class TestGet:
         uc = MemorySettingsUseCase(None)
         s = uc.get("o1")
         assert s.use_saved_memory is True
-        assert s.reference_history is False
 
     def test_unset_owner_returns_default(self) -> None:
         uc = MemorySettingsUseCase(InMemoryMemorySettingsStore())
         s = uc.get("o1")
         assert s.use_saved_memory is True
-        assert s.reference_history is False
 
     def test_returns_persisted(self) -> None:
         store = InMemoryMemorySettingsStore()
         store.upsert(
-            MemorySettings(owner_id="o1", use_saved_memory=False, reference_history=True)
+            MemorySettings(owner_id="o1", use_saved_memory=False)
         )
         uc = MemorySettingsUseCase(store)
         s = uc.get("o1")
         assert s.use_saved_memory is False
-        assert s.reference_history is True
 
 
 class TestUpdate:
     def test_partial_update_keeps_unset_field(self) -> None:
         store = InMemoryMemorySettingsStore()
         store.upsert(
-            MemorySettings(owner_id="o1", use_saved_memory=True, reference_history=True)
+            MemorySettings(owner_id="o1", use_saved_memory=True)
         )
         uc = MemorySettingsUseCase(store)
 
         updated = uc.update("o1", use_saved_memory=False)
 
         assert updated.use_saved_memory is False
-        assert updated.reference_history is True  # 未传 → 保持
         # 已持久化
         assert store.get("o1").use_saved_memory is False
-
-    def test_update_both(self) -> None:
-        store = InMemoryMemorySettingsStore()
-        uc = MemorySettingsUseCase(store)
-
-        updated = uc.update("o1", use_saved_memory=False, reference_history=False)
-
-        assert updated.use_saved_memory is False
-        assert updated.reference_history is False
 
     def test_update_records_audit(self) -> None:
         audit = FakeAuditLogRepo()
@@ -79,9 +66,9 @@ class TestUpdate:
         audit = FakeAuditLogRepo()
         uc = MemorySettingsUseCase(None, audit_log=audit)
 
-        updated = uc.update("o1", reference_history=False)
+        updated = uc.update("o1", use_saved_memory=False)
 
-        assert updated.reference_history is False
+        assert updated.use_saved_memory is False
         assert audit.entries[0].extra_json["persisted"] is False
 
     def test_no_audit_log_is_silent(self) -> None:

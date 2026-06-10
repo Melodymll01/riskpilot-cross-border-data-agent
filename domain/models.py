@@ -412,19 +412,16 @@ class ForgetResult(BaseDomainModel):
 
 
 class MemorySettings(BaseDomainModel):
-    """每用户记忆偏好开关（按 `owner_id`，Step 031a / 033）。
+    """每用户记忆偏好开关（按 `owner_id`，Step 031a）。
 
-    两个一键开关：
+    开关：
     - ``use_saved_memory``：是否在回复时参考"保存的记忆"（L3 画像 + L4 语义事实），缺省开。
-    - ``reference_history``：是否参考"历史聊天记录"——跨对话召回你以往其它对话
-      （L5 跨任务摘要），**缺省关**（对齐 ChatGPT：默认不参考其它对话）。
-    当前对话内的上下文（L1 最近原文 + L2 本任务摘要）始终注入，不受任一开关控制。
+    当前对话内的上下文（L1 最近原文 + L2 本任务摘要）始终注入，不受开关控制。
     关掉只影响"注入与否"，不删除已存记忆（删除走主动遗忘 `forget`）。
     """
 
     owner_id: str = Field(min_length=1)
     use_saved_memory: bool = True
-    reference_history: bool = False
     updated_at: float = Field(default_factory=lambda: time.time())
 
 

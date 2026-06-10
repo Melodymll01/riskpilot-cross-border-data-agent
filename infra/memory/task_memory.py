@@ -152,36 +152,6 @@ class TaskBackedMemory:
             )
         )
 
-    # ── L5 跨对话历史召回（参考历史聊天记录，Step 033）────────────────────────
-
-    def recall_history(
-        self, owner_id: str, exclude_task_id: str, k: int
-    ) -> list[TaskSummary]:
-        """返回该 owner 其它 task 最近的 k 条摘要（排除当前 task、TTL 过滤）。
-
-        复用 L2 摘要作为"过往对话"的压缩表示，按 task 更新时间倒序
-        （``list_for_owner`` 已 ORDER BY updated_at DESC），取前 k 条有摘要的。
-        未配置 summary_store、k≤0、无其它 task 均安全返回空列表。
-        归属隐含安全：仅遍历 ``list_for_owner(owner_id)`` 的 task，不跨用户。
-        """
-        if self._summary_store is None or k <= 0:
-            return []
-        # 多取一些候选（部分 task 可能无摘要 / 已过期），再按 k 截断。
-        tasks = self._repo.list_for_owner(owner_id, limit=max(k * 4, 20))
-        out: list[TaskSummary] = []
-        for task in tasks:
-            if task.task_id == exclude_task_id:
-                continue
-            record = self._summary_store.get(task.task_id, owner_id)
-            if record is None or not record.summary:
-                continue
-            if self._is_expired(record.updated_at, self._l2_ttl_days):
-                continue  # 逻辑遗忘：过期摘要永不召回
-            out.append(record)
-            if len(out) >= k:
-                break
-        return out
-
     # ── L4 语义事实（读） ──────────────────────────────────────────────────
 
     def recall_semantic(self, owner_id: str, query: str, k: int) -> list[Fact]:

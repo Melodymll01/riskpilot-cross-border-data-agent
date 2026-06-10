@@ -330,11 +330,6 @@ class MemoryPort(Protocol):
         self, owner_id: str, task_id: str, threshold: int = 20
     ) -> None: ...
 
-    # L5 跨对话历史召回（参考历史聊天记录，Step 033）：该 owner 其它 task 的摘要
-    def recall_history(
-        self, owner_id: str, exclude_task_id: str, k: int
-    ) -> list[TaskSummary]: ...
-
     # L3 用户画像：按 owner_id（跨 task / 跨设备）
     def get_profile(self, owner_id: str) -> SessionProfile: ...
 

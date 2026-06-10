@@ -50,9 +50,6 @@ export function mount() {
   $("#toggle-use-saved-memory")?.addEventListener("change", (ev) =>
     onToggle("use_saved_memory", ev.target.checked),
   );
-  $("#toggle-reference-history")?.addEventListener("change", (ev) =>
-    onToggle("reference_history", ev.target.checked),
-  );
 
   $("#memory-refresh")?.addEventListener("click", () => loadManagement());
   $("#btn-forget-memory")?.addEventListener("click", () => onForget("memory"));
@@ -84,7 +81,6 @@ async function loadSettings() {
   try {
     const s = await memory.getSettings();
     setToggle("#toggle-use-saved-memory", s.use_saved_memory);
-    setToggle("#toggle-reference-history", s.reference_history);
   } catch (err) {
     setStatus(`读取开关失败：${errMsg(err)}`, "err");
   }
@@ -97,15 +93,11 @@ async function onToggle(field, value) {
   try {
     const updated = await memory.updateSettings({ [field]: value });
     setToggle("#toggle-use-saved-memory", updated.use_saved_memory);
-    setToggle("#toggle-reference-history", updated.reference_history);
     setHint("已保存");
     setTimeout(() => setHint(""), 1500);
   } catch (err) {
     // 回滚 UI
-    setToggle(
-      field === "use_saved_memory" ? "#toggle-use-saved-memory" : "#toggle-reference-history",
-      !value,
-    );
+    setToggle("#toggle-use-saved-memory", !value);
     setHint(`保存失败：${errMsg(err)}`, true);
   } finally {
     _busy = false;
