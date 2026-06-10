@@ -53,11 +53,14 @@ class WebSearcher:
         """
         logger.info(f"联网搜索: '{query[:60]}', max_results={max_results}")
 
-        # 后端调度：优先 Bing（国内可达），失败再降级到 DuckDuckGo
+        # 后端调度：优先 DuckDuckGo（中文法规/政务类查询相关性显著更高），
+        # 无结果或不可达时降级到 Bing 兜底。
+        # 历史教训：Bing 的 HTML 抓取对中文长词（如"数据出境安全评估"）会退化成
+        # 单字"数据"匹配，总能返回非空但毫不相关的结果，从而永久遮蔽更准的 DDG。
         results: List[WebSearchResult] = []
         for backend_name, backend in (
-            ("Bing", self._search_bing),
             ("DuckDuckGo", self._search_duckduckgo),
+            ("Bing", self._search_bing),
         ):
             try:
                 results = backend(query, max_results)
