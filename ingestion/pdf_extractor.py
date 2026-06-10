@@ -1,9 +1,9 @@
-"""PDF 抽取器：在 PyPDF2 基础上叠加页眉页脚剔除、表格结构化抽取。
+"""PDF 抽取器：在 PyMuPDF 文本层抽取基础上叠加页眉页脚剔除、表格结构化抽取、扫描页 OCR 降级。
 
 设计原则：
 - 单一职责：只负责 PDF -> 文本，不关心上层业务
 - 可配置：通过构造参数开关各项增强能力，便于按数据源差异化使用
-- 渐进降级：表格抽取依赖 pdfplumber，未安装时回退到纯文本模式
+- 渐进降级：表格抽取依赖 pdfplumber；文本层缺失页回退到 RapidOCR 本地识别，依赖未装时自动关闭
 """
 
 import logging
@@ -12,7 +12,7 @@ from collections import Counter
 from pathlib import Path
 from typing import List, Optional
 
-from PyPDF2 import PdfReader
+import fitz  # PyMuPDF
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +21,23 @@ try:
     _HAS_PDFPLUMBER = True
 except ImportError:  # pragma: no cover
     _HAS_PDFPLUMBER = False
+
+try:
+    from rapidocr_onnxruntime import RapidOCR  # type: ignore
+    _HAS_OCR = True
+except ImportError:  # pragma: no cover
+    _HAS_OCR = False
+
+# OCR 引擎初始化较重（加载 ONNX 模型），进程内单例懒加载，多次抽取复用
+_OCR_ENGINE = None
+
+
+def _get_ocr_engine():
+    """懒加载并缓存 RapidOCR 引擎实例。"""
+    global _OCR_ENGINE
+    if _OCR_ENGINE is None:
+        _OCR_ENGINE = RapidOCR()
+    return _OCR_ENGINE
 
 
 class PDFExtractor:
@@ -33,6 +50,9 @@ class PDFExtractor:
         tail_n: 每页后 N 行参与页脚检测
         repeat_ratio: 跨页重复比例阈值，>= 该比例的页面出现该行即判为页眉/页脚
         min_pages_for_detection: 页数低于此值不做页眉页脚检测
+        enable_ocr: 是否对文本层缺失/过少的页启用 OCR 降级（依赖 rapidocr-onnxruntime）
+        ocr_min_chars: 单页文本层字符数低于此阈值即触发该页 OCR 补偿
+        ocr_dpi: OCR 渲染页面图像的分辨率，越高越准但越慢
     """
 
     def __init__(
@@ -43,6 +63,9 @@ class PDFExtractor:
         tail_n: int = 2,
         repeat_ratio: float = 0.5,
         min_pages_for_detection: int = 3,
+        enable_ocr: bool = True,
+        ocr_min_chars: int = 10,
+        ocr_dpi: int = 200,
     ):
         self.remove_headers_footers = remove_headers_footers
         self.extract_tables = extract_tables and _HAS_PDFPLUMBER
@@ -50,9 +73,14 @@ class PDFExtractor:
         self.tail_n = tail_n
         self.repeat_ratio = repeat_ratio
         self.min_pages_for_detection = min_pages_for_detection
+        self.enable_ocr = enable_ocr and _HAS_OCR
+        self.ocr_min_chars = ocr_min_chars
+        self.ocr_dpi = ocr_dpi
 
         if extract_tables and not _HAS_PDFPLUMBER:
             logger.warning("未安装 pdfplumber，表格抽取功能已自动降级为纯文本模式")
+        if enable_ocr and not _HAS_OCR:
+            logger.warning("未安装 rapidocr-onnxruntime，扫描件 OCR 降级功能已关闭")
 
     # ---------- 公共入口 ----------
 
@@ -67,6 +95,10 @@ class PDFExtractor:
         else:
             pages = self._extract_text_only(path)
 
+        # OCR 降级：对文本层缺失/过少的页（扫描件、图片页）逐页补偿
+        if self.enable_ocr:
+            pages = self._ocr_fill_pages(path, pages)
+
         if not any(p.strip() for p in pages):
             raise ValueError("PDF 文件未能提取到任何文本（可能为扫描件或纯图片 PDF）")
 
@@ -76,20 +108,62 @@ class PDFExtractor:
 
         return "\n\n".join(p for p in pages if p.strip())
 
-    # ---------- 文本抽取（PyPDF2，兜底通道）----------
+    # ---------- 文本抽取（PyMuPDF，兜底通道）----------
 
     def _extract_text_only(self, path: Path) -> List[str]:
-        """纯文本抽取：使用 PyPDF2，按页返回。"""
-        reader = PdfReader(str(path))
+        """纯文本抽取：使用 PyMuPDF（fitz），按页返回。"""
         pages: List[str] = []
-        for i, page in enumerate(reader.pages):
-            try:
-                text = page.extract_text() or ""
-            except Exception as e:
-                logger.warning(f"PDF 第 {i + 1} 页提取失败，已跳过: {e}")
-                text = ""
-            pages.append(text)
+        with fitz.open(str(path)) as doc:
+            for i, page in enumerate(doc):
+                try:
+                    text = page.get_text("text") or ""
+                except Exception as e:
+                    logger.warning(f"PDF 第 {i + 1} 页提取失败，已跳过: {e}")
+                    text = ""
+                pages.append(text)
         return pages
+
+    # ---------- OCR 降级（rapidocr-onnxruntime 通道）----------
+
+    def _ocr_fill_pages(self, path: Path, pages: List[str]) -> List[str]:
+        """对文本层不足的页用 OCR 重新识别，逐页替换。
+
+        仅渲染并识别 strip 后字符数 < ocr_min_chars 的页，
+        纯数字原生 PDF 不会触发任何 OCR 开销。
+        """
+        need_ocr = [
+            i for i, p in enumerate(pages) if len((p or "").strip()) < self.ocr_min_chars
+        ]
+        if not need_ocr:
+            return pages
+
+        logger.info(f"检测到 {len(need_ocr)} 个文本不足页，启用 OCR 识别")
+        try:
+            engine = _get_ocr_engine()
+        except Exception as e:  # pragma: no cover
+            logger.warning(f"OCR 引擎初始化失败，跳过 OCR 降级: {e}")
+            return pages
+
+        with fitz.open(str(path)) as doc:
+            for i in need_ocr:
+                try:
+                    ocr_text = self._ocr_single_page(engine, doc[i])
+                except Exception as e:
+                    logger.warning(f"PDF 第 {i + 1} 页 OCR 失败，已跳过: {e}")
+                    continue
+                if ocr_text.strip():
+                    pages[i] = ocr_text
+        return pages
+
+    def _ocr_single_page(self, engine, page) -> str:
+        """渲染单页为图像并 OCR，返回拼接后的识别文本。"""
+        pix = page.get_pixmap(dpi=self.ocr_dpi, alpha=False)
+        png_bytes = pix.tobytes("png")
+        result, _ = engine(png_bytes)
+        if not result:
+            return ""
+        # RapidOCR 结果每项为 [box, text, score]，按识别顺序拼接为行
+        return "\n".join(line[1] for line in result if len(line) >= 2)
 
     # ---------- 文本 + 表格抽取（pdfplumber 通道）----------
 
