@@ -7,7 +7,7 @@
 [![agent](https://img.shields.io/badge/agent-ReAct%20%C2%B7%204%20tools-ff7a59)](retrieval/agent/agentic_rag.py)
 [![memory](https://img.shields.io/badge/memory-5--layer-00b3a4)](infra/memory/)
 
-> 面向**数据出境合规**（《个人信息保护法》《数据安全法》《网络安全法》+ 安全评估 / 标准合同 / 个保认证三路径）的领域智能体。
+> 面向**数据出境合规**场景的领域智能体，内置以《个人信息保护法》《数据安全法》《网络安全法》及安全评估 / 标准合同 / 个保认证三路径为代表的法规知识库（可自行上传扩充任意 PDF/TXT/DOCX 或采集网页）。
 >
 > Agent **自主分类问题 → 改写检索 → 调用工具取证 → 研判证据 → 多步追检 / Web 兜底 → 生成带溯源引用的回答**。不依赖 LangChain，纯 Python 自实现 ReAct 环路 + 4 个领域工具，配套 5 层记忆系统。工程上采用 DDD 4 层架构，791 测试 + CI 守护。
 
