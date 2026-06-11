@@ -17,11 +17,15 @@
 
 | 多步自主推理（ReAct 环路） | 带溯源引用的回答 |
 | :---: | :---: |
-| ![Agent 推理过程](screenshots/02-回答推理.png) | ![带引用的回答](screenshots/03-回答引用.png) |
+| ![Agent 推理过程](screenshots/02-回答推理.png) | ![带引用的回答](screenshots/03-回答引文.png) |
 
 | 三模式工作台 | 知识库治理（多租户） |
 | :---: | :---: |
 | ![首页](screenshots/01-主页.png) | ![知识库](screenshots/04-知识库.png) |
+
+| 审计日记（可观测性） | |
+| :---: | :---: |
+| ![审计日记](screenshots/05-审计日记.png) | |
 
 > 一键体验：`docker compose up -d`，访问 <http://localhost:8001>（见[快速开始](#快速开始)）。
 
