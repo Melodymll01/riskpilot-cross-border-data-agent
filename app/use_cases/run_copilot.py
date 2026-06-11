@@ -133,12 +133,40 @@ class RunCopilotUseCase:
     # ─── research 分支 ─────────────────────────────────────────────
 
     def _run_research(self, *, query: str) -> Iterator[AgentEvent]:
-        """research 模式分流：调 ResearchPort，把决策步骤渲染成 thought、报告渲染成 answer。"""
+        """research 模式分流：调 ResearchPort，把决策步骤渲染成 thought、报告渲染成 answer。
+
+        优先走流式 ``research_stream``：研究链路（分类 → 改写 → 多轮检索 → 证据检查 →
+        生成）可耗时数分钟，逐步把每个步骤推成 ``thought``，避免前端长时间零反馈
+        （表现为"深度研究无反应"）。端口未实现流式时回退到一次性 ``research()``。
+        """
         if self._research is None:
             yield AgentEvent.answer(
                 "⚠️ 深度研究服务未在容器中装配，请联系运维。"
             )
             return
+
+        # 立即给一帧 thought：让前端马上渲染"推理中"过程卡，确认请求已被受理。
+        yield AgentEvent.thought(
+            "🔬 已启动深度研究：多轮检索 + 证据核验 + 长报告生成，耗时较长请稍候…"
+        )
+
+        stream_fn = getattr(self._research, "research_stream", None)
+        if stream_fn is not None:
+            from domain.models import ResearchReport
+
+            for item in stream_fn(query):
+                if isinstance(item, ResearchReport):
+                    citations = [c.model_dump() for c in item.citations]
+                    yield AgentEvent.answer(item.answer, citations)
+                    return
+                # ResearchStep：渲染成 thought
+                detail = f"[{item.step_name}] {item.description}"
+                if item.result_summary:
+                    detail += f" → {item.result_summary}"
+                yield AgentEvent.thought(detail)
+            return
+
+        # 回退：一次性阻塞式 research()
         report = self._research.research(query)
         # 把研究链路（分类 → 改写 → 多轮检索 → 证据检查 → 生成）逐步渲染成 thought
         for step in report.steps:

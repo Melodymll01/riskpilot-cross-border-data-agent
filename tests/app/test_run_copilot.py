@@ -273,10 +273,11 @@ class TestResearchMode:
         )
         # 第一帧 task_created
         assert events[0].event_type is AgentEventType.TASK_CREATED
-        # 决策步骤渲染成 thought
+        # 决策步骤渲染成 thought（首帧 thought 为"已启动深度研究"提示，其后是 FakeResearch 步骤）
         thoughts = [e for e in events if e.event_type is AgentEventType.THOUGHT]
-        assert len(thoughts) == 2
-        assert "classify" in thoughts[0].payload["text"]
+        assert len(thoughts) == 3
+        assert "已启动深度研究" in thoughts[0].payload["text"]
+        assert "classify" in thoughts[1].payload["text"]
         # 最后一帧 answer，正文为报告
         answer = events[-1]
         assert answer.event_type is AgentEventType.ANSWER
@@ -291,6 +292,62 @@ class TestResearchMode:
         assert fake.calls == [
             {"query": "什么是数据出境安全评估", "top_k": 8, "enable_web_search": True}
         ]
+
+    def test_research_mode_streams_steps_incrementally(self) -> None:
+        """端口实现 ``research_stream`` 时，逐步骤即时产出 thought，最后产出 answer。"""
+
+        from domain.models import Citation, ResearchReport, ResearchStep
+
+        class StreamingFakeResearch:
+            """实现 ``research_stream`` 的 Fake：先 yield 两个 step，再 yield 报告。"""
+
+            def __init__(self) -> None:
+                self.stream_calls: list[str] = []
+                self.blocking_calls: list[str] = []
+
+            def research(self, query: str, **_: object) -> ResearchReport:
+                self.blocking_calls.append(query)
+                return ResearchReport(answer="不该走到这")
+
+            def research_stream(self, query: str, **_: object):  # noqa: ANN202
+                self.stream_calls.append(query)
+                yield ResearchStep(step_name="classify", description="正在分析问题类型...")
+                yield ResearchStep(step_name="generate", description="生成深度报告...")
+                yield ResearchReport(
+                    answer="## 流式报告\n\n正文",
+                    citations=[
+                        Citation(
+                            source_type="law",
+                            source_name="个人信息保护法",
+                            title="第三十八条",
+                            text_snippet="向境外提供个人信息……",
+                        )
+                    ],
+                )
+
+        fake = StreamingFakeResearch()
+        uc, _ = _make_uc_with_research(fake)
+        events = list(
+            uc.stream(
+                owner_id="anon:x",
+                task_id=None,
+                user_message="对比三条出境路径的差异",
+                mode="research",
+            )
+        )
+        # 走流式分支，未触发阻塞 research()
+        assert fake.stream_calls == ["对比三条出境路径的差异"]
+        assert fake.blocking_calls == []
+        # 首帧 thought 为启动提示，随后是逐步骤 thought
+        thoughts = [e for e in events if e.event_type is AgentEventType.THOUGHT]
+        assert "已启动深度研究" in thoughts[0].payload["text"]
+        assert "classify" in thoughts[1].payload["text"]
+        assert "generate" in thoughts[2].payload["text"]
+        # 末帧 answer 携带报告正文与 citations
+        answer = events[-1]
+        assert answer.event_type is AgentEventType.ANSWER
+        assert "流式报告" in answer.payload["text"]
+        assert answer.payload["citations"][0]["source_name"] == "个人信息保护法"
 
     def test_research_mode_without_port_falls_back(self) -> None:
         uc, _ = _make_uc_with_research(None)

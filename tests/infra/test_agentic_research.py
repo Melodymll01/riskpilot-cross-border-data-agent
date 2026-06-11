@@ -53,6 +53,43 @@ class _FakeEngine:
         )
         return self._result
 
+    def research_stream(
+        self,
+        query: str,
+        mode: str = "report",
+        top_k: int = 8,
+        enable_web_search: bool = True,
+    ):
+        """v1 流式契约替身：yield step/token/result/done 字典。"""
+        self.calls.append(
+            {
+                "query": query,
+                "mode": mode,
+                "top_k": top_k,
+                "enable_web_search": enable_web_search,
+                "stream": True,
+            }
+        )
+        yield {"type": "step", "data": {"step": "classify", "description": "分析问题类型"}}
+        yield {"type": "step", "data": {"step": "generate", "description": "生成报告"}}
+        yield {"type": "token", "content": "## 报告"}
+        yield {"type": "token", "content": "\n正文"}
+        yield {
+            "type": "result",
+            "data": {
+                "citations": [
+                    {"source_type": "law", "source_name": "个人信息保护法", "title": "第三十八条"}
+                ],
+                "question_type": "condition",
+                "question_type_label": "条件类",
+                "retrieval_rounds": 2,
+                "total_docs": 7,
+                "web_search_used": True,
+                "refused": False,
+            },
+        }
+        yield {"type": "done"}
+
 
 class TestResultMapping:
     def test_maps_all_fields_to_report(self) -> None:
@@ -124,3 +161,42 @@ class TestLazyConstruction:
         # 不注入 agent → 构造时不装配 v1 引擎（不加载 CrossEncoder）
         adapter = AgenticResearchAdapter()
         assert adapter._agent is None
+
+    def test_warmup_triggers_ensure_agent(self) -> None:
+        # 注入 stub → warmup 幂等，不重建、不报错
+        engine = _FakeEngine(_FakeResult(answer="ok"))
+        adapter = AgenticResearchAdapter(agent=engine)
+        adapter.warmup()
+        assert adapter._agent is engine
+
+
+class TestResearchStream:
+    def test_stream_yields_steps_then_report(self) -> None:
+        from domain.models import ResearchReport, ResearchStep
+
+        engine = _FakeEngine(_FakeResult())
+        adapter = AgenticResearchAdapter(agent=engine)
+        items = list(adapter.research_stream("个人信息出境条件", top_k=10))
+
+        # 前两项是 ResearchStep（增量进度），末项是组装好的 ResearchReport
+        steps = [it for it in items if isinstance(it, ResearchStep)]
+        reports = [it for it in items if isinstance(it, ResearchReport)]
+        assert [s.step_name for s in steps] == ["classify", "generate"]
+        assert len(reports) == 1
+        report = reports[0]
+        assert isinstance(items[-1], ResearchReport)
+        # token 累积成正文
+        assert report.answer == "## 报告\n正文"
+        # result 元数据 + citations 落进 report
+        assert report.question_type == "condition"
+        assert report.retrieval_rounds == 2
+        assert report.total_docs == 7
+        assert report.web_search_used is True
+        assert report.citations[0].source_name == "个人信息保护法"
+        # steps 也收进 report
+        assert [s.step_name for s in report.steps] == ["classify", "generate"]
+        # 走流式契约，转发 report 模式与参数
+        assert engine.calls[0]["stream"] is True
+        assert engine.calls[0]["mode"] == "report"
+        assert engine.calls[0]["top_k"] == 10
+

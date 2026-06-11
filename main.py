@@ -83,6 +83,10 @@ async def lifespan(app: FastAPI):
             await asyncio.to_thread(container_ref.startup_migrations)
         except Exception:
             logger.warning("Step 025a 启动迁移异常（已吞掉）", exc_info=True)
+    # 深度研究引擎预热：后台线程提前加载 ~1GB CrossEncoder，避免首个 research
+    # 请求让用户干等冷启动（约 1.5 分钟）。fire-and-forget，绝不阻塞启动 / yield。
+    if container_ref is not None and settings.warmup_research_on_startup:
+        app.state.warmup_task = asyncio.create_task(_warmup_research(container_ref))
     yield
     logger.info("数据出境知识库问答系统正在关闭...")
     # 优雅关闭 L2 记忆调度线程池（best-effort，不等待挂起作业）
@@ -93,6 +97,21 @@ async def lifespan(app: FastAPI):
                 scheduler.shutdown(wait=False)
             except Exception:  # noqa: BLE001 — 关闭期异常仅记录
                 logger.warning("记忆调度器关闭异常（已吞掉）", exc_info=True)
+
+
+async def _warmup_research(container_ref) -> None:
+    """后台预热深度研究引擎（best-effort）。失败只记日志，不影响服务可用性。"""
+    warmup = getattr(getattr(container_ref, "research", None), "warmup", None)
+    if warmup is None:
+        return
+    started = time.time()
+    logger.info("深度研究引擎预热开始（后台加载 CrossEncoder 等模型）...")
+    try:
+        await asyncio.to_thread(warmup)
+        logger.info("深度研究引擎预热完成，耗时 %.1fs", time.time() - started)
+    except Exception:  # noqa: BLE001 — 预热失败首个 research 仍可懒加载
+        logger.warning("深度研究引擎预热失败（已吞掉，将在首次请求时懒加载）", exc_info=True)
+
 
 
 # ===================== FastAPI 应用 =====================

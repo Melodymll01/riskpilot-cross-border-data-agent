@@ -71,6 +71,7 @@ class Settings(BaseSettings):
     max_reflection_rounds: int = Field(3, ge=1, le=5)  # 最大反思循环轮次
     enable_web_search: bool = True          # 质量不足时是否允许联网搜索
     enable_hyde: bool = True                # 是否启用 HyDE（假设文档嵌入）
+    warmup_research_on_startup: bool = True  # 启动时后台预热深度研究引擎（懒加载 ~1GB CrossEncoder）
 
     # 存储路径
     chroma_persist_dir: str = "./data/chroma_db"
