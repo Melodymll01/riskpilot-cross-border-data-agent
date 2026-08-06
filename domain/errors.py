@@ -14,6 +14,7 @@ class DomainError(Exception):
 
 # === 身份 / 鉴权 ===
 
+
 class AuthError(DomainError):
     """鉴权失败统一基类。"""
 
@@ -28,6 +29,7 @@ class OAuthFlowError(AuthError):
 
 # === 用户 / 任务 ===
 
+
 class UserNotFound(DomainError):
     """按 `user_id` 找不到用户。"""
 
@@ -40,7 +42,29 @@ class OwnerMismatch(DomainError):
     """资源 `owner_id` 与当前请求者不匹配（越权访问）。"""
 
 
+# === V2 Workspace / Case ===
+
+
+class WorkspaceNotFound(DomainError):
+    """按 `workspace_id` 找不到工作空间或当前用户不可见。"""
+
+
+class CaseNotFound(DomainError):
+    """按 `case_id` 找不到案件或当前用户不可见。"""
+
+
+class InvalidCaseTransition(DomainError):
+    """案件状态转换不符合领域状态机。"""
+
+    def __init__(self, case_id: str, source: str, target: str) -> None:
+        self.case_id = case_id
+        self.source = source
+        self.target = target
+        super().__init__(f"案件 {case_id!r} 不允许从 {source!r} 转换到 {target!r}")
+
+
 # === Tool / Agent ===
+
 
 class ToolNotFound(DomainError):
     """Agent 想调用的工具未注册。"""
@@ -51,6 +75,7 @@ class ToolExecutionError(DomainError):
 
 
 # === 检索 / 记忆 / 外部服务 ===
+
 
 class RetrievalError(DomainError):
     """检索链路失败（向量库 / BM25 / RRF / Reranker 任一环节）。"""

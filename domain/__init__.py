@@ -5,10 +5,13 @@
 
 from __future__ import annotations
 
+from domain.cases import Case, CaseStatus
 from domain.errors import (
     AuthError,
+    CaseNotFound,
     DomainError,
     EvidenceServiceError,
+    InvalidCaseTransition,
     InvalidToken,
     MemoryError,
     OAuthFlowError,
@@ -20,6 +23,7 @@ from domain.errors import (
     ToolNotFound,
     UserNotFound,
     WebSearchError,
+    WorkspaceNotFound,
 )
 from domain.models import (
     Artifact,
@@ -64,6 +68,7 @@ from domain.ports import (
     UserRepoPort,
     WebSearchPort,
 )
+from domain.workspaces import Workspace, WorkspaceMembership, WorkspaceRole, WorkspaceStatus
 
 __all__ = [
     # errors
@@ -74,6 +79,9 @@ __all__ = [
     "UserNotFound",
     "TaskNotFound",
     "OwnerMismatch",
+    "WorkspaceNotFound",
+    "CaseNotFound",
+    "InvalidCaseTransition",
     "ToolNotFound",
     "ToolExecutionError",
     "RetrievalError",
@@ -108,6 +116,12 @@ __all__ = [
     "MessageRole",
     "ToolCallStatus",
     "Corpus",
+    "Workspace",
+    "WorkspaceMembership",
+    "WorkspaceRole",
+    "WorkspaceStatus",
+    "Case",
+    "CaseStatus",
     # ports
     "AuthPort",
     "AuditLogPort",
