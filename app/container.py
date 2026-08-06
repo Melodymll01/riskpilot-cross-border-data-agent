@@ -53,6 +53,7 @@ from app.memory import MemoryAssembler
 from app.use_cases import (
     AuthLoginUseCase,
     CaseManagementUseCase,
+    DocumentManagementUseCase,
     IngestionUseCase,
     KbManagementUseCase,
     RunQueryUseCase,
@@ -227,6 +228,13 @@ class AppContainer:
         self.case_management = CaseManagementUseCase(
             case_repo=self.case_repo,
             workspace_repo=self.workspace_repo,
+        )
+        self.document_management = DocumentManagementUseCase(
+            document_repo=self.document_repo,
+            object_store=self.object_store,
+            case_management=self.case_management,
+            workspace_management=self.workspace_management,
+            max_upload_bytes=settings.max_upload_mb * 1024 * 1024,
         )
         self.feedback = FeedbackUseCase(self.feedback_repo)
         self.forget_memory = ForgetMemoryUseCase(

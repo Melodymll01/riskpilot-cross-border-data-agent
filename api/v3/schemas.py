@@ -103,3 +103,69 @@ class CaseOut(BaseModel):
 
 class CaseListResponse(BaseModel):
     cases: list[CaseOut]
+
+
+class DocumentOut(BaseModel):
+    document_id: str
+    workspace_id: str
+    logical_name: str
+    document_type: str
+    status: Literal[
+        "uploaded",
+        "queued",
+        "parsing",
+        "ocr",
+        "chunking",
+        "indexing",
+        "ready",
+        "failed",
+        "deleted",
+    ]
+    created_by: str
+    current_version_id: str | None
+    created_at: float
+    updated_at: float
+
+
+class DocumentVersionOut(BaseModel):
+    version_id: str
+    document_id: str
+    version_number: int
+    sha256: str
+    mime_type: str
+    size_bytes: int
+    parser_version: str
+    page_count: int | None
+    created_at: float
+
+
+class ProcessingJobOut(BaseModel):
+    job_id: str
+    document_version_id: str
+    status: Literal["queued", "running", "completed", "failed", "cancelled"]
+    current_stage: str
+    progress: float
+    error_code: str | None
+    error_message: str | None
+    retry_count: int
+    created_at: float
+    updated_at: float
+    started_at: float | None
+    completed_at: float | None
+
+
+class DocumentUploadResponse(BaseModel):
+    document: DocumentOut
+    version: DocumentVersionOut
+    job: ProcessingJobOut
+    purpose: str
+
+
+class DocumentDetailResponse(BaseModel):
+    document: DocumentOut
+    version: DocumentVersionOut
+    purpose: str
+
+
+class DocumentListResponse(BaseModel):
+    documents: list[DocumentOut]

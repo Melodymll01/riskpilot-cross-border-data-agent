@@ -92,6 +92,18 @@ class ProcessingJobNotFound(DomainError):
     """按 `job_id` 找不到处理任务或当前用户不可见。"""
 
 
+class UnsupportedDocumentType(DomainError):
+    """文件扩展名或实际内容类型不受支持。"""
+
+
+class InvalidDocumentContent(DomainError):
+    """文件内容为空、损坏或与声明类型不一致。"""
+
+
+class DocumentTooLarge(DomainError):
+    """上传文件超过允许大小。"""
+
+
 class InvalidDocumentTransition(DomainError):
     """文档状态转换不符合领域状态机。"""
 
