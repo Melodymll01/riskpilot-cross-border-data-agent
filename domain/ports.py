@@ -17,6 +17,7 @@ from __future__ import annotations
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from domain.cases import Case
+from domain.documents import CaseDocument, Document, DocumentVersion, ProcessingJob
 from domain.models import (
     Artifact,
     AuditEntry,
@@ -125,6 +126,58 @@ class CaseRepoPort(Protocol):
     ) -> list[Case]: ...
 
     def update(self, case: Case) -> None: ...
+
+
+# === V2 Document / Object Store ===
+
+
+@runtime_checkable
+class ObjectStorePort(Protocol):
+    """原始文件对象存储；object_key 必须是存储根目录内的相对键。"""
+
+    def put(self, object_key: str, content: bytes) -> None: ...
+
+    def read(self, object_key: str) -> bytes: ...
+
+    def delete(self, object_key: str) -> bool: ...
+
+    def exists(self, object_key: str) -> bool: ...
+
+
+@runtime_checkable
+class DocumentRepoPort(Protocol):
+    """文档、版本、案件绑定和处理任务的元数据端口。"""
+
+    def create_upload(
+        self,
+        document: Document,
+        version: DocumentVersion,
+        binding: CaseDocument,
+        job: ProcessingJob,
+    ) -> None:
+        """在单个事务中创建首次上传的四个对象。"""
+        ...
+
+    def get(self, document_id: str) -> Document | None: ...
+
+    def get_version(self, version_id: str) -> DocumentVersion | None: ...
+
+    def list_versions(self, document_id: str) -> list[DocumentVersion]: ...
+
+    def get_binding(self, case_id: str, document_id: str) -> CaseDocument | None: ...
+
+    def list_for_case(
+        self,
+        case_id: str,
+        *,
+        include_deleted: bool = False,
+    ) -> list[Document]: ...
+
+    def get_job(self, job_id: str) -> ProcessingJob | None: ...
+
+    def update_document(self, document: Document) -> None: ...
+
+    def update_job(self, job: ProcessingJob) -> None: ...
 
 
 # === 任务 / 消息 ===

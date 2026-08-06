@@ -14,8 +14,10 @@ from app.factories import (
     build_auth,
     build_case_repo,
     build_chat,
+    build_document_repo,
     build_embedder,
     build_evidence,
+    build_object_store,
     build_retriever,
     build_sqlite_pool,
     build_task_repo,
@@ -29,8 +31,10 @@ from domain.ports import (
     AuthPort,
     CaseRepoPort,
     ChatPort,
+    DocumentRepoPort,
     EmbedPort,
     EvidencePort,
+    ObjectStorePort,
     RetrievePort,
     TaskRepoPort,
     UserRepoPort,
@@ -44,7 +48,10 @@ def settings() -> Settings:
     """临时 SQLite 路径的 Settings 实例，避免污染生产 db。"""
     tmp = tempfile.NamedTemporaryFile(suffix=".sqlite3", delete=False)
     tmp.close()
-    return Settings(sqlite_db_path=tmp.name)
+    return Settings(
+        sqlite_db_path=tmp.name,
+        object_store_dir=f"{tmp.name}.objects",
+    )
 
 
 class TestStorageFactories:
@@ -65,6 +72,13 @@ class TestStorageFactories:
     def test_case_repo_satisfies_port(self, settings: Settings) -> None:
         pool = build_sqlite_pool(settings)
         assert isinstance(build_case_repo(settings, pool=pool), CaseRepoPort)
+
+    def test_document_repo_satisfies_port(self, settings: Settings) -> None:
+        pool = build_sqlite_pool(settings)
+        assert isinstance(build_document_repo(settings, pool=pool), DocumentRepoPort)
+
+    def test_object_store_satisfies_port(self, settings: Settings) -> None:
+        assert isinstance(build_object_store(settings), ObjectStorePort)
 
     def test_audit_log_satisfies_port(self, settings: Settings) -> None:
         pool = build_sqlite_pool(settings)

@@ -20,6 +20,7 @@ from domain.ports import (
     ChatPort,
     ConsolidationStatePort,
     DocumentLoaderPort,
+    DocumentRepoPort,
     EmbedPort,
     EvidencePort,
     FactStorePort,
@@ -28,6 +29,7 @@ from domain.ports import (
     MemoryJobSchedulerPort,
     MemoryPort,
     MemorySettingsStorePort,
+    ObjectStorePort,
     ProfileStorePort,
     ResearchPort,
     RetrievePort,
@@ -49,12 +51,14 @@ from infra.memory import (
     TaskBackedMemory,
     ThreadPoolMemoryScheduler,
 )
+from infra.object_store import LocalObjectStore
 from infra.research import AgenticResearchAdapter
 from infra.risk_profile import StubRiskProfileService
 from infra.search import EmbedderAdapter, HybridRetrieverAdapter
 from infra.storage import (
     SqliteCaseRepo,
     SqliteConsolidationStateStore,
+    SqliteDocumentRepo,
     SqliteFeedbackRepo,
     SqliteMemorySettingsStore,
     SqliteProfileStore,
@@ -97,6 +101,16 @@ def build_case_repo(
     settings: Settings, *, pool: SqliteConnectionPool | None = None
 ) -> CaseRepoPort:
     return SqliteCaseRepo(pool or build_sqlite_pool(settings))
+
+
+def build_document_repo(
+    settings: Settings, *, pool: SqliteConnectionPool | None = None
+) -> DocumentRepoPort:
+    return SqliteDocumentRepo(pool or build_sqlite_pool(settings))
+
+
+def build_object_store(settings: Settings) -> ObjectStorePort:
+    return LocalObjectStore(settings.object_store_dir)
 
 
 def build_audit_log(
@@ -362,12 +376,14 @@ __all__ = [
     "build_consolidation_state_store",
     "build_consolidation_worker",
     "build_document_loader",
+    "build_document_repo",
     "build_embedder",
     "build_evidence",
     "build_fact_store",
     "build_kb_repo",
     "build_memory",
     "build_memory_scheduler",
+    "build_object_store",
     "build_profile_store",
     "build_research",
     "build_retriever",

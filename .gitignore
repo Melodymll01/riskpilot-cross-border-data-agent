@@ -45,6 +45,7 @@ env/
 data/chroma_db/
 data/chroma_db_*/
 data/uploads/
+data/objects/
 data/embed_cache/
 data/*.db
 data/*.sqlite

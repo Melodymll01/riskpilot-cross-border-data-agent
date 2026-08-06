@@ -70,6 +70,73 @@ CREATE TABLE IF NOT EXISTS compliance_cases (
 CREATE INDEX IF NOT EXISTS idx_compliance_cases_workspace
     ON compliance_cases(workspace_id, updated_at DESC);
 
+CREATE TABLE IF NOT EXISTS documents (
+    document_id        TEXT PRIMARY KEY,
+    workspace_id       TEXT NOT NULL,
+    logical_name       TEXT NOT NULL,
+    document_type      TEXT NOT NULL,
+    status             TEXT NOT NULL DEFAULT 'uploaded',
+    created_by         TEXT NOT NULL,
+    current_version_id TEXT,
+    created_at         REAL NOT NULL,
+    updated_at         REAL NOT NULL,
+    FOREIGN KEY (workspace_id) REFERENCES workspaces(workspace_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_documents_workspace
+    ON documents(workspace_id, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS document_versions (
+    version_id      TEXT PRIMARY KEY,
+    document_id     TEXT NOT NULL,
+    version_number  INTEGER NOT NULL,
+    object_key      TEXT NOT NULL UNIQUE,
+    sha256          TEXT NOT NULL,
+    mime_type       TEXT NOT NULL,
+    size_bytes      INTEGER NOT NULL,
+    parser_version  TEXT NOT NULL DEFAULT '',
+    page_count      INTEGER,
+    created_at      REAL NOT NULL,
+    UNIQUE (document_id, version_number),
+    FOREIGN KEY (document_id) REFERENCES documents(document_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_document_versions_document
+    ON document_versions(document_id, version_number DESC);
+
+CREATE TABLE IF NOT EXISTS case_documents (
+    case_id      TEXT NOT NULL,
+    document_id  TEXT NOT NULL,
+    purpose      TEXT NOT NULL DEFAULT '',
+    added_by     TEXT NOT NULL,
+    added_at     REAL NOT NULL,
+    PRIMARY KEY (case_id, document_id),
+    FOREIGN KEY (case_id) REFERENCES compliance_cases(case_id) ON DELETE CASCADE,
+    FOREIGN KEY (document_id) REFERENCES documents(document_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_case_documents_document
+    ON case_documents(document_id);
+
+CREATE TABLE IF NOT EXISTS processing_jobs (
+    job_id               TEXT PRIMARY KEY,
+    document_version_id  TEXT NOT NULL,
+    status               TEXT NOT NULL DEFAULT 'queued',
+    current_stage        TEXT NOT NULL DEFAULT 'validate',
+    progress             REAL NOT NULL DEFAULT 0,
+    error_code           TEXT,
+    error_message        TEXT,
+    retry_count          INTEGER NOT NULL DEFAULT 0,
+    created_at           REAL NOT NULL,
+    updated_at           REAL NOT NULL,
+    started_at           REAL,
+    completed_at         REAL,
+    FOREIGN KEY (document_version_id) REFERENCES document_versions(version_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_processing_jobs_version
+    ON processing_jobs(document_version_id, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS tasks (
     task_id          TEXT PRIMARY KEY,
     owner_id         TEXT NOT NULL,

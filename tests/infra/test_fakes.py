@@ -9,9 +9,11 @@ from domain.ports import (
     AuditLogPort,
     ChatPort,
     DocumentLoaderPort,
+    DocumentRepoPort,
     EmbedPort,
     EvidencePort,
     KbDocumentRepoPort,
+    ObjectStorePort,
     RetrievePort,
     TaskRepoPort,
     UserRepoPort,
@@ -24,8 +26,10 @@ from tests.fakes import (
     FakeEmbed,
     FakeEvidence,
     FakeKbRepo,
+    FakeObjectStore,
     FakeRetrieve,
     FakeWebSearch,
+    InMemoryDocumentRepo,
     InMemoryTaskRepo,
     InMemoryUserRepo,
 )
@@ -61,6 +65,12 @@ class TestFakeProtocolConformance:
 
     def test_fake_audit_log_is_audit_log_port(self) -> None:
         assert isinstance(FakeAuditLogRepo(), AuditLogPort)
+
+    def test_in_memory_document_repo_is_document_repo_port(self) -> None:
+        assert isinstance(InMemoryDocumentRepo(), DocumentRepoPort)
+
+    def test_fake_object_store_is_object_store_port(self) -> None:
+        assert isinstance(FakeObjectStore(), ObjectStorePort)
 
 
 class TestFakeBehavior:

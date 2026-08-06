@@ -29,6 +29,7 @@ from app.factories import (
     build_consolidation_state_store,
     build_consolidation_worker,
     build_document_loader,
+    build_document_repo,
     build_embedder,
     build_evidence,
     build_fact_store,
@@ -37,6 +38,7 @@ from app.factories import (
     build_memory,
     build_memory_scheduler,
     build_memory_settings_store,
+    build_object_store,
     build_profile_store,
     build_research,
     build_retriever,
@@ -71,6 +73,7 @@ if TYPE_CHECKING:
         ChatPort,
         ConsolidationStatePort,
         DocumentLoaderPort,
+        DocumentRepoPort,
         EmbedPort,
         EvidencePort,
         FactStorePort,
@@ -78,6 +81,7 @@ if TYPE_CHECKING:
         MemoryJobSchedulerPort,
         MemoryPort,
         MemorySettingsStorePort,
+        ObjectStorePort,
         ProfileStorePort,
         ResearchPort,
         RetrievePort,
@@ -110,6 +114,8 @@ class AppContainer:
         research: ResearchPort | None = None,
         kb_repo: KbDocumentRepoPort | None = None,
         document_loader: DocumentLoaderPort | None = None,
+        document_repo: DocumentRepoPort | None = None,
+        object_store: ObjectStorePort | None = None,
         auth: AuthPort | None = None,
         memory: MemoryPort | None = None,
     ) -> None:
@@ -123,6 +129,7 @@ class AppContainer:
                 or task_repo is None
                 or workspace_repo is None
                 or case_repo is None
+                or document_repo is None
                 or audit_log is None
             )
             else None
@@ -137,6 +144,9 @@ class AppContainer:
             workspace_repo or build_workspace_repo(settings, pool=pool)
         )
         self.case_repo: CaseRepoPort = case_repo or build_case_repo(
+            settings, pool=pool
+        )
+        self.document_repo: DocumentRepoPort = document_repo or build_document_repo(
             settings, pool=pool
         )
         self.audit_log: AuditLogPort = audit_log or build_audit_log(
@@ -159,6 +169,7 @@ class AppContainer:
         self.document_loader: DocumentLoaderPort = document_loader or build_document_loader(
             settings
         )
+        self.object_store: ObjectStorePort = object_store or build_object_store(settings)
 
         # ── 鉴权（依赖 user_repo） ────────────────────────────────────
         self.auth: AuthPort = auth or build_auth(settings, self.user_repo)

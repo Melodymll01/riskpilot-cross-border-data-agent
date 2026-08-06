@@ -19,9 +19,11 @@ from domain.ports import (
     CaseRepoPort,
     ChatPort,
     DocumentLoaderPort,
+    DocumentRepoPort,
     EmbedPort,
     EvidencePort,
     KbDocumentRepoPort,
+    ObjectStorePort,
     RetrievePort,
     RiskProfilePort,
     TaskRepoPort,
@@ -37,9 +39,11 @@ from tests.fakes import (
     FakeEmbed,
     FakeEvidence,
     FakeKbRepo,
+    FakeObjectStore,
     FakeRetrieve,
     FakeWebSearch,
     InMemoryCaseRepo,
+    InMemoryDocumentRepo,
     InMemoryTaskRepo,
     InMemoryUserRepo,
     InMemoryWorkspaceRepo,
@@ -53,6 +57,8 @@ def _full_fake_container() -> AppContainer:
         task_repo=InMemoryTaskRepo(),
         workspace_repo=InMemoryWorkspaceRepo(),
         case_repo=InMemoryCaseRepo(),
+        document_repo=InMemoryDocumentRepo(),
+        object_store=FakeObjectStore(),
         audit_log=FakeAuditLogRepo(),
         embedder=FakeEmbed(),
         chat=FakeChat(),
@@ -74,6 +80,8 @@ class TestPortConformance:
         assert isinstance(c.task_repo, TaskRepoPort)
         assert isinstance(c.workspace_repo, WorkspaceRepoPort)
         assert isinstance(c.case_repo, CaseRepoPort)
+        assert isinstance(c.document_repo, DocumentRepoPort)
+        assert isinstance(c.object_store, ObjectStorePort)
         assert isinstance(c.audit_log, AuditLogPort)
         assert isinstance(c.embedder, EmbedPort)
         assert isinstance(c.chat, ChatPort)
@@ -126,6 +134,8 @@ class TestPartialInjection:
             task_repo=InMemoryTaskRepo(),
             workspace_repo=InMemoryWorkspaceRepo(),
             case_repo=InMemoryCaseRepo(),
+            document_repo=InMemoryDocumentRepo(),
+            object_store=FakeObjectStore(),
             embedder=FakeEmbed(),
             chat=FakeChat(responses=["hi"]),
             retriever=FakeRetrieve(),

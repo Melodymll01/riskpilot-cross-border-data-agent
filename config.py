@@ -76,6 +76,7 @@ class Settings(BaseSettings):
     # 存储路径
     chroma_persist_dir: str = "./data/chroma_db"
     upload_dir: str = "./data/uploads"
+    object_store_dir: str = "./data/objects"
 
     # 上传限制
     max_upload_mb: int = Field(50, ge=1, le=500)  # 最大上传文件大小（MB）
@@ -232,4 +233,5 @@ if settings.llm_provider == "api" or settings.embed_provider == "api":
 # 确保关键目录存在
 os.makedirs(settings.upload_dir, exist_ok=True)
 os.makedirs(settings.chroma_persist_dir, exist_ok=True)
+os.makedirs(settings.object_store_dir, exist_ok=True)
 os.makedirs("logs", exist_ok=True)

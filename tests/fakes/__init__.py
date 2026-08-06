@@ -7,8 +7,10 @@ from tests.fakes.fake_document_loader import FakeDocumentLoader
 from tests.fakes.fake_embed import FakeEmbed
 from tests.fakes.fake_evidence import FakeEvidence
 from tests.fakes.fake_kb_repo import FakeKbRepo
+from tests.fakes.fake_object_store import FakeObjectStore
 from tests.fakes.fake_repos import (
     InMemoryCaseRepo,
+    InMemoryDocumentRepo,
     InMemoryTaskRepo,
     InMemoryUserRepo,
     InMemoryWorkspaceRepo,
@@ -24,11 +26,13 @@ __all__ = [
     "FakeEmbed",
     "FakeEvidence",
     "FakeKbRepo",
+    "FakeObjectStore",
     "FakeOAuthProvider",
     "FakeRetrieve",
     "FakeWebSearch",
     "InMemoryTaskRepo",
     "InMemoryUserRepo",
     "InMemoryCaseRepo",
+    "InMemoryDocumentRepo",
     "InMemoryWorkspaceRepo",
 ]

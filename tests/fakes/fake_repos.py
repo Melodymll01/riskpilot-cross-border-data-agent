@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 
 from domain.cases import Case
+from domain.documents import CaseDocument, Document, DocumentVersion, ProcessingJob
 from domain.models import Artifact, Message, Task, ToolCall, User
 from domain.workspaces import Workspace, WorkspaceMembership
 
@@ -167,3 +168,74 @@ class InMemoryCaseRepo:
     def update(self, case: Case) -> None:
         if case.case_id in self._cases:
             self._cases[case.case_id] = case
+
+
+class InMemoryDocumentRepo:
+    """`DocumentRepoPort` 的内存实现。"""
+
+    def __init__(self) -> None:
+        self._documents: dict[str, Document] = {}
+        self._versions: dict[str, DocumentVersion] = {}
+        self._bindings: dict[tuple[str, str], CaseDocument] = {}
+        self._jobs: dict[str, ProcessingJob] = {}
+
+    def create_upload(
+        self,
+        document: Document,
+        version: DocumentVersion,
+        binding: CaseDocument,
+        job: ProcessingJob,
+    ) -> None:
+        self._documents[document.document_id] = document
+        self._versions[version.version_id] = version
+        self._bindings[(binding.case_id, binding.document_id)] = binding
+        self._jobs[job.job_id] = job
+
+    def get(self, document_id: str) -> Document | None:
+        return self._documents.get(document_id)
+
+    def get_version(self, version_id: str) -> DocumentVersion | None:
+        return self._versions.get(version_id)
+
+    def list_versions(self, document_id: str) -> list[DocumentVersion]:
+        versions = [
+            version
+            for version in self._versions.values()
+            if version.document_id == document_id
+        ]
+        versions.sort(key=lambda version: version.version_number, reverse=True)
+        return versions
+
+    def get_binding(self, case_id: str, document_id: str) -> CaseDocument | None:
+        return self._bindings.get((case_id, document_id))
+
+    def list_for_case(
+        self,
+        case_id: str,
+        *,
+        include_deleted: bool = False,
+    ) -> list[Document]:
+        document_ids = {
+            document_id
+            for binding_case_id, document_id in self._bindings
+            if binding_case_id == case_id
+        }
+        documents = [
+            document
+            for document_id, document in self._documents.items()
+            if document_id in document_ids
+            and (include_deleted or document.status != "deleted")
+        ]
+        documents.sort(key=lambda document: document.updated_at, reverse=True)
+        return documents
+
+    def get_job(self, job_id: str) -> ProcessingJob | None:
+        return self._jobs.get(job_id)
+
+    def update_document(self, document: Document) -> None:
+        if document.document_id in self._documents:
+            self._documents[document.document_id] = document
+
+    def update_job(self, job: ProcessingJob) -> None:
+        if job.job_id in self._jobs:
+            self._jobs[job.job_id] = job
