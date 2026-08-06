@@ -169,3 +169,12 @@ class DocumentDetailResponse(BaseModel):
 
 class DocumentListResponse(BaseModel):
     documents: list[DocumentOut]
+
+
+class ParseStageResponse(BaseModel):
+    document: DocumentOut
+    version: DocumentVersionOut
+    job: ProcessingJobOut
+    next_stage: Literal["ocr", "chunk"]
+    page_count: int
+    warnings: list[str]

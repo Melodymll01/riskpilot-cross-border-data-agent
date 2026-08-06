@@ -129,6 +129,13 @@ class TestDocumentQueries:
         assert job.status_code == 200
         assert job.json()["status"] == "queued"
 
+        parsed = client.post(f"/api/v3/processing-jobs/{job_id}/parse")
+        assert parsed.status_code == 200
+        assert parsed.json()["job"]["status"] == "running"
+        assert parsed.json()["job"]["current_stage"] == "chunk"
+        assert parsed.json()["document"]["status"] == "chunking"
+        assert parsed.json()["page_count"] == 1
+
     def test_outsider_gets_404_for_document_and_job(
         self, authed_client: tuple[TestClient, dict[str, Any]]
     ) -> None:
@@ -148,3 +155,53 @@ class TestDocumentQueries:
         job = client.get(f"/api/v3/processing-jobs/{job_id}")
         assert job.status_code == 404
         assert job.json()["error_code"] == "PROCESSING_JOB_NOT_FOUND"
+
+
+class TestProcessingActions:
+    def test_viewer_cannot_execute_parse(
+        self, authed_client: tuple[TestClient, dict[str, Any]]
+    ) -> None:
+        client, _ = authed_client
+        workspace_id, case_id = _create_case(client)
+        uploaded = client.post(
+            f"/api/v3/cases/{case_id}/documents",
+            files={"file": ("policy.txt", b"text", "text/plain")},
+        ).json()
+        job_id = uploaded["job"]["job_id"]
+        client.put(
+            f"/api/v3/workspaces/{workspace_id}/members/github:viewer",
+            json={"role": "viewer"},
+        )
+        _switch_actor(client, "github:viewer")
+        response = client.post(f"/api/v3/processing-jobs/{job_id}/parse")
+        assert response.status_code == 403
+        assert response.json()["error_code"] == "WORKSPACE_FORBIDDEN"
+
+    def test_hash_mismatch_fails_then_retry_resets_queued(
+        self, authed_client: tuple[TestClient, dict[str, Any]]
+    ) -> None:
+        client, _ = authed_client
+        _, case_id = _create_case(client)
+        uploaded = client.post(
+            f"/api/v3/cases/{case_id}/documents",
+            files={"file": ("policy.txt", b"text", "text/plain")},
+        ).json()
+        document_id = uploaded["document"]["document_id"]
+        job_id = uploaded["job"]["job_id"]
+        container: AppContainer = client.app.state.container  # type: ignore[attr-defined]
+        version = container.document_repo.get_version(uploaded["version"]["version_id"])
+        assert version is not None
+        container.object_store.objects[version.object_key] = b"tampered"  # type: ignore[attr-defined]
+
+        failed = client.post(f"/api/v3/processing-jobs/{job_id}/parse")
+        assert failed.status_code == 400
+        assert failed.json()["error_code"] == "INVALID_DOCUMENT_CONTENT"
+        job = client.get(f"/api/v3/processing-jobs/{job_id}")
+        assert job.json()["status"] == "failed"
+
+        retried = client.post(f"/api/v3/processing-jobs/{job_id}/retry")
+        assert retried.status_code == 200
+        assert retried.json()["status"] == "queued"
+        assert retried.json()["retry_count"] == 1
+        detail = client.get(f"/api/v3/cases/{case_id}/documents/{document_id}")
+        assert detail.json()["document"]["status"] == "queued"

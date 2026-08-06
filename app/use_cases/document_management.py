@@ -26,6 +26,7 @@ from domain.workspaces import WorkspaceRole
 if TYPE_CHECKING:
     from app.use_cases.case_management import CaseManagementUseCase
     from app.use_cases.workspace_management import WorkspaceManagementUseCase
+    from app.workers import DocumentProcessingWorker, ParseStageResult
     from domain.ports import DocumentRepoPort, ObjectStorePort
 
 _SUPPORTED_SUFFIXES = {".pdf", ".docx", ".txt", ".md", ".markdown"}
@@ -70,6 +71,7 @@ class DocumentManagementUseCase:
         case_management: CaseManagementUseCase,
         workspace_management: WorkspaceManagementUseCase,
         max_upload_bytes: int,
+        processing_worker: DocumentProcessingWorker | None = None,
     ) -> None:
         if max_upload_bytes < 1:
             raise ValueError("max_upload_bytes 必须大于 0")
@@ -78,6 +80,11 @@ class DocumentManagementUseCase:
         self._case_management = case_management
         self._workspace_management = workspace_management
         self._max_upload_bytes = max_upload_bytes
+        self._processing_worker = processing_worker
+
+    def bind_processing_worker(self, worker: DocumentProcessingWorker) -> None:
+        """容器完成 Worker 装配后绑定，避免构造期循环依赖。"""
+        self._processing_worker = worker
 
     def upload(
         self,
@@ -203,6 +210,36 @@ class DocumentManagementUseCase:
         )
 
     def get_job(self, job_id: str, actor_id: str) -> ProcessingJob:
+        job, _ = self._authorize_job(job_id, actor_id, write=False)
+        return job
+
+    def run_parse_stage(
+        self,
+        job_id: str,
+        actor_id: str,
+    ) -> ParseStageResult:
+        self._authorize_job(job_id, actor_id, write=True)
+        if self._processing_worker is None:
+            raise RuntimeError("文档处理 Worker 尚未装配")
+        return self._processing_worker.run_parse_stage(job_id)
+
+    def retry_job(self, job_id: str, actor_id: str) -> ProcessingJob:
+        job, document = self._authorize_job(job_id, actor_id, write=True)
+        if job.status != "failed" or document.status != "failed":
+            raise InvalidDocumentContent("只有 failed 文档处理任务可以重试")
+        retry_at = max(time.time(), job.updated_at, document.updated_at)
+        retried_job = job.retry(at=retry_at)
+        queued_document = document.transition_to("queued", at=retried_job.updated_at)
+        self._repo.update_processing_state(queued_document, retried_job)
+        return retried_job
+
+    def _authorize_job(
+        self,
+        job_id: str,
+        actor_id: str,
+        *,
+        write: bool,
+    ) -> tuple[ProcessingJob, Document]:
         job = self._repo.get_job(job_id)
         if job is None:
             raise ProcessingJobNotFound(job_id)
@@ -213,13 +250,21 @@ class DocumentManagementUseCase:
         if document is None:
             raise ProcessingJobNotFound(job_id)
         try:
-            self._workspace_management.require_membership(
-                document.workspace_id,
-                actor_id,
-            )
+            if write:
+                self._workspace_management.require_role(
+                    document.workspace_id,
+                    actor_id,
+                    _WRITE_ROLES,
+                    action="执行文档处理任务",
+                )
+            else:
+                self._workspace_management.require_membership(
+                    document.workspace_id,
+                    actor_id,
+                )
         except WorkspaceNotFound as exc:
             raise ProcessingJobNotFound(job_id) from exc
-        return job
+        return job, document
 
 
 def _normalize_filename(filename: str) -> tuple[str, str]:

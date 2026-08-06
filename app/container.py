@@ -249,6 +249,9 @@ class AppContainer:
             object_store=self.object_store,
             parser=self.document_parser,
         )
+        self.document_management.bind_processing_worker(
+            self.document_processing_worker
+        )
         self.feedback = FeedbackUseCase(self.feedback_repo)
         self.forget_memory = ForgetMemoryUseCase(
             self.memory, audit_log=self.audit_log

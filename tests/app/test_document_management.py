@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import time
 import zipfile
 
 import pytest
@@ -20,6 +21,7 @@ from domain import (
     WorkspaceAccessDenied,
 )
 from tests.fakes import (
+    FakeDocumentParser,
     FakeObjectStore,
     InMemoryCaseRepo,
     InMemoryDocumentRepo,
@@ -39,6 +41,7 @@ def _setup(
     *,
     max_upload_bytes: int = 1024 * 1024,
     document_repo: InMemoryDocumentRepo | None = None,
+    bind_worker: bool = False,
 ) -> tuple[
     WorkspaceManagementUseCase,
     CaseManagementUseCase,
@@ -63,6 +66,17 @@ def _setup(
         workspace_management=workspace_uc,
         max_upload_bytes=max_upload_bytes,
     )
+    if bind_worker:
+        from app.workers import DocumentProcessingWorker
+
+        document_uc.bind_processing_worker(
+            DocumentProcessingWorker(
+                document_repo=document_repo,
+                object_store=object_store,
+                parser=FakeDocumentParser(),
+                clock=time.time,
+            )
+        )
     workspace = workspace_uc.create_workspace("github:alice", name="跨境合规组")
     case = case_uc.create_case(
         "github:alice",
@@ -249,3 +263,59 @@ class TestQueries:
         )
         with pytest.raises(ProcessingJobNotFound):
             uc.get_job(result.job.job_id, "github:outsider")
+
+
+class TestProcessingActions:
+    def test_run_parse_stage_requires_bound_worker(self) -> None:
+        _, _, uc, _, _, case_id = _setup()
+        result = uc.upload(
+            "github:alice",
+            case_id=case_id,
+            filename="policy.txt",
+            content=b"text",
+        )
+        with pytest.raises(RuntimeError, match="Worker"):
+            uc.run_parse_stage(result.job.job_id, "github:alice")
+
+    def test_run_parse_stage_and_retry(self) -> None:
+        _, _, uc, repo, objects, case_id = _setup(bind_worker=True)
+        result = uc.upload(
+            "github:alice",
+            case_id=case_id,
+            filename="policy.txt",
+            content=b"text",
+        )
+        parsed = uc.run_parse_stage(result.job.job_id, "github:alice")
+        assert parsed.job.current_stage == "chunk"
+        assert parsed.document.status == "chunking"
+
+        failed_at = max(parsed.job.updated_at, parsed.document.updated_at) + 1.0
+        failed_job = parsed.job.fail(
+            error_code="CHUNK_FAILED",
+            at=failed_at,
+        )
+        failed_document = parsed.document.transition_to("failed", at=failed_at)
+        repo.update_processing_state(failed_document, failed_job)
+        retried = uc.retry_job(result.job.job_id, "github:alice")
+        assert retried.status == "queued"
+        assert retried.retry_count == 1
+        assert repo.get(result.document.document_id).status == "queued"  # type: ignore[union-attr]
+        assert objects.exists(result.version.object_key)
+
+    def test_viewer_cannot_run_parse_stage(self) -> None:
+        workspace_uc, case_uc, uc, _, _, case_id = _setup(bind_worker=True)
+        result = uc.upload(
+            "github:alice",
+            case_id=case_id,
+            filename="policy.txt",
+            content=b"text",
+        )
+        case = case_uc.get_case(case_id, "github:alice")
+        workspace_uc.add_or_update_member(
+            case.workspace_id,
+            "github:alice",
+            user_id="github:viewer",
+            role="viewer",
+        )
+        with pytest.raises(WorkspaceAccessDenied):
+            uc.run_parse_stage(result.job.job_id, "github:viewer")

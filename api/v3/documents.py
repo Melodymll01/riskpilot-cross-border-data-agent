@@ -16,6 +16,7 @@ from api.v3.schemas import (
     DocumentOut,
     DocumentUploadResponse,
     DocumentVersionOut,
+    ParseStageResponse,
     ProcessingJobOut,
 )
 from domain.errors import DocumentTooLarge
@@ -188,6 +189,37 @@ def build_document_routes(container: AppContainer) -> APIRouter:
         actor_id: str = Depends(require_owner),
     ) -> ProcessingJobOut:
         job = container.document_management.get_job(job_id, actor_id)
+        return _to_job_out(job)
+
+    @router.post(
+        "/processing-jobs/{job_id}/parse",
+        response_model=ParseStageResponse,
+        summary="执行文档解析阶段（editor/reviewer/admin）",
+    )
+    def run_parse_stage(
+        job_id: str,
+        actor_id: str = Depends(require_owner),
+    ) -> ParseStageResponse:
+        result = container.document_management.run_parse_stage(job_id, actor_id)
+        return ParseStageResponse(
+            document=_to_document_out(result.document),
+            version=_to_version_out(result.version),
+            job=_to_job_out(result.job),
+            next_stage=result.next_stage,
+            page_count=result.snapshot.page_count,
+            warnings=list(result.snapshot.warnings),
+        )
+
+    @router.post(
+        "/processing-jobs/{job_id}/retry",
+        response_model=ProcessingJobOut,
+        summary="把失败的文档处理任务重置为 queued",
+    )
+    def retry_processing_job(
+        job_id: str,
+        actor_id: str = Depends(require_owner),
+    ) -> ProcessingJobOut:
+        job = container.document_management.retry_job(job_id, actor_id)
         return _to_job_out(job)
 
     return router
