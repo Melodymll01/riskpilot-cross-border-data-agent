@@ -17,6 +17,7 @@ from __future__ import annotations
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from domain.cases import Case
+from domain.document_content import DocumentParseSnapshot
 from domain.documents import CaseDocument, Document, DocumentVersion, ProcessingJob
 from domain.models import (
     Artifact,
@@ -178,6 +179,37 @@ class DocumentRepoPort(Protocol):
     def update_document(self, document: Document) -> None: ...
 
     def update_job(self, job: ProcessingJob) -> None: ...
+
+    def update_processing_state(
+        self,
+        document: Document,
+        job: ProcessingJob,
+    ) -> None: ...
+
+    def save_parse_result(
+        self,
+        version: DocumentVersion,
+        snapshot: DocumentParseSnapshot,
+        document: Document,
+        job: ProcessingJob,
+    ) -> None:
+        """原子保存解析快照，并推进版本、文档和任务状态。"""
+        ...
+
+    def get_parse_snapshot(
+        self, document_version_id: str
+    ) -> DocumentParseSnapshot | None: ...
+
+
+@runtime_checkable
+class DocumentParserPort(Protocol):
+    """原始文件字节到页级解析快照的转换端口。"""
+
+    def parse(
+        self,
+        version: DocumentVersion,
+        content: bytes,
+    ) -> DocumentParseSnapshot: ...
 
 
 # === 任务 / 消息 ===

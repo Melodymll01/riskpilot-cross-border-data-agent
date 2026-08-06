@@ -20,6 +20,7 @@ from domain.ports import (
     ChatPort,
     ConsolidationStatePort,
     DocumentLoaderPort,
+    DocumentParserPort,
     DocumentRepoPort,
     EmbedPort,
     EvidencePort,
@@ -43,6 +44,7 @@ from domain.ports import (
 from infra.audit import SqliteAuditLogRepo
 from infra.auth import AnonymousProvider, AuthService, GitHubOAuthProvider, JwtIssuer
 from infra.chat import OpenAIChatAdapter
+from infra.document_processing import RiskPilotDocumentParser
 from infra.evidence import MockEvidenceClient
 from infra.kb import ChromaKbRepo, UnifiedLoaderAdapter
 from infra.memory import (
@@ -111,6 +113,12 @@ def build_document_repo(
 
 def build_object_store(settings: Settings) -> ObjectStorePort:
     return LocalObjectStore(settings.object_store_dir)
+
+
+def build_document_parser(_settings: Settings) -> DocumentParserPort:
+    import time
+
+    return RiskPilotDocumentParser(clock=time.time)
 
 
 def build_audit_log(
@@ -376,6 +384,7 @@ __all__ = [
     "build_consolidation_state_store",
     "build_consolidation_worker",
     "build_document_loader",
+    "build_document_parser",
     "build_document_repo",
     "build_embedder",
     "build_evidence",

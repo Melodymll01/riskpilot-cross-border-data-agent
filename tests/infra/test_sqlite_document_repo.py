@@ -17,6 +17,7 @@ from domain import (
     Workspace,
     WorkspaceMembership,
 )
+from domain.document_content import DocumentParseSnapshot, ParsedPage
 from infra.storage import SqliteCaseRepo, SqliteDocumentRepo, SqliteWorkspaceRepo
 from infra.storage._db import SqliteConnectionPool
 
@@ -217,3 +218,53 @@ class TestDocumentQueries:
 
         assert document_repo.get(document.document_id) == updated_document
         assert document_repo.get_job(job.job_id) == updated_job
+
+
+class TestParseSnapshotPersistence:
+    def test_save_parse_result_updates_all_state_atomically(
+        self,
+        workspace_repo: SqliteWorkspaceRepo,
+        case_repo: SqliteCaseRepo,
+        document_repo: SqliteDocumentRepo,
+    ) -> None:
+        _seed_case(workspace_repo, case_repo)
+        document, version, binding, job = _upload_graph()
+        document_repo.create_upload(document, version, binding, job)
+        running_job = job.start(stage="extract_structure", at=101.0).advance(
+            stage="chunk",
+            progress=0.5,
+            at=102.0,
+        )
+        chunking_document = document.transition_to("parsing", at=101.0).transition_to(
+            "chunking",
+            at=102.0,
+        )
+        snapshot = DocumentParseSnapshot(
+            snapshot_id="parse_001",
+            document_version_id=version.version_id,
+            parser_name="test-parser",
+            parser_version="1.0.0",
+            source_sha256=version.sha256,
+            pages=[
+                ParsedPage(
+                    page_number=1,
+                    text="正文",
+                    extraction_method="native",
+                )
+            ],
+            parsed_at=102.0,
+        )
+        parsed_version = version.model_copy(
+            update={"parser_version": "1.0.0", "page_count": 1}
+        )
+        document_repo.save_parse_result(
+            parsed_version,
+            snapshot,
+            chunking_document,
+            running_job,
+        )
+
+        assert document_repo.get_version(version.version_id) == parsed_version
+        assert document_repo.get_parse_snapshot(version.version_id) == snapshot
+        assert document_repo.get(document.document_id) == chunking_document
+        assert document_repo.get_job(job.job_id) == running_job

@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 
 from domain.cases import Case
+from domain.document_content import DocumentParseSnapshot
 from domain.documents import CaseDocument, Document, DocumentVersion, ProcessingJob
 from domain.models import Artifact, Message, Task, ToolCall, User
 from domain.workspaces import Workspace, WorkspaceMembership
@@ -178,6 +179,7 @@ class InMemoryDocumentRepo:
         self._versions: dict[str, DocumentVersion] = {}
         self._bindings: dict[tuple[str, str], CaseDocument] = {}
         self._jobs: dict[str, ProcessingJob] = {}
+        self._snapshots: dict[str, DocumentParseSnapshot] = {}
 
     def create_upload(
         self,
@@ -239,3 +241,28 @@ class InMemoryDocumentRepo:
     def update_job(self, job: ProcessingJob) -> None:
         if job.job_id in self._jobs:
             self._jobs[job.job_id] = job
+
+    def update_processing_state(
+        self,
+        document: Document,
+        job: ProcessingJob,
+    ) -> None:
+        self.update_document(document)
+        self.update_job(job)
+
+    def save_parse_result(
+        self,
+        version: DocumentVersion,
+        snapshot: DocumentParseSnapshot,
+        document: Document,
+        job: ProcessingJob,
+    ) -> None:
+        self._versions[version.version_id] = version
+        self._snapshots[version.version_id] = snapshot
+        self.update_document(document)
+        self.update_job(job)
+
+    def get_parse_snapshot(
+        self, document_version_id: str
+    ) -> DocumentParseSnapshot | None:
+        return self._snapshots.get(document_version_id)

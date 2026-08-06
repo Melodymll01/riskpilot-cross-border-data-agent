@@ -24,6 +24,7 @@ from tests.fakes.fake_audit_log import FakeAuditLogRepo
 from tests.fakes.fake_auth import FakeAuth
 from tests.fakes.fake_chat import FakeChat
 from tests.fakes.fake_document_loader import FakeDocumentLoader
+from tests.fakes.fake_document_parser import FakeDocumentParser
 from tests.fakes.fake_embed import FakeEmbed
 from tests.fakes.fake_evidence import FakeEvidence
 from tests.fakes.fake_kb_repo import FakeKbRepo
@@ -51,6 +52,7 @@ def _make_container(**overrides: object) -> AppContainer:
         case_repo=InMemoryCaseRepo(),
         document_repo=InMemoryDocumentRepo(),
         object_store=FakeObjectStore(),
+        document_parser=FakeDocumentParser(),
         audit_log=FakeAuditLogRepo(),
         embedder=FakeEmbed(),
         chat=FakeChat(responses=[_FINAL_JSON, _FINAL_JSON, _FINAL_JSON, _FINAL_JSON]),

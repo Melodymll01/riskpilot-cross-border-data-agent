@@ -137,6 +137,14 @@ CREATE TABLE IF NOT EXISTS processing_jobs (
 CREATE INDEX IF NOT EXISTS idx_processing_jobs_version
     ON processing_jobs(document_version_id, created_at DESC);
 
+CREATE TABLE IF NOT EXISTS document_parse_snapshots (
+    snapshot_id          TEXT PRIMARY KEY,
+    document_version_id  TEXT NOT NULL UNIQUE,
+    payload_json         TEXT NOT NULL,
+    parsed_at            REAL NOT NULL,
+    FOREIGN KEY (document_version_id) REFERENCES document_versions(version_id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS tasks (
     task_id          TEXT PRIMARY KEY,
     owner_id         TEXT NOT NULL,

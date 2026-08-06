@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
+from domain.document_content import DocumentParseSnapshot
 from domain.documents import (
     CaseDocument,
     Document,
@@ -230,6 +232,74 @@ class SqliteDocumentRepo:
         )
         conn.commit()
 
+    def update_processing_state(
+        self,
+        document: Document,
+        job: ProcessingJob,
+    ) -> None:
+        conn = self._pool.get()
+        with conn:
+            _update_document(conn, document)
+            _update_job(conn, job)
+
+    def save_parse_result(
+        self,
+        version: DocumentVersion,
+        snapshot: DocumentParseSnapshot,
+        document: Document,
+        job: ProcessingJob,
+    ) -> None:
+        if snapshot.document_version_id != version.version_id:
+            raise ValueError("解析快照必须属于当前 DocumentVersion")
+        if version.document_id != document.document_id:
+            raise ValueError("DocumentVersion 必须属于当前 Document")
+        if job.document_version_id != version.version_id:
+            raise ValueError("ProcessingJob 必须处理当前 DocumentVersion")
+        conn = self._pool.get()
+        with conn:
+            conn.execute(
+                """
+                UPDATE document_versions SET
+                    parser_version = ?,
+                    page_count = ?
+                WHERE version_id = ?
+                """,
+                (version.parser_version, version.page_count, version.version_id),
+            )
+            conn.execute(
+                """
+                INSERT INTO document_parse_snapshots
+                    (snapshot_id, document_version_id, payload_json, parsed_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(document_version_id) DO UPDATE SET
+                    snapshot_id = excluded.snapshot_id,
+                    payload_json = excluded.payload_json,
+                    parsed_at = excluded.parsed_at
+                """,
+                (
+                    snapshot.snapshot_id,
+                    snapshot.document_version_id,
+                    snapshot.model_dump_json(),
+                    snapshot.parsed_at,
+                ),
+            )
+            _update_document(conn, document)
+            _update_job(conn, job)
+
+    def get_parse_snapshot(
+        self, document_version_id: str
+    ) -> DocumentParseSnapshot | None:
+        row = self._pool.get().execute(
+            """
+            SELECT payload_json FROM document_parse_snapshots
+            WHERE document_version_id = ?
+            """,
+            (document_version_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return DocumentParseSnapshot.model_validate(json.loads(row["payload_json"]))
+
     @staticmethod
     def _validate_upload_graph(
         document: Document,
@@ -290,6 +360,68 @@ def _job_values(job: ProcessingJob) -> tuple[object, ...]:
         job.updated_at,
         job.started_at,
         job.completed_at,
+    )
+
+
+def _update_document(conn: Any, document: Document) -> None:
+    conn.execute(
+        """
+        UPDATE documents SET
+            workspace_id = ?,
+            logical_name = ?,
+            document_type = ?,
+            status = ?,
+            created_by = ?,
+            current_version_id = ?,
+            created_at = ?,
+            updated_at = ?
+        WHERE document_id = ?
+        """,
+        (
+            document.workspace_id,
+            document.logical_name,
+            document.document_type,
+            document.status,
+            document.created_by,
+            document.current_version_id,
+            document.created_at,
+            document.updated_at,
+            document.document_id,
+        ),
+    )
+
+
+def _update_job(conn: Any, job: ProcessingJob) -> None:
+    conn.execute(
+        """
+        UPDATE processing_jobs SET
+            document_version_id = ?,
+            status = ?,
+            current_stage = ?,
+            progress = ?,
+            error_code = ?,
+            error_message = ?,
+            retry_count = ?,
+            created_at = ?,
+            updated_at = ?,
+            started_at = ?,
+            completed_at = ?
+        WHERE job_id = ?
+        """,
+        (
+            job.document_version_id,
+            job.status,
+            job.current_stage,
+            job.progress,
+            job.error_code,
+            job.error_message,
+            job.retry_count,
+            job.created_at,
+            job.updated_at,
+            job.started_at,
+            job.completed_at,
+            job.job_id,
+        ),
     )
 
 

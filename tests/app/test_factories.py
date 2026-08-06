@@ -14,6 +14,7 @@ from app.factories import (
     build_auth,
     build_case_repo,
     build_chat,
+    build_document_parser,
     build_document_repo,
     build_embedder,
     build_evidence,
@@ -31,6 +32,7 @@ from domain.ports import (
     AuthPort,
     CaseRepoPort,
     ChatPort,
+    DocumentParserPort,
     DocumentRepoPort,
     EmbedPort,
     EvidencePort,
@@ -76,6 +78,9 @@ class TestStorageFactories:
     def test_document_repo_satisfies_port(self, settings: Settings) -> None:
         pool = build_sqlite_pool(settings)
         assert isinstance(build_document_repo(settings, pool=pool), DocumentRepoPort)
+
+    def test_document_parser_satisfies_port(self, settings: Settings) -> None:
+        assert isinstance(build_document_parser(settings), DocumentParserPort)
 
     def test_object_store_satisfies_port(self, settings: Settings) -> None:
         assert isinstance(build_object_store(settings), ObjectStorePort)

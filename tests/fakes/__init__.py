@@ -4,6 +4,7 @@ from tests.fakes.fake_audit_log import FakeAuditLogRepo
 from tests.fakes.fake_auth import FakeAuth, FakeOAuthProvider
 from tests.fakes.fake_chat import FakeChat
 from tests.fakes.fake_document_loader import FakeDocumentLoader
+from tests.fakes.fake_document_parser import FakeDocumentParser
 from tests.fakes.fake_embed import FakeEmbed
 from tests.fakes.fake_evidence import FakeEvidence
 from tests.fakes.fake_kb_repo import FakeKbRepo
@@ -23,6 +24,7 @@ __all__ = [
     "FakeAuth",
     "FakeChat",
     "FakeDocumentLoader",
+    "FakeDocumentParser",
     "FakeEmbed",
     "FakeEvidence",
     "FakeKbRepo",

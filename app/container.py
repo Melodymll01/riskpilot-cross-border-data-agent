@@ -29,6 +29,7 @@ from app.factories import (
     build_consolidation_state_store,
     build_consolidation_worker,
     build_document_loader,
+    build_document_parser,
     build_document_repo,
     build_embedder,
     build_evidence,
@@ -74,6 +75,7 @@ if TYPE_CHECKING:
         ChatPort,
         ConsolidationStatePort,
         DocumentLoaderPort,
+        DocumentParserPort,
         DocumentRepoPort,
         EmbedPort,
         EvidencePort,
@@ -115,6 +117,7 @@ class AppContainer:
         research: ResearchPort | None = None,
         kb_repo: KbDocumentRepoPort | None = None,
         document_loader: DocumentLoaderPort | None = None,
+        document_parser: DocumentParserPort | None = None,
         document_repo: DocumentRepoPort | None = None,
         object_store: ObjectStorePort | None = None,
         auth: AuthPort | None = None,
@@ -171,6 +174,9 @@ class AppContainer:
             settings
         )
         self.object_store: ObjectStorePort = object_store or build_object_store(settings)
+        self.document_parser: DocumentParserPort = (
+            document_parser or build_document_parser(settings)
+        )
 
         # ── 鉴权（依赖 user_repo） ────────────────────────────────────
         self.auth: AuthPort = auth or build_auth(settings, self.user_repo)
@@ -235,6 +241,13 @@ class AppContainer:
             case_management=self.case_management,
             workspace_management=self.workspace_management,
             max_upload_bytes=settings.max_upload_mb * 1024 * 1024,
+        )
+        from app.workers import DocumentProcessingWorker
+
+        self.document_processing_worker = DocumentProcessingWorker(
+            document_repo=self.document_repo,
+            object_store=self.object_store,
+            parser=self.document_parser,
         )
         self.feedback = FeedbackUseCase(self.feedback_repo)
         self.forget_memory = ForgetMemoryUseCase(
