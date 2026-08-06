@@ -141,6 +141,10 @@ class InvalidCaseFactTransition(DomainError):
         super().__init__(f"案件事实 {fact_id!r} 不允许从 {source!r} 转换到 {target!r}")
 
 
+class PolicyRuleNotFound(DomainError):
+    """按 rule_id + ruleset_version 找不到规则。"""
+
+
 # === Tool / Agent ===
 
 

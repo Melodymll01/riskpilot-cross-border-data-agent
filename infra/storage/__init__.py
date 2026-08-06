@@ -6,6 +6,7 @@ from infra.storage.sqlite_consolidation_state import SqliteConsolidationStateSto
 from infra.storage.sqlite_document_repo import SqliteDocumentRepo
 from infra.storage.sqlite_feedback_repo import SqliteFeedbackRepo
 from infra.storage.sqlite_memory_settings import SqliteMemorySettingsStore
+from infra.storage.sqlite_policy_rule_repo import SqlitePolicyRuleRepo
 from infra.storage.sqlite_profile_store import SqliteProfileStore
 from infra.storage.sqlite_summary_store import SqliteSummaryStore
 from infra.storage.sqlite_task_repo import SqliteTaskRepo
@@ -19,6 +20,7 @@ __all__ = [
     "SqliteDocumentRepo",
     "SqliteFeedbackRepo",
     "SqliteMemorySettingsStore",
+    "SqlitePolicyRuleRepo",
     "SqliteProfileStore",
     "SqliteSummaryStore",
     "SqliteTaskRepo",

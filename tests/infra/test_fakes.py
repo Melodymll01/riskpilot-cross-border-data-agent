@@ -18,6 +18,7 @@ from domain.ports import (
     EvidencePort,
     KbDocumentRepoPort,
     ObjectStorePort,
+    PolicyRuleRepoPort,
     RetrievePort,
     TaskRepoPort,
     UserRepoPort,
@@ -38,6 +39,7 @@ from tests.fakes import (
     FakeWebSearch,
     InMemoryCaseFactRepo,
     InMemoryDocumentRepo,
+    InMemoryPolicyRuleRepo,
     InMemoryTaskRepo,
     InMemoryUserRepo,
 )
@@ -85,6 +87,9 @@ class TestFakeProtocolConformance:
 
     def test_fake_object_store_is_object_store_port(self) -> None:
         assert isinstance(FakeObjectStore(), ObjectStorePort)
+
+    def test_in_memory_policy_rule_repo_is_port(self) -> None:
+        assert isinstance(InMemoryPolicyRuleRepo(), PolicyRuleRepoPort)
 
 
 class TestFakeBehavior:

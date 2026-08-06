@@ -20,6 +20,7 @@ from app.factories import (
     build_embedder,
     build_evidence,
     build_object_store,
+    build_policy_rule_repo,
     build_retriever,
     build_sqlite_pool,
     build_task_repo,
@@ -39,6 +40,7 @@ from domain.ports import (
     EmbedPort,
     EvidencePort,
     ObjectStorePort,
+    PolicyRuleRepoPort,
     RetrievePort,
     TaskRepoPort,
     UserRepoPort,
@@ -90,6 +92,10 @@ class TestStorageFactories:
 
     def test_object_store_satisfies_port(self, settings: Settings) -> None:
         assert isinstance(build_object_store(settings), ObjectStorePort)
+
+    def test_policy_rule_repo_satisfies_port(self, settings: Settings) -> None:
+        pool = build_sqlite_pool(settings)
+        assert isinstance(build_policy_rule_repo(settings, pool=pool), PolicyRuleRepoPort)
 
     def test_audit_log_satisfies_port(self, settings: Settings) -> None:
         pool = build_sqlite_pool(settings)

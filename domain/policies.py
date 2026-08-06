@@ -16,6 +16,7 @@ PolicyEvaluationStatus = Literal["triggered", "not_triggered", "missing_facts"]
 class PolicyRule(BaseDomainModel):
     """可追溯到法规条款的确定性规则。"""
 
+    workspace_id: str = Field(min_length=1)
     rule_id: str = Field(min_length=1)
     ruleset_version: str = Field(min_length=1, max_length=100)
     jurisdiction: str = Field(min_length=1, max_length=32)

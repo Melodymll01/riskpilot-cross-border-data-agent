@@ -205,3 +205,144 @@ class EvidenceSearchHitOut(BaseModel):
 
 class EvidenceSearchResponse(BaseModel):
     hits: list[EvidenceSearchHitOut]
+
+
+FactStatusValue = Literal["proposed", "confirmed", "rejected", "conflicting", "unknown"]
+FactSourceValue = Literal["user", "document", "system", "import"]
+FactCriticalityValue = Literal["normal", "critical"]
+
+
+class FactEvidenceInputRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    document_id: str = Field(min_length=1)
+    document_version_id: str = Field(min_length=1)
+    page_number: int = Field(ge=1)
+    quote: str = Field(min_length=1, max_length=4000)
+    start_offset: int | None = Field(default=None, ge=0)
+    end_offset: int | None = Field(default=None, ge=0)
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
+class CreateFactRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    field_name: str = Field(min_length=1, max_length=200)
+    value: object = None
+    source_type: FactSourceValue
+    confidence: float = Field(ge=0.0, le=1.0)
+    criticality: FactCriticalityValue = "normal"
+    evidence: list[FactEvidenceInputRequest] = Field(default_factory=list)
+
+
+class ReviseFactRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    value: object = None
+    source_type: FactSourceValue
+    confidence: float = Field(ge=0.0, le=1.0)
+    evidence: list[FactEvidenceInputRequest] = Field(default_factory=list)
+
+
+class TransitionFactRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    target: FactStatusValue
+
+
+class FactEvidenceOut(BaseModel):
+    evidence_id: str
+    fact_version: int
+    document_id: str
+    document_version_id: str
+    page_number: int
+    quote: str
+    start_offset: int | None
+    end_offset: int | None
+    confidence: float
+    created_at: float
+
+
+class CaseFactOut(BaseModel):
+    fact_id: str
+    case_id: str
+    field_name: str
+    value: object
+    status: FactStatusValue
+    source_type: FactSourceValue
+    confidence: float
+    criticality: FactCriticalityValue
+    version: int
+    created_by: str
+    confirmed_by: str | None
+    confirmed_at: float | None
+    created_at: float
+    updated_at: float
+
+
+class FactDetailResponse(BaseModel):
+    fact: CaseFactOut
+    evidence: list[FactEvidenceOut]
+
+
+class FactListResponse(BaseModel):
+    facts: list[CaseFactOut]
+
+
+PolicyRuleStatusValue = Literal["draft", "published", "retired"]
+
+
+class CreatePolicyRuleRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    rule_id: str = Field(min_length=1)
+    ruleset_version: str = Field(min_length=1, max_length=100)
+    jurisdiction: str = Field(min_length=1, max_length=32)
+    effective_from: date
+    effective_to: date | None = None
+    required_fact_fields: list[str] = Field(default_factory=list)
+    condition: dict
+    result: dict = Field(default_factory=dict)
+    source_clause_ids: list[str] = Field(min_length=1)
+
+
+class PolicyRuleOut(BaseModel):
+    workspace_id: str
+    rule_id: str
+    ruleset_version: str
+    jurisdiction: str
+    effective_from: date
+    effective_to: date | None
+    status: PolicyRuleStatusValue
+    required_fact_fields: list[str]
+    condition: dict
+    result: dict
+    source_clause_ids: list[str]
+
+
+class PolicyRuleListResponse(BaseModel):
+    rules: list[PolicyRuleOut]
+
+
+class EvaluatePolicyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ruleset_version: str = Field(min_length=1)
+
+
+class PolicyEvaluationOut(BaseModel):
+    rule_id: str
+    ruleset_version: str
+    status: Literal["triggered", "not_triggered", "missing_facts"]
+    missing_fact_fields: list[str]
+    consumed_fact_versions: dict[str, int]
+    result: dict
+    source_clause_ids: list[str]
+
+
+class PolicyEvaluationReportOut(BaseModel):
+    ruleset_version: str
+    jurisdiction: str
+    assessment_date: date
+    evaluations: list[PolicyEvaluationOut]
+    missing_fact_fields: list[str]

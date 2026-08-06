@@ -15,6 +15,7 @@ from tests.fakes.fake_repos import (
     InMemoryCaseFactRepo,
     InMemoryCaseRepo,
     InMemoryDocumentRepo,
+    InMemoryPolicyRuleRepo,
     InMemoryTaskRepo,
     InMemoryUserRepo,
     InMemoryWorkspaceRepo,
@@ -42,5 +43,6 @@ __all__ = [
     "InMemoryCaseRepo",
     "InMemoryCaseFactRepo",
     "InMemoryDocumentRepo",
+    "InMemoryPolicyRuleRepo",
     "InMemoryWorkspaceRepo",
 ]

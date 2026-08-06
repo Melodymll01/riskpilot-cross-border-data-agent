@@ -43,6 +43,7 @@ from domain.models import (
     User,
     WebResult,
 )
+from domain.policies import PolicyRule
 from domain.workspaces import Workspace, WorkspaceMembership
 
 # === 身份 ===
@@ -299,6 +300,31 @@ class CaseFactRepoPort(Protocol):
     ) -> None: ...
 
     def update_status(self, fact: CaseFact) -> None: ...
+
+
+@runtime_checkable
+class PolicyRuleRepoPort(Protocol):
+    """版本化 PolicyRule 存储端口。"""
+
+    def create(self, rule: PolicyRule) -> None: ...
+
+    def get(
+        self,
+        workspace_id: str,
+        rule_id: str,
+        ruleset_version: str,
+    ) -> PolicyRule | None: ...
+
+    def list_rules(
+        self,
+        *,
+        workspace_id: str,
+        ruleset_version: str | None = None,
+        jurisdiction: str | None = None,
+        status: str | None = None,
+    ) -> list[PolicyRule]: ...
+
+    def update_status(self, rule: PolicyRule) -> None: ...
 
 
 # === 任务 / 消息 ===

@@ -34,6 +34,7 @@ from domain.ports import (
     MemoryPort,
     MemorySettingsStorePort,
     ObjectStorePort,
+    PolicyRuleRepoPort,
     ProfileStorePort,
     ResearchPort,
     RetrievePort,
@@ -67,6 +68,7 @@ from infra.storage import (
     SqliteDocumentRepo,
     SqliteFeedbackRepo,
     SqliteMemorySettingsStore,
+    SqlitePolicyRuleRepo,
     SqliteProfileStore,
     SqliteSummaryStore,
     SqliteTaskRepo,
@@ -113,6 +115,12 @@ def build_case_fact_repo(
     settings: Settings, *, pool: SqliteConnectionPool | None = None
 ) -> CaseFactRepoPort:
     return SqliteCaseFactRepo(pool or build_sqlite_pool(settings))
+
+
+def build_policy_rule_repo(
+    settings: Settings, *, pool: SqliteConnectionPool | None = None
+) -> PolicyRuleRepoPort:
+    return SqlitePolicyRuleRepo(pool or build_sqlite_pool(settings))
 
 
 def build_document_repo(
@@ -422,6 +430,7 @@ __all__ = [
     "build_memory",
     "build_memory_scheduler",
     "build_object_store",
+    "build_policy_rule_repo",
     "build_profile_store",
     "build_research",
     "build_retriever",

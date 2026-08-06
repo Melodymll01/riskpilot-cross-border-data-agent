@@ -27,6 +27,7 @@ from domain.ports import (
     EvidencePort,
     KbDocumentRepoPort,
     ObjectStorePort,
+    PolicyRuleRepoPort,
     RetrievePort,
     RiskProfilePort,
     TaskRepoPort,
@@ -51,6 +52,7 @@ from tests.fakes import (
     InMemoryCaseFactRepo,
     InMemoryCaseRepo,
     InMemoryDocumentRepo,
+    InMemoryPolicyRuleRepo,
     InMemoryTaskRepo,
     InMemoryUserRepo,
     InMemoryWorkspaceRepo,
@@ -66,6 +68,7 @@ def _full_fake_container() -> AppContainer:
         workspace_repo=InMemoryWorkspaceRepo(),
         case_repo=InMemoryCaseRepo(),
         case_fact_repo=InMemoryCaseFactRepo(),
+        policy_rule_repo=InMemoryPolicyRuleRepo(),
         document_repo=document_repo,
         object_store=FakeObjectStore(),
         document_parser=FakeDocumentParser(),
@@ -93,6 +96,7 @@ class TestPortConformance:
         assert isinstance(c.workspace_repo, WorkspaceRepoPort)
         assert isinstance(c.case_repo, CaseRepoPort)
         assert isinstance(c.case_fact_repo, CaseFactRepoPort)
+        assert isinstance(c.policy_rule_repo, PolicyRuleRepoPort)
         assert isinstance(c.document_repo, DocumentRepoPort)
         assert isinstance(c.object_store, ObjectStorePort)
         assert isinstance(c.evidence_chunker, EvidenceChunkerPort)
@@ -151,6 +155,7 @@ class TestPartialInjection:
             workspace_repo=InMemoryWorkspaceRepo(),
             case_repo=InMemoryCaseRepo(),
             case_fact_repo=InMemoryCaseFactRepo(),
+            policy_rule_repo=InMemoryPolicyRuleRepo(),
             document_repo=document_repo,
             object_store=FakeObjectStore(),
             document_parser=FakeDocumentParser(),

@@ -48,6 +48,7 @@ def _proposed_fact(field_name: str, value: object) -> CaseFact:
 
 def _rule(**overrides: object) -> PolicyRule:
     values: dict[str, object] = {
+        "workspace_id": "ws_001",
         "rule_id": "PATH-SYNTHETIC-001",
         "ruleset_version": "synthetic-2026-01",
         "jurisdiction": "CN",

@@ -9,6 +9,7 @@ from domain.document_content import DocumentParseSnapshot
 from domain.documents import CaseDocument, Document, DocumentVersion, ProcessingJob
 from domain.facts import CaseFact, CaseFactEvidence
 from domain.models import Artifact, Message, Task, ToolCall, User
+from domain.policies import PolicyRule
 from domain.workspaces import Workspace, WorkspaceMembership
 
 
@@ -337,3 +338,46 @@ class InMemoryCaseFactRepo:
     def update_status(self, fact: CaseFact) -> None:
         self._facts[fact.fact_id] = fact
         self._versions[(fact.fact_id, fact.version)] = fact
+
+
+class InMemoryPolicyRuleRepo:
+    """`PolicyRuleRepoPort` 的内存实现。"""
+
+    def __init__(self) -> None:
+        self._rules: dict[tuple[str, str, str], PolicyRule] = {}
+
+    def create(self, rule: PolicyRule) -> None:
+        key = (rule.workspace_id, rule.rule_id, rule.ruleset_version)
+        if key in self._rules:
+            raise ValueError("规则版本已存在")
+        self._rules[key] = rule
+
+    def get(
+        self,
+        workspace_id: str,
+        rule_id: str,
+        ruleset_version: str,
+    ) -> PolicyRule | None:
+        return self._rules.get((workspace_id, rule_id, ruleset_version))
+
+    def list_rules(
+        self,
+        *,
+        workspace_id: str,
+        ruleset_version: str | None = None,
+        jurisdiction: str | None = None,
+        status: str | None = None,
+    ) -> list[PolicyRule]:
+        rules = [
+            rule
+            for rule in self._rules.values()
+            if rule.workspace_id == workspace_id
+            and (ruleset_version is None or rule.ruleset_version == ruleset_version)
+            and (jurisdiction is None or rule.jurisdiction == jurisdiction)
+            and (status is None or rule.status == status)
+        ]
+        rules.sort(key=lambda rule: (rule.ruleset_version, rule.rule_id))
+        return rules
+
+    def update_status(self, rule: PolicyRule) -> None:
+        self._rules[(rule.workspace_id, rule.rule_id, rule.ruleset_version)] = rule

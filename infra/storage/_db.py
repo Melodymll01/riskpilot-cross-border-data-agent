@@ -219,6 +219,25 @@ CREATE TABLE IF NOT EXISTS case_fact_evidence (
 CREATE INDEX IF NOT EXISTS idx_case_fact_evidence_fact
     ON case_fact_evidence(fact_id, fact_version);
 
+CREATE TABLE IF NOT EXISTS policy_rules (
+    workspace_id         TEXT NOT NULL,
+    rule_id              TEXT NOT NULL,
+    ruleset_version      TEXT NOT NULL,
+    jurisdiction         TEXT NOT NULL,
+    effective_from       TEXT NOT NULL,
+    effective_to         TEXT,
+    status               TEXT NOT NULL,
+    required_fact_fields TEXT NOT NULL,
+    condition_json       TEXT NOT NULL,
+    result_json          TEXT NOT NULL,
+    source_clause_ids    TEXT NOT NULL,
+    PRIMARY KEY (workspace_id, rule_id, ruleset_version),
+    FOREIGN KEY (workspace_id) REFERENCES workspaces(workspace_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_policy_rules_lookup
+    ON policy_rules(workspace_id, ruleset_version, jurisdiction, status, effective_from);
+
 CREATE TABLE IF NOT EXISTS tasks (
     task_id          TEXT PRIMARY KEY,
     owner_id         TEXT NOT NULL,

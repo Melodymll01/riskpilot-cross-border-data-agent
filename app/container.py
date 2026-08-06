@@ -43,6 +43,7 @@ from app.factories import (
     build_memory_scheduler,
     build_memory_settings_store,
     build_object_store,
+    build_policy_rule_repo,
     build_profile_store,
     build_research,
     build_retriever,
@@ -62,6 +63,7 @@ from app.use_cases import (
     FactManagementUseCase,
     IngestionUseCase,
     KbManagementUseCase,
+    PolicyManagementUseCase,
     RunQueryUseCase,
     TaskManagementUseCase,
     WorkspaceManagementUseCase,
@@ -93,6 +95,7 @@ if TYPE_CHECKING:
         MemoryPort,
         MemorySettingsStorePort,
         ObjectStorePort,
+        PolicyRuleRepoPort,
         ProfileStorePort,
         ResearchPort,
         RetrievePort,
@@ -130,6 +133,7 @@ class AppContainer:
         document_repo: DocumentRepoPort | None = None,
         evidence_chunker: EvidenceChunkerPort | None = None,
         evidence_index: EvidenceIndexPort | None = None,
+        policy_rule_repo: PolicyRuleRepoPort | None = None,
         object_store: ObjectStorePort | None = None,
         auth: AuthPort | None = None,
         memory: MemoryPort | None = None,
@@ -147,6 +151,7 @@ class AppContainer:
                 or case_fact_repo is None
                 or document_repo is None
                 or evidence_index is None
+                or policy_rule_repo is None
                 or audit_log is None
             )
             else None
@@ -171,6 +176,9 @@ class AppContainer:
         )
         self.evidence_index: EvidenceIndexPort = (
             evidence_index or build_evidence_index(settings, pool=pool)
+        )
+        self.policy_rule_repo: PolicyRuleRepoPort = (
+            policy_rule_repo or build_policy_rule_repo(settings, pool=pool)
         )
         self.audit_log: AuditLogPort = audit_log or build_audit_log(
             settings, pool=pool
@@ -289,6 +297,12 @@ class AppContainer:
         self.fact_management = FactManagementUseCase(
             fact_repo=self.case_fact_repo,
             document_repo=self.document_repo,
+            case_management=self.case_management,
+            workspace_management=self.workspace_management,
+        )
+        self.policy_management = PolicyManagementUseCase(
+            rule_repo=self.policy_rule_repo,
+            fact_repo=self.case_fact_repo,
             case_management=self.case_management,
             workspace_management=self.workspace_management,
         )
