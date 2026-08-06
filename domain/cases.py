@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from datetime import date
-from typing import ClassVar, Literal
+from typing import ClassVar, Literal, cast
 
 from pydantic import Field, model_validator
 
@@ -113,9 +113,12 @@ class Case(BaseDomainModel):
         transition_time = time.time() if at is None else at
         if transition_time < self.updated_at:
             raise ValueError("状态变更时间不能早于案件更新时间")
-        return self.model_copy(
-            update={
-                "status": target,
-                "updated_at": transition_time,
-            }
+        return cast(
+            "Case",
+            self.model_copy(
+                update={
+                    "status": target,
+                    "updated_at": transition_time,
+                }
+            ),
         )

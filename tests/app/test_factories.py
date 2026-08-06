@@ -12,6 +12,7 @@ import pytest
 from app.factories import (
     build_audit_log,
     build_auth,
+    build_case_repo,
     build_chat,
     build_embedder,
     build_evidence,
@@ -20,11 +21,13 @@ from app.factories import (
     build_task_repo,
     build_user_repo,
     build_web_search,
+    build_workspace_repo,
 )
 from config import Settings
 from domain.ports import (
     AuditLogPort,
     AuthPort,
+    CaseRepoPort,
     ChatPort,
     EmbedPort,
     EvidencePort,
@@ -32,6 +35,7 @@ from domain.ports import (
     TaskRepoPort,
     UserRepoPort,
     WebSearchPort,
+    WorkspaceRepoPort,
 )
 
 
@@ -51,6 +55,16 @@ class TestStorageFactories:
     def test_task_repo_satisfies_port(self, settings: Settings) -> None:
         pool = build_sqlite_pool(settings)
         assert isinstance(build_task_repo(settings, pool=pool), TaskRepoPort)
+
+    def test_workspace_repo_satisfies_port(self, settings: Settings) -> None:
+        pool = build_sqlite_pool(settings)
+        assert isinstance(
+            build_workspace_repo(settings, pool=pool), WorkspaceRepoPort
+        )
+
+    def test_case_repo_satisfies_port(self, settings: Settings) -> None:
+        pool = build_sqlite_pool(settings)
+        assert isinstance(build_case_repo(settings, pool=pool), CaseRepoPort)
 
     def test_audit_log_satisfies_port(self, settings: Settings) -> None:
         pool = build_sqlite_pool(settings)

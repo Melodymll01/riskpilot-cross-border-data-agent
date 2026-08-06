@@ -24,6 +24,7 @@ from app.agent import ComplianceCopilotAgent, register_default_tools
 from app.factories import (
     build_audit_log,
     build_auth,
+    build_case_repo,
     build_chat,
     build_consolidation_state_store,
     build_consolidation_worker,
@@ -44,17 +45,20 @@ from app.factories import (
     build_task_repo,
     build_user_repo,
     build_web_search,
+    build_workspace_repo,
 )
 from app.memory import MemoryAssembler
 from app.use_cases import (
     AuthLoginUseCase,
+    CaseManagementUseCase,
     IngestionUseCase,
     KbManagementUseCase,
     RunQueryUseCase,
     TaskManagementUseCase,
+    WorkspaceManagementUseCase,
 )
-from app.use_cases.forget_memory import ForgetMemoryUseCase
 from app.use_cases.feedback import FeedbackUseCase
+from app.use_cases.forget_memory import ForgetMemoryUseCase
 from app.use_cases.memory_settings import MemorySettingsUseCase
 from app.use_cases.run_copilot import RunCopilotUseCase
 
@@ -63,6 +67,7 @@ if TYPE_CHECKING:
     from domain.ports import (
         AuditLogPort,
         AuthPort,
+        CaseRepoPort,
         ChatPort,
         ConsolidationStatePort,
         DocumentLoaderPort,
@@ -80,6 +85,7 @@ if TYPE_CHECKING:
         TaskRepoPort,
         UserRepoPort,
         WebSearchPort,
+        WorkspaceRepoPort,
     )
 
 
@@ -92,6 +98,8 @@ class AppContainer:
         *,
         user_repo: UserRepoPort | None = None,
         task_repo: TaskRepoPort | None = None,
+        workspace_repo: WorkspaceRepoPort | None = None,
+        case_repo: CaseRepoPort | None = None,
         audit_log: AuditLogPort | None = None,
         embedder: EmbedPort | None = None,
         chat: ChatPort | None = None,
@@ -110,13 +118,25 @@ class AppContainer:
         # ── 存储层：SQLite 单连接池给三个 repo 共享 ─────────────────────
         pool = (
             build_sqlite_pool(settings)
-            if user_repo is None or task_repo is None or audit_log is None
+            if (
+                user_repo is None
+                or task_repo is None
+                or workspace_repo is None
+                or case_repo is None
+                or audit_log is None
+            )
             else None
         )
         self.user_repo: UserRepoPort = user_repo or build_user_repo(
             settings, pool=pool
         )
         self.task_repo: TaskRepoPort = task_repo or build_task_repo(
+            settings, pool=pool
+        )
+        self.workspace_repo: WorkspaceRepoPort = (
+            workspace_repo or build_workspace_repo(settings, pool=pool)
+        )
+        self.case_repo: CaseRepoPort = case_repo or build_case_repo(
             settings, pool=pool
         )
         self.audit_log: AuditLogPort = audit_log or build_audit_log(
@@ -192,6 +212,11 @@ class AppContainer:
         # ── use case 装配 ─────────────────────────────────────────────
         self.auth_login = AuthLoginUseCase(self.auth, audit_log=self.audit_log)
         self.task_management = TaskManagementUseCase(self.task_repo)
+        self.workspace_management = WorkspaceManagementUseCase(self.workspace_repo)
+        self.case_management = CaseManagementUseCase(
+            case_repo=self.case_repo,
+            workspace_repo=self.workspace_repo,
+        )
         self.feedback = FeedbackUseCase(self.feedback_repo)
         self.forget_memory = ForgetMemoryUseCase(
             self.memory, audit_log=self.audit_log

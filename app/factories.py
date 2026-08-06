@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 from domain.ports import (
     AuditLogPort,
     AuthPort,
+    CaseRepoPort,
     ChatPort,
     ConsolidationStatePort,
     DocumentLoaderPort,
@@ -35,6 +36,7 @@ from domain.ports import (
     TaskRepoPort,
     UserRepoPort,
     WebSearchPort,
+    WorkspaceRepoPort,
 )
 from infra.audit import SqliteAuditLogRepo
 from infra.auth import AnonymousProvider, AuthService, GitHubOAuthProvider, JwtIssuer
@@ -51,6 +53,7 @@ from infra.research import AgenticResearchAdapter
 from infra.risk_profile import StubRiskProfileService
 from infra.search import EmbedderAdapter, HybridRetrieverAdapter
 from infra.storage import (
+    SqliteCaseRepo,
     SqliteConsolidationStateStore,
     SqliteFeedbackRepo,
     SqliteMemorySettingsStore,
@@ -58,6 +61,7 @@ from infra.storage import (
     SqliteSummaryStore,
     SqliteTaskRepo,
     SqliteUserRepo,
+    SqliteWorkspaceRepo,
 )
 from infra.storage._db import SqliteConnectionPool
 from infra.web import DuckDuckGoAdapter
@@ -81,6 +85,18 @@ def build_task_repo(
     settings: Settings, *, pool: SqliteConnectionPool | None = None
 ) -> TaskRepoPort:
     return SqliteTaskRepo(pool or build_sqlite_pool(settings))
+
+
+def build_workspace_repo(
+    settings: Settings, *, pool: SqliteConnectionPool | None = None
+) -> WorkspaceRepoPort:
+    return SqliteWorkspaceRepo(pool or build_sqlite_pool(settings))
+
+
+def build_case_repo(
+    settings: Settings, *, pool: SqliteConnectionPool | None = None
+) -> CaseRepoPort:
+    return SqliteCaseRepo(pool or build_sqlite_pool(settings))
 
 
 def build_audit_log(
@@ -341,6 +357,7 @@ def build_auth(settings: Settings, user_repo: UserRepoPort) -> AuthPort:
 __all__ = [
     "build_audit_log",
     "build_auth",
+    "build_case_repo",
     "build_chat",
     "build_consolidation_state_store",
     "build_consolidation_worker",
@@ -360,4 +377,5 @@ __all__ = [
     "build_task_repo",
     "build_user_repo",
     "build_web_search",
+    "build_workspace_repo",
 ]

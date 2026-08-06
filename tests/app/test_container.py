@@ -5,15 +5,18 @@ from __future__ import annotations
 from app.container import AppContainer
 from app.use_cases import (
     AuthLoginUseCase,
+    CaseManagementUseCase,
     IngestionUseCase,
     KbManagementUseCase,
     RunQueryUseCase,
     TaskManagementUseCase,
+    WorkspaceManagementUseCase,
 )
 from config import settings
 from domain.ports import (
     AuditLogPort,
     AuthPort,
+    CaseRepoPort,
     ChatPort,
     DocumentLoaderPort,
     EmbedPort,
@@ -24,6 +27,7 @@ from domain.ports import (
     TaskRepoPort,
     UserRepoPort,
     WebSearchPort,
+    WorkspaceRepoPort,
 )
 from tests.fakes import (
     FakeAuditLogRepo,
@@ -35,8 +39,10 @@ from tests.fakes import (
     FakeKbRepo,
     FakeRetrieve,
     FakeWebSearch,
+    InMemoryCaseRepo,
     InMemoryTaskRepo,
     InMemoryUserRepo,
+    InMemoryWorkspaceRepo,
 )
 
 
@@ -45,6 +51,8 @@ def _full_fake_container() -> AppContainer:
         settings,
         user_repo=InMemoryUserRepo(),
         task_repo=InMemoryTaskRepo(),
+        workspace_repo=InMemoryWorkspaceRepo(),
+        case_repo=InMemoryCaseRepo(),
         audit_log=FakeAuditLogRepo(),
         embedder=FakeEmbed(),
         chat=FakeChat(),
@@ -64,6 +72,8 @@ class TestPortConformance:
         c = _full_fake_container()
         assert isinstance(c.user_repo, UserRepoPort)
         assert isinstance(c.task_repo, TaskRepoPort)
+        assert isinstance(c.workspace_repo, WorkspaceRepoPort)
+        assert isinstance(c.case_repo, CaseRepoPort)
         assert isinstance(c.audit_log, AuditLogPort)
         assert isinstance(c.embedder, EmbedPort)
         assert isinstance(c.chat, ChatPort)
@@ -83,6 +93,8 @@ class TestUseCaseWiring:
         c = _full_fake_container()
         assert isinstance(c.auth_login, AuthLoginUseCase)
         assert isinstance(c.task_management, TaskManagementUseCase)
+        assert isinstance(c.workspace_management, WorkspaceManagementUseCase)
+        assert isinstance(c.case_management, CaseManagementUseCase)
         assert isinstance(c.ingest, IngestionUseCase)
         assert isinstance(c.run_query, RunQueryUseCase)
         assert isinstance(c.kb_management, KbManagementUseCase)
@@ -92,6 +104,9 @@ class TestUseCaseWiring:
         c = _full_fake_container()
         assert c.auth_login._auth is c.auth
         assert c.task_management._repo is c.task_repo
+        assert c.workspace_management._repo is c.workspace_repo
+        assert c.case_management._case_repo is c.case_repo
+        assert c.case_management._workspace_repo is c.workspace_repo
         assert c.ingest._embedder is c.embedder
         assert c.run_query._chat is c.chat
         assert c.run_query._retriever is c.retriever
@@ -109,6 +124,8 @@ class TestPartialInjection:
             settings,
             user_repo=InMemoryUserRepo(),
             task_repo=InMemoryTaskRepo(),
+            workspace_repo=InMemoryWorkspaceRepo(),
+            case_repo=InMemoryCaseRepo(),
             embedder=FakeEmbed(),
             chat=FakeChat(responses=["hi"]),
             retriever=FakeRetrieve(),

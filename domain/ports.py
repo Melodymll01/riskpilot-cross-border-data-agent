@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Protocol, runtime_checkable
 
+from domain.cases import Case
 from domain.models import (
     Artifact,
     AuditEntry,
@@ -38,6 +39,7 @@ from domain.models import (
     User,
     WebResult,
 )
+from domain.workspaces import Workspace, WorkspaceMembership
 
 # === 身份 ===
 
@@ -76,6 +78,53 @@ class UserRepoPort(Protocol):
     def touch(self, user_id: str) -> None:
         """更新 `last_active_at`，不动其它字段。"""
         ...
+
+
+# === V2 Workspace / Case ===
+
+
+@runtime_checkable
+class WorkspaceRepoPort(Protocol):
+    """Workspace 与成员关系持久化端口。"""
+
+    def create(
+        self,
+        workspace: Workspace,
+        creator_membership: WorkspaceMembership,
+    ) -> None:
+        """原子创建 Workspace，并写入创建者成员关系。"""
+        ...
+
+    def get(self, workspace_id: str) -> Workspace | None: ...
+
+    def list_for_user(self, user_id: str, limit: int = 50) -> list[Workspace]: ...
+
+    def get_membership(
+        self, workspace_id: str, user_id: str
+    ) -> WorkspaceMembership | None: ...
+
+    def upsert_membership(self, membership: WorkspaceMembership) -> None: ...
+
+    def list_memberships(self, workspace_id: str) -> list[WorkspaceMembership]: ...
+
+
+@runtime_checkable
+class CaseRepoPort(Protocol):
+    """V2 合规案件持久化端口。"""
+
+    def create(self, case: Case) -> None: ...
+
+    def get(self, case_id: str) -> Case | None: ...
+
+    def list_for_workspace(
+        self,
+        workspace_id: str,
+        *,
+        include_archived: bool = False,
+        limit: int = 50,
+    ) -> list[Case]: ...
+
+    def update(self, case: Case) -> None: ...
 
 
 # === 任务 / 消息 ===

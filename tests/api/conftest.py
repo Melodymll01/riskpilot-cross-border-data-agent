@@ -30,7 +30,12 @@ from tests.fakes.fake_document_loader import FakeDocumentLoader
 from tests.fakes.fake_embed import FakeEmbed
 from tests.fakes.fake_evidence import FakeEvidence
 from tests.fakes.fake_kb_repo import FakeKbRepo
-from tests.fakes.fake_repos import InMemoryTaskRepo, InMemoryUserRepo
+from tests.fakes.fake_repos import (
+    InMemoryCaseRepo,
+    InMemoryTaskRepo,
+    InMemoryUserRepo,
+    InMemoryWorkspaceRepo,
+)
 from tests.fakes.fake_retrieve import FakeRetrieve
 from tests.fakes.fake_websearch import FakeWebSearch
 
@@ -65,6 +70,8 @@ def container(test_settings: Settings, chat_script: list[str]) -> AppContainer:
         test_settings,
         user_repo=InMemoryUserRepo(),
         task_repo=InMemoryTaskRepo(),
+        workspace_repo=InMemoryWorkspaceRepo(),
+        case_repo=InMemoryCaseRepo(),
         audit_log=FakeAuditLogRepo(),
         embedder=FakeEmbed(),
         chat=FakeChat(responses=chat_script),

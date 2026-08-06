@@ -49,8 +49,28 @@ class WorkspaceNotFound(DomainError):
     """按 `workspace_id` 找不到工作空间或当前用户不可见。"""
 
 
+class WorkspaceAccessDenied(DomainError):
+    """用户属于 Workspace，但角色不足以执行当前操作。"""
+
+    def __init__(self, workspace_id: str, user_id: str, action: str) -> None:
+        self.workspace_id = workspace_id
+        self.user_id = user_id
+        self.action = action
+        super().__init__(
+            f"用户 {user_id!r} 无权在工作空间 {workspace_id!r} 执行 {action!r}"
+        )
+
+
 class CaseNotFound(DomainError):
     """按 `case_id` 找不到案件或当前用户不可见。"""
+
+
+class CaseArchived(DomainError):
+    """归档案件不允许继续修改。"""
+
+    def __init__(self, case_id: str) -> None:
+        self.case_id = case_id
+        super().__init__(f"案件 {case_id!r} 已归档，不允许继续修改")
 
 
 class InvalidCaseTransition(DomainError):

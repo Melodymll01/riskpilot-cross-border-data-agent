@@ -7,7 +7,12 @@ from tests.fakes.fake_document_loader import FakeDocumentLoader
 from tests.fakes.fake_embed import FakeEmbed
 from tests.fakes.fake_evidence import FakeEvidence
 from tests.fakes.fake_kb_repo import FakeKbRepo
-from tests.fakes.fake_repos import InMemoryTaskRepo, InMemoryUserRepo
+from tests.fakes.fake_repos import (
+    InMemoryCaseRepo,
+    InMemoryTaskRepo,
+    InMemoryUserRepo,
+    InMemoryWorkspaceRepo,
+)
 from tests.fakes.fake_retrieve import FakeRetrieve
 from tests.fakes.fake_websearch import FakeWebSearch
 
@@ -24,4 +29,6 @@ __all__ = [
     "FakeWebSearch",
     "InMemoryTaskRepo",
     "InMemoryUserRepo",
+    "InMemoryCaseRepo",
+    "InMemoryWorkspaceRepo",
 ]

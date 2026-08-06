@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import time
 
+from domain.cases import Case
 from domain.models import Artifact, Message, Task, ToolCall, User
+from domain.workspaces import Workspace, WorkspaceMembership
 
 
 class InMemoryUserRepo:
@@ -82,3 +84,86 @@ class InMemoryTaskRepo:
 
     def append_artifact(self, art: Artifact) -> None:
         self._artifacts.append(art)
+
+
+class InMemoryWorkspaceRepo:
+    """`WorkspaceRepoPort` 的内存实现。"""
+
+    def __init__(self) -> None:
+        self._workspaces: dict[str, Workspace] = {}
+        self._memberships: dict[tuple[str, str], WorkspaceMembership] = {}
+
+    def create(
+        self,
+        workspace: Workspace,
+        creator_membership: WorkspaceMembership,
+    ) -> None:
+        self._workspaces[workspace.workspace_id] = workspace
+        self._memberships[
+            (creator_membership.workspace_id, creator_membership.user_id)
+        ] = creator_membership
+
+    def get(self, workspace_id: str) -> Workspace | None:
+        return self._workspaces.get(workspace_id)
+
+    def list_for_user(self, user_id: str, limit: int = 50) -> list[Workspace]:
+        workspace_ids = {
+            workspace_id
+            for workspace_id, member_user_id in self._memberships
+            if member_user_id == user_id
+        }
+        items = [
+            workspace
+            for workspace_id, workspace in self._workspaces.items()
+            if workspace_id in workspace_ids
+        ]
+        items.sort(key=lambda workspace: workspace.updated_at, reverse=True)
+        return items[:limit]
+
+    def get_membership(
+        self, workspace_id: str, user_id: str
+    ) -> WorkspaceMembership | None:
+        return self._memberships.get((workspace_id, user_id))
+
+    def upsert_membership(self, membership: WorkspaceMembership) -> None:
+        self._memberships[(membership.workspace_id, membership.user_id)] = membership
+
+    def list_memberships(self, workspace_id: str) -> list[WorkspaceMembership]:
+        return [
+            membership
+            for (member_workspace_id, _), membership in self._memberships.items()
+            if member_workspace_id == workspace_id
+        ]
+
+
+class InMemoryCaseRepo:
+    """`CaseRepoPort` 的内存实现。"""
+
+    def __init__(self) -> None:
+        self._cases: dict[str, Case] = {}
+
+    def create(self, case: Case) -> None:
+        self._cases[case.case_id] = case
+
+    def get(self, case_id: str) -> Case | None:
+        return self._cases.get(case_id)
+
+    def list_for_workspace(
+        self,
+        workspace_id: str,
+        *,
+        include_archived: bool = False,
+        limit: int = 50,
+    ) -> list[Case]:
+        items = [
+            case
+            for case in self._cases.values()
+            if case.workspace_id == workspace_id
+            and (include_archived or case.status != "archived")
+        ]
+        items.sort(key=lambda case: case.updated_at, reverse=True)
+        return items[:limit]
+
+    def update(self, case: Case) -> None:
+        if case.case_id in self._cases:
+            self._cases[case.case_id] = case

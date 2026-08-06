@@ -26,6 +26,50 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE INDEX IF NOT EXISTS idx_users_provider
     ON users(provider, provider_id);
 
+CREATE TABLE IF NOT EXISTS workspaces (
+    workspace_id TEXT PRIMARY KEY,
+    name         TEXT NOT NULL,
+    status       TEXT NOT NULL DEFAULT 'active',
+    created_by   TEXT NOT NULL,
+    created_at   REAL NOT NULL,
+    updated_at   REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_workspaces_updated
+    ON workspaces(updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS workspace_memberships (
+    workspace_id TEXT NOT NULL,
+    user_id      TEXT NOT NULL,
+    role         TEXT NOT NULL,
+    joined_at    REAL NOT NULL,
+    PRIMARY KEY (workspace_id, user_id),
+    FOREIGN KEY (workspace_id) REFERENCES workspaces(workspace_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_workspace_memberships_user
+    ON workspace_memberships(user_id, joined_at DESC);
+
+CREATE TABLE IF NOT EXISTS compliance_cases (
+    case_id               TEXT PRIMARY KEY,
+    workspace_id          TEXT NOT NULL,
+    title                 TEXT NOT NULL,
+    description           TEXT NOT NULL DEFAULT '',
+    jurisdiction          TEXT NOT NULL DEFAULT 'CN',
+    scenario_type         TEXT NOT NULL DEFAULT '',
+    assessment_date       TEXT,
+    status                TEXT NOT NULL DEFAULT 'draft',
+    owner_id              TEXT NOT NULL,
+    reviewer_id           TEXT,
+    active_assessment_id  TEXT,
+    created_at            REAL NOT NULL,
+    updated_at            REAL NOT NULL,
+    FOREIGN KEY (workspace_id) REFERENCES workspaces(workspace_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_compliance_cases_workspace
+    ON compliance_cases(workspace_id, updated_at DESC);
+
 CREATE TABLE IF NOT EXISTS tasks (
     task_id          TEXT PRIMARY KEY,
     owner_id         TEXT NOT NULL,
