@@ -87,6 +87,14 @@ from domain.models import (
     User,
     WebResult,
 )
+from domain.policies import (
+    PolicyEvaluation,
+    PolicyEvaluationReport,
+    PolicyEvaluationStatus,
+    PolicyRule,
+    PolicyRuleStatus,
+)
+from domain.policy_engine import PolicyRuleEngine
 from domain.ports import (
     AuditLogPort,
     AuthPort,
@@ -193,6 +201,12 @@ __all__ = [
     "CaseFactStatus",
     "CaseFactSource",
     "FactCriticality",
+    "PolicyRule",
+    "PolicyEvaluation",
+    "PolicyEvaluationReport",
+    "PolicyRuleStatus",
+    "PolicyEvaluationStatus",
+    "PolicyRuleEngine",
     # ports
     "AuthPort",
     "AuditLogPort",
