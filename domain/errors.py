@@ -56,9 +56,7 @@ class WorkspaceAccessDenied(DomainError):
         self.workspace_id = workspace_id
         self.user_id = user_id
         self.action = action
-        super().__init__(
-            f"用户 {user_id!r} 无权在工作空间 {workspace_id!r} 执行 {action!r}"
-        )
+        super().__init__(f"用户 {user_id!r} 无权在工作空间 {workspace_id!r} 执行 {action!r}")
 
 
 class CaseNotFound(DomainError):
@@ -81,6 +79,37 @@ class InvalidCaseTransition(DomainError):
         self.source = source
         self.target = target
         super().__init__(f"案件 {case_id!r} 不允许从 {source!r} 转换到 {target!r}")
+
+
+# === V2 Document / Processing ===
+
+
+class DocumentNotFound(DomainError):
+    """按 `document_id` 找不到文档或当前用户不可见。"""
+
+
+class ProcessingJobNotFound(DomainError):
+    """按 `job_id` 找不到处理任务或当前用户不可见。"""
+
+
+class InvalidDocumentTransition(DomainError):
+    """文档状态转换不符合领域状态机。"""
+
+    def __init__(self, document_id: str, source: str, target: str) -> None:
+        self.document_id = document_id
+        self.source = source
+        self.target = target
+        super().__init__(f"文档 {document_id!r} 不允许从 {source!r} 转换到 {target!r}")
+
+
+class InvalidProcessingJobTransition(DomainError):
+    """文档处理任务状态转换不符合领域状态机。"""
+
+    def __init__(self, job_id: str, source: str, target: str) -> None:
+        self.job_id = job_id
+        self.source = source
+        self.target = target
+        super().__init__(f"处理任务 {job_id!r} 不允许从 {source!r} 转换到 {target!r}")
 
 
 # === Tool / Agent ===
