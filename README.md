@@ -4,7 +4,7 @@
 [![tests](https://img.shields.io/badge/tests-791%20passed-brightgreen)](https://github.com/Melodymll01/riskpilot-cross-border-data-agent/actions/workflows/ci.yml)
 [![python](https://img.shields.io/badge/python-3.12-blue)](pyproject.toml)
 [![arch](https://img.shields.io/badge/arch-DDD%204--layer-9b5bff)](docs/architecture/overview.md)
-[![agent](https://img.shields.io/badge/agent-ReAct%20%C2%B7%204%20tools-ff7a59)](retrieval/agent/agentic_rag.py)
+[![agent](https://img.shields.io/badge/agent-ReAct%20%C2%B7%204%20tools-ff7a59)](app/agent/copilot.py)
 [![memory](https://img.shields.io/badge/memory-4--layer-00b3a4)](infra/memory/)
 
 > 面向**数据出境合规**场景的领域智能体，内置以《个人信息保护法》《数据安全法》《网络安全法》及安全评估 / 标准合同 / 个保认证三路径为代表的法规知识库（可自行上传扩充任意 PDF/TXT/DOCX 或采集网页）。
@@ -35,7 +35,7 @@
 
 | 能力 | 实现 | 代码 |
 | --- | --- | --- |
-| **自主工具调用** | LLM 输出 JSON 决策协议，运行时分发到 4 工具：证据研判 / 法条库 / 用户私库 / Web 兜底 | [agentic_rag.py](retrieval/agent/agentic_rag.py) |
+| **自主工具调用** | LLM 输出 JSON 决策协议，运行时分发到 4 工具：证据研判 / 法条库 / 用户私库 / Web 兜底 | [copilot.py](app/agent/copilot.py) |
 | **多步推理 + 自反思** | 证据不足时回到查询变换重新检索，每步以 9 类 `AgentEvent` 流式推送，过程可观测 | [retrieval/agent/](retrieval/agent/) |
 | **OOD 拦截** | 检索前做 5 类意图分类，域外问题直接拒答 | [question_classifier.py](retrieval/agent/question_classifier.py) |
 | **查询变换** | 对模糊 / 复合问题做改写、拆解、HyDE | [query_transformer.py](retrieval/agent/query_transformer.py) |
@@ -160,7 +160,7 @@ ADMIN_USER_IDS=github:your-github-login
 
 | 方法 | 路径 | 权限 | 说明 |
 | --- | --- | --- | --- |
-| GET | `/copilot/stream` | 登录 | **SSE 流式 + AgentEvent** |
+| POST | `/copilot/chat/stream` | 登录 | **SSE 流式 + AgentEvent** |
 | POST | `/copilot/chat` | 登录 | 同步聚合对话 |
 | GET/PATCH/DELETE | `/tasks/*` | owner | 任务历史 CRUD |
 | GET | `/documents` `/stats` `/{name}` | 登录 | KB 读取 |
@@ -186,9 +186,10 @@ ADMIN_USER_IDS=github:your-github-login
 
 ## 文档
 
-1. **架构全景**：[docs/architecture/overview.md](docs/architecture/overview.md)
-2. **架构决策**：[docs/decisions/](docs/decisions/) — 13 个 ADR
-3. **演进日志**：[docs/process/](docs/process/) — Step 001-034 每步一篇
+1. **V2 完整设计**：[docs/design/riskpilot-v2.md](docs/design/riskpilot-v2.md)
+2. **架构全景**：[docs/architecture/overview.md](docs/architecture/overview.md)
+3. **架构决策**：[docs/decisions/](docs/decisions/)
+4. **迁移基线**：[docs/design/v2-migration-baseline.md](docs/design/v2-migration-baseline.md)
 
 ## 协议
 

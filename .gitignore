@@ -101,7 +101,14 @@ evaluations/**/*.tmp.json
 # =========================
 interview_doc/
 prompts/
-docs/
+# V2 设计、架构和 ADR 是工程 SSOT，需要进入版本控制；其它临时文档默认忽略。
+docs/*
+!docs/architecture/
+!docs/architecture/**
+!docs/design/
+!docs/design/**
+!docs/decisions/
+!docs/decisions/**
 .github/skills/
 .copilot/
 .claude/
@@ -144,8 +151,8 @@ yarn-error.log*
 # 显式跟踪（防止以上规则误伤）
 # 这些文件夹/文件是工程档案，必须进 git
 # =========================
-# docs/decisions/    — ADR 决策记录
-# docs/process/      — 开发过程留痕
-# docs/architecture/ — 架构设计
+# docs/decisions/    — ADR 决策记录（已显式放行）
+# docs/design/       — 产品与技术设计 SSOT（已显式放行）
+# docs/architecture/ — 架构设计（已显式放行）
 # evaluations/**/datasets/  — 评测输入数据集
 !.gitkeep
