@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 from domain.ports import (
     AuditLogPort,
     AuthPort,
+    CaseFactRepoPort,
     CaseRepoPort,
     ChatPort,
     ConsolidationStatePort,
@@ -60,6 +61,7 @@ from infra.research import AgenticResearchAdapter
 from infra.risk_profile import StubRiskProfileService
 from infra.search import EmbedderAdapter, HybridRetrieverAdapter
 from infra.storage import (
+    SqliteCaseFactRepo,
     SqliteCaseRepo,
     SqliteConsolidationStateStore,
     SqliteDocumentRepo,
@@ -105,6 +107,12 @@ def build_case_repo(
     settings: Settings, *, pool: SqliteConnectionPool | None = None
 ) -> CaseRepoPort:
     return SqliteCaseRepo(pool or build_sqlite_pool(settings))
+
+
+def build_case_fact_repo(
+    settings: Settings, *, pool: SqliteConnectionPool | None = None
+) -> CaseFactRepoPort:
+    return SqliteCaseFactRepo(pool or build_sqlite_pool(settings))
 
 
 def build_document_repo(
@@ -398,6 +406,7 @@ __all__ = [
     "build_audit_log",
     "build_auth",
     "build_case_repo",
+    "build_case_fact_repo",
     "build_chat",
     "build_consolidation_state_store",
     "build_consolidation_worker",

@@ -21,6 +21,7 @@ class CaseFactEvidence(BaseDomainModel):
     evidence_id: str = Field(min_length=1)
     case_id: str = Field(min_length=1)
     fact_id: str = Field(min_length=1)
+    fact_version: int = Field(ge=1)
     document_id: str = Field(min_length=1)
     document_version_id: str = Field(min_length=1)
     page_number: int = Field(ge=1)

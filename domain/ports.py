@@ -20,6 +20,7 @@ from domain.cases import Case
 from domain.document_content import DocumentParseSnapshot
 from domain.documents import CaseDocument, Document, DocumentVersion, ProcessingJob
 from domain.evidence import EvidenceChunk, EvidenceSearchHit
+from domain.facts import CaseFact, CaseFactEvidence
 from domain.models import (
     Artifact,
     AuditEntry,
@@ -261,6 +262,43 @@ class EvidenceIndexPort(Protocol):
     ) -> None:
         """原子替换版本证据块，并完成文档与任务状态。"""
         ...
+
+
+@runtime_checkable
+class CaseFactRepoPort(Protocol):
+    """案件事实当前快照、版本历史和证据引用端口。"""
+
+    def create(
+        self,
+        fact: CaseFact,
+        evidence: list[CaseFactEvidence],
+    ) -> None: ...
+
+    def get(self, fact_id: str) -> CaseFact | None: ...
+
+    def get_version(self, fact_id: str, version: int) -> CaseFact | None: ...
+
+    def list_for_case(
+        self,
+        case_id: str,
+        *,
+        statuses: set[str] | None = None,
+    ) -> list[CaseFact]: ...
+
+    def list_evidence(
+        self,
+        fact_id: str,
+        *,
+        fact_version: int | None = None,
+    ) -> list[CaseFactEvidence]: ...
+
+    def save_revision(
+        self,
+        fact: CaseFact,
+        evidence: list[CaseFactEvidence],
+    ) -> None: ...
+
+    def update_status(self, fact: CaseFact) -> None: ...
 
 
 # === 任务 / 消息 ===

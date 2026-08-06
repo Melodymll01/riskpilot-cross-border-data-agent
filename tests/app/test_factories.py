@@ -12,6 +12,7 @@ import pytest
 from app.factories import (
     build_audit_log,
     build_auth,
+    build_case_fact_repo,
     build_case_repo,
     build_chat,
     build_document_parser,
@@ -30,6 +31,7 @@ from config import Settings
 from domain.ports import (
     AuditLogPort,
     AuthPort,
+    CaseFactRepoPort,
     CaseRepoPort,
     ChatPort,
     DocumentParserPort,
@@ -74,6 +76,10 @@ class TestStorageFactories:
     def test_case_repo_satisfies_port(self, settings: Settings) -> None:
         pool = build_sqlite_pool(settings)
         assert isinstance(build_case_repo(settings, pool=pool), CaseRepoPort)
+
+    def test_case_fact_repo_satisfies_port(self, settings: Settings) -> None:
+        pool = build_sqlite_pool(settings)
+        assert isinstance(build_case_fact_repo(settings, pool=pool), CaseFactRepoPort)
 
     def test_document_repo_satisfies_port(self, settings: Settings) -> None:
         pool = build_sqlite_pool(settings)

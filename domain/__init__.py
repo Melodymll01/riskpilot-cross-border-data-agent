@@ -90,6 +90,7 @@ from domain.models import (
 from domain.ports import (
     AuditLogPort,
     AuthPort,
+    CaseFactRepoPort,
     CaseRepoPort,
     ChatPort,
     DocumentLoaderPort,
@@ -198,6 +199,7 @@ __all__ = [
     "UserRepoPort",
     "WorkspaceRepoPort",
     "CaseRepoPort",
+    "CaseFactRepoPort",
     "DocumentRepoPort",
     "DocumentParserPort",
     "EvidenceChunkerPort",

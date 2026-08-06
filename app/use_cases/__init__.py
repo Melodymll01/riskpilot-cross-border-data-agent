@@ -9,6 +9,11 @@ from app.use_cases.document_management import (
     DocumentUploadResult,
 )
 from app.use_cases.evidence_search import EvidenceSearchUseCase
+from app.use_cases.fact_management import (
+    FactDetail,
+    FactEvidenceInput,
+    FactManagementUseCase,
+)
 from app.use_cases.ingest import IngestionUseCase
 from app.use_cases.kb_management import KbIngestResult, KbManagementUseCase
 from app.use_cases.run_query import RunQueryUseCase
@@ -23,6 +28,9 @@ __all__ = [
     "DocumentManagementUseCase",
     "DocumentUploadResult",
     "EvidenceSearchUseCase",
+    "FactDetail",
+    "FactEvidenceInput",
+    "FactManagementUseCase",
     "IngestionUseCase",
     "KbIngestResult",
     "KbManagementUseCase",

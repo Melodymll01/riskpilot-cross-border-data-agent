@@ -24,6 +24,7 @@ from app.agent import ComplianceCopilotAgent, register_default_tools
 from app.factories import (
     build_audit_log,
     build_auth,
+    build_case_fact_repo,
     build_case_repo,
     build_chat,
     build_consolidation_state_store,
@@ -58,6 +59,7 @@ from app.use_cases import (
     CaseManagementUseCase,
     DocumentManagementUseCase,
     EvidenceSearchUseCase,
+    FactManagementUseCase,
     IngestionUseCase,
     KbManagementUseCase,
     RunQueryUseCase,
@@ -74,6 +76,7 @@ if TYPE_CHECKING:
     from domain.ports import (
         AuditLogPort,
         AuthPort,
+        CaseFactRepoPort,
         CaseRepoPort,
         ChatPort,
         ConsolidationStatePort,
@@ -112,6 +115,7 @@ class AppContainer:
         task_repo: TaskRepoPort | None = None,
         workspace_repo: WorkspaceRepoPort | None = None,
         case_repo: CaseRepoPort | None = None,
+        case_fact_repo: CaseFactRepoPort | None = None,
         audit_log: AuditLogPort | None = None,
         embedder: EmbedPort | None = None,
         chat: ChatPort | None = None,
@@ -140,6 +144,7 @@ class AppContainer:
                 or task_repo is None
                 or workspace_repo is None
                 or case_repo is None
+                or case_fact_repo is None
                 or document_repo is None
                 or evidence_index is None
                 or audit_log is None
@@ -157,6 +162,9 @@ class AppContainer:
         )
         self.case_repo: CaseRepoPort = case_repo or build_case_repo(
             settings, pool=pool
+        )
+        self.case_fact_repo: CaseFactRepoPort = (
+            case_fact_repo or build_case_fact_repo(settings, pool=pool)
         )
         self.document_repo: DocumentRepoPort = document_repo or build_document_repo(
             settings, pool=pool
@@ -277,6 +285,12 @@ class AppContainer:
             evidence_index=self.evidence_index,
             embedder=self.embedder,
             case_management=self.case_management,
+        )
+        self.fact_management = FactManagementUseCase(
+            fact_repo=self.case_fact_repo,
+            document_repo=self.document_repo,
+            case_management=self.case_management,
+            workspace_management=self.workspace_management,
         )
         self.feedback = FeedbackUseCase(self.feedback_repo)
         self.forget_memory = ForgetMemoryUseCase(

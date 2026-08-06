@@ -16,6 +16,7 @@ from config import settings
 from domain.ports import (
     AuditLogPort,
     AuthPort,
+    CaseFactRepoPort,
     CaseRepoPort,
     ChatPort,
     DocumentLoaderPort,
@@ -47,6 +48,7 @@ from tests.fakes import (
     FakeObjectStore,
     FakeRetrieve,
     FakeWebSearch,
+    InMemoryCaseFactRepo,
     InMemoryCaseRepo,
     InMemoryDocumentRepo,
     InMemoryTaskRepo,
@@ -63,6 +65,7 @@ def _full_fake_container() -> AppContainer:
         task_repo=InMemoryTaskRepo(),
         workspace_repo=InMemoryWorkspaceRepo(),
         case_repo=InMemoryCaseRepo(),
+        case_fact_repo=InMemoryCaseFactRepo(),
         document_repo=document_repo,
         object_store=FakeObjectStore(),
         document_parser=FakeDocumentParser(),
@@ -89,6 +92,7 @@ class TestPortConformance:
         assert isinstance(c.task_repo, TaskRepoPort)
         assert isinstance(c.workspace_repo, WorkspaceRepoPort)
         assert isinstance(c.case_repo, CaseRepoPort)
+        assert isinstance(c.case_fact_repo, CaseFactRepoPort)
         assert isinstance(c.document_repo, DocumentRepoPort)
         assert isinstance(c.object_store, ObjectStorePort)
         assert isinstance(c.evidence_chunker, EvidenceChunkerPort)
@@ -146,6 +150,7 @@ class TestPartialInjection:
             task_repo=InMemoryTaskRepo(),
             workspace_repo=InMemoryWorkspaceRepo(),
             case_repo=InMemoryCaseRepo(),
+            case_fact_repo=InMemoryCaseFactRepo(),
             document_repo=document_repo,
             object_store=FakeObjectStore(),
             document_parser=FakeDocumentParser(),

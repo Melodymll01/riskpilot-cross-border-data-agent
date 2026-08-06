@@ -7,6 +7,7 @@ import pytest
 from domain.models import Chunk, EvidenceJudgement, KbChunk, KbDocument, WebResult
 from domain.ports import (
     AuditLogPort,
+    CaseFactRepoPort,
     ChatPort,
     DocumentLoaderPort,
     DocumentParserPort,
@@ -35,6 +36,7 @@ from tests.fakes import (
     FakeObjectStore,
     FakeRetrieve,
     FakeWebSearch,
+    InMemoryCaseFactRepo,
     InMemoryDocumentRepo,
     InMemoryTaskRepo,
     InMemoryUserRepo,
@@ -77,6 +79,9 @@ class TestFakeProtocolConformance:
 
     def test_in_memory_document_repo_is_document_repo_port(self) -> None:
         assert isinstance(InMemoryDocumentRepo(), DocumentRepoPort)
+
+    def test_in_memory_case_fact_repo_is_case_fact_repo_port(self) -> None:
+        assert isinstance(InMemoryCaseFactRepo(), CaseFactRepoPort)
 
     def test_fake_object_store_is_object_store_port(self) -> None:
         assert isinstance(FakeObjectStore(), ObjectStorePort)

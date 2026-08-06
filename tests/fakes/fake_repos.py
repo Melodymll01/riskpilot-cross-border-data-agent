@@ -7,6 +7,7 @@ import time
 from domain.cases import Case
 from domain.document_content import DocumentParseSnapshot
 from domain.documents import CaseDocument, Document, DocumentVersion, ProcessingJob
+from domain.facts import CaseFact, CaseFactEvidence
 from domain.models import Artifact, Message, Task, ToolCall, User
 from domain.workspaces import Workspace, WorkspaceMembership
 
@@ -273,3 +274,66 @@ class InMemoryDocumentRepo:
         self, document_version_id: str
     ) -> DocumentParseSnapshot | None:
         return self._snapshots.get(document_version_id)
+
+
+class InMemoryCaseFactRepo:
+    """`CaseFactRepoPort` 的内存实现。"""
+
+    def __init__(self) -> None:
+        self._facts: dict[str, CaseFact] = {}
+        self._versions: dict[tuple[str, int], CaseFact] = {}
+        self._evidence: dict[str, CaseFactEvidence] = {}
+
+    def create(
+        self,
+        fact: CaseFact,
+        evidence: list[CaseFactEvidence],
+    ) -> None:
+        self._facts[fact.fact_id] = fact
+        self._versions[(fact.fact_id, fact.version)] = fact
+        self._evidence.update({item.evidence_id: item for item in evidence})
+
+    def get(self, fact_id: str) -> CaseFact | None:
+        return self._facts.get(fact_id)
+
+    def get_version(self, fact_id: str, version: int) -> CaseFact | None:
+        return self._versions.get((fact_id, version))
+
+    def list_for_case(
+        self,
+        case_id: str,
+        *,
+        statuses: set[str] | None = None,
+    ) -> list[CaseFact]:
+        facts = [
+            fact
+            for fact in self._facts.values()
+            if fact.case_id == case_id
+            and (not statuses or fact.status in statuses)
+        ]
+        facts.sort(key=lambda fact: (fact.updated_at, fact.fact_id), reverse=True)
+        return facts
+
+    def list_evidence(
+        self,
+        fact_id: str,
+        *,
+        fact_version: int | None = None,
+    ) -> list[CaseFactEvidence]:
+        return [
+            evidence
+            for evidence in self._evidence.values()
+            if evidence.fact_id == fact_id
+            and (fact_version is None or evidence.fact_version == fact_version)
+        ]
+
+    def save_revision(
+        self,
+        fact: CaseFact,
+        evidence: list[CaseFactEvidence],
+    ) -> None:
+        self.create(fact, evidence)
+
+    def update_status(self, fact: CaseFact) -> None:
+        self._facts[fact.fact_id] = fact
+        self._versions[(fact.fact_id, fact.version)] = fact

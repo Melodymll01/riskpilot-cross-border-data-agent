@@ -32,6 +32,7 @@ from tests.fakes.fake_evidence_index import FakeEvidenceIndex
 from tests.fakes.fake_kb_repo import FakeKbRepo
 from tests.fakes.fake_object_store import FakeObjectStore
 from tests.fakes.fake_repos import (
+    InMemoryCaseFactRepo,
     InMemoryCaseRepo,
     InMemoryDocumentRepo,
     InMemoryTaskRepo,
@@ -53,6 +54,7 @@ def _make_container(**overrides: object) -> AppContainer:
         task_repo=InMemoryTaskRepo(),
         workspace_repo=InMemoryWorkspaceRepo(),
         case_repo=InMemoryCaseRepo(),
+        case_fact_repo=InMemoryCaseFactRepo(),
         document_repo=document_repo,
         object_store=FakeObjectStore(),
         document_parser=FakeDocumentParser(),

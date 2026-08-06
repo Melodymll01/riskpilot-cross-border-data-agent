@@ -166,6 +166,59 @@ CREATE TABLE IF NOT EXISTS evidence_chunks (
 CREATE INDEX IF NOT EXISTS idx_evidence_chunks_scope
     ON evidence_chunks(workspace_id, case_id, document_version_id);
 
+CREATE TABLE IF NOT EXISTS case_facts (
+    fact_id        TEXT PRIMARY KEY,
+    case_id        TEXT NOT NULL,
+    field_name     TEXT NOT NULL,
+    value_json     TEXT,
+    status         TEXT NOT NULL,
+    source_type    TEXT NOT NULL,
+    confidence     REAL NOT NULL,
+    criticality    TEXT NOT NULL,
+    version        INTEGER NOT NULL,
+    created_by     TEXT NOT NULL,
+    confirmed_by   TEXT,
+    confirmed_at   REAL,
+    created_at     REAL NOT NULL,
+    updated_at     REAL NOT NULL,
+    FOREIGN KEY (case_id) REFERENCES compliance_cases(case_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_case_facts_case
+    ON case_facts(case_id, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS case_fact_versions (
+    fact_id        TEXT NOT NULL,
+    version        INTEGER NOT NULL,
+    payload_json   TEXT NOT NULL,
+    created_at     REAL NOT NULL,
+    PRIMARY KEY (fact_id, version),
+    FOREIGN KEY (fact_id) REFERENCES case_facts(fact_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS case_fact_evidence (
+    evidence_id         TEXT PRIMARY KEY,
+    case_id             TEXT NOT NULL,
+    fact_id             TEXT NOT NULL,
+    fact_version        INTEGER NOT NULL,
+    document_id         TEXT NOT NULL,
+    document_version_id TEXT NOT NULL,
+    page_number         INTEGER NOT NULL,
+    quote               TEXT NOT NULL,
+    start_offset        INTEGER,
+    end_offset          INTEGER,
+    confidence          REAL NOT NULL,
+    created_at          REAL NOT NULL,
+    FOREIGN KEY (case_id) REFERENCES compliance_cases(case_id) ON DELETE CASCADE,
+    FOREIGN KEY (fact_id, fact_version)
+        REFERENCES case_fact_versions(fact_id, version) ON DELETE CASCADE,
+    FOREIGN KEY (document_id) REFERENCES documents(document_id) ON DELETE CASCADE,
+    FOREIGN KEY (document_version_id) REFERENCES document_versions(version_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_case_fact_evidence_fact
+    ON case_fact_evidence(fact_id, fact_version);
+
 CREATE TABLE IF NOT EXISTS tasks (
     task_id          TEXT PRIMARY KEY,
     owner_id         TEXT NOT NULL,
