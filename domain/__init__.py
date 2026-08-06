@@ -6,6 +6,12 @@
 from __future__ import annotations
 
 from domain.cases import Case, CaseStatus
+from domain.document_content import (
+    DocumentParseSnapshot,
+    ExtractionMethod,
+    ParsedPage,
+    ParsedTable,
+)
 from domain.documents import (
     CaseDocument,
     Document,
@@ -160,6 +166,10 @@ __all__ = [
     "DocumentStatus",
     "ProcessingJobStatus",
     "ProcessingStage",
+    "ParsedTable",
+    "ParsedPage",
+    "DocumentParseSnapshot",
+    "ExtractionMethod",
     # ports
     "AuthPort",
     "AuditLogPort",
