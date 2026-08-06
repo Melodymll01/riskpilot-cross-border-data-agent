@@ -124,6 +124,23 @@ class InvalidProcessingJobTransition(DomainError):
         super().__init__(f"处理任务 {job_id!r} 不允许从 {source!r} 转换到 {target!r}")
 
 
+# === V2 Fact / Policy ===
+
+
+class CaseFactNotFound(DomainError):
+    """按 `fact_id` 找不到案件事实或当前用户不可见。"""
+
+
+class InvalidCaseFactTransition(DomainError):
+    """案件事实状态转换不符合领域状态机。"""
+
+    def __init__(self, fact_id: str, source: str, target: str) -> None:
+        self.fact_id = fact_id
+        self.source = source
+        self.target = target
+        super().__init__(f"案件事实 {fact_id!r} 不允许从 {source!r} 转换到 {target!r}")
+
+
 # === Tool / Agent ===
 
 

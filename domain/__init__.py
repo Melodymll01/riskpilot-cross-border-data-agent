@@ -24,11 +24,13 @@ from domain.documents import (
 from domain.errors import (
     AuthError,
     CaseArchived,
+    CaseFactNotFound,
     CaseNotFound,
     DocumentNotFound,
     DocumentTooLarge,
     DomainError,
     EvidenceServiceError,
+    InvalidCaseFactTransition,
     InvalidCaseTransition,
     InvalidDocumentContent,
     InvalidDocumentTransition,
@@ -50,6 +52,13 @@ from domain.errors import (
     WorkspaceNotFound,
 )
 from domain.evidence import EvidenceChunk, EvidenceSearchHit
+from domain.facts import (
+    CaseFact,
+    CaseFactEvidence,
+    CaseFactSource,
+    CaseFactStatus,
+    FactCriticality,
+)
 from domain.models import (
     Artifact,
     AuditAction,
@@ -115,6 +124,8 @@ __all__ = [
     "WorkspaceAccessDenied",
     "CaseNotFound",
     "CaseArchived",
+    "CaseFactNotFound",
+    "InvalidCaseFactTransition",
     "InvalidCaseTransition",
     "DocumentNotFound",
     "ProcessingJobNotFound",
@@ -176,6 +187,11 @@ __all__ = [
     "ExtractionMethod",
     "EvidenceChunk",
     "EvidenceSearchHit",
+    "CaseFact",
+    "CaseFactEvidence",
+    "CaseFactStatus",
+    "CaseFactSource",
+    "FactCriticality",
     # ports
     "AuthPort",
     "AuditLogPort",
