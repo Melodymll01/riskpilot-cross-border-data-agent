@@ -20,6 +20,7 @@ from fastapi.testclient import TestClient
 
 from api.v2 import build_v2_router
 from api.v2.errors import install_exception_handlers
+from api.v3 import build_v3_router
 from app.container import AppContainer
 from app.request_context import install_request_id_middleware
 from config import Settings
@@ -90,6 +91,7 @@ def app(container: AppContainer) -> FastAPI:
     # Step 025d：挂 request_id middleware，确保端到端测试的 contextvar 与生产一致
     install_request_id_middleware(fastapi_app)
     fastapi_app.include_router(build_v2_router(container), prefix="/api/v2")
+    fastapi_app.include_router(build_v3_router(container), prefix="/api/v3")
     install_exception_handlers(fastapi_app)
     # 暴露 container，方便测试里直接读 repo / fakes 验证副作用
     fastapi_app.state.container = container

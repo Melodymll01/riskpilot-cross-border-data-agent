@@ -12,7 +12,10 @@ from fastapi.responses import JSONResponse
 from api.v2.schemas import ErrorResponse
 from domain.errors import (
     AuthError,
+    CaseArchived,
+    CaseNotFound,
     DomainError,
+    InvalidCaseTransition,
     InvalidToken,
     OAuthFlowError,
     OwnerMismatch,
@@ -20,6 +23,8 @@ from domain.errors import (
     ToolExecutionError,
     ToolNotFound,
     UserNotFound,
+    WorkspaceAccessDenied,
+    WorkspaceNotFound,
 )
 
 # DomainError 类型 → (http_status, error_code)
@@ -30,6 +35,11 @@ _DOMAIN_MAP: dict[type[DomainError], tuple[int, str]] = {
     UserNotFound: (status.HTTP_404_NOT_FOUND, "USER_NOT_FOUND"),
     TaskNotFound: (status.HTTP_404_NOT_FOUND, "TASK_NOT_FOUND"),
     OwnerMismatch: (status.HTTP_403_FORBIDDEN, "FORBIDDEN"),
+    WorkspaceNotFound: (status.HTTP_404_NOT_FOUND, "WORKSPACE_NOT_FOUND"),
+    WorkspaceAccessDenied: (status.HTTP_403_FORBIDDEN, "WORKSPACE_FORBIDDEN"),
+    CaseNotFound: (status.HTTP_404_NOT_FOUND, "CASE_NOT_FOUND"),
+    CaseArchived: (status.HTTP_409_CONFLICT, "CASE_ARCHIVED"),
+    InvalidCaseTransition: (status.HTTP_409_CONFLICT, "INVALID_CASE_TRANSITION"),
     ToolNotFound: (status.HTTP_400_BAD_REQUEST, "TOOL_NOT_FOUND"),
     ToolExecutionError: (status.HTTP_502_BAD_GATEWAY, "TOOL_FAILED"),
 }
@@ -43,12 +53,16 @@ def _map_domain_error(exc: DomainError) -> tuple[int, str]:
     return status.HTTP_500_INTERNAL_SERVER_ERROR, "DOMAIN_ERROR"
 
 
-def install_exception_handlers(app: object, *, path_prefix: str = "/api/v2") -> None:
+def install_exception_handlers(
+    app: object,
+    *,
+    path_prefixes: tuple[str, ...] = ("/api/v2", "/api/v3"),
+) -> None:
     """把异常处理注册到 FastAPI app 上（不是 router，因为 exception handler 只在 app 层有效）。
 
     用 ``object`` 注解避免顶层依赖 FastAPI 名字（运行时仍是 FastAPI 实例）。
 
-    ``path_prefix`` 用来限定作用域：只有命中该前缀的请求才走 v2 的统一 error 协议；
+    ``path_prefixes`` 用来限定作用域：只有命中这些前缀的请求才走统一 error 协议；
     其他路径（老 ``/api/*``、根路径、静态文件等）继续走 FastAPI/Starlette 的默认行为。
     这样 Strangler Fig 不破——老路由的 ``HTTPException(detail="...")`` 仍按原契约返回。
     """
@@ -59,7 +73,7 @@ def install_exception_handlers(app: object, *, path_prefix: str = "/api/v2") -> 
         raise TypeError(msg)
 
     def _in_scope(request: Request) -> bool:
-        return request.url.path.startswith(path_prefix)
+        return request.url.path.startswith(path_prefixes)
 
     def _default_http_response(exc: HTTPException) -> JSONResponse:
         """老路由的回落响应：保持 FastAPI 默认契约 ``{"detail": <whatever>}``。"""

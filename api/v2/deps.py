@@ -46,7 +46,7 @@ def make_require_owner(container: AppContainer) -> Callable[[Request], str]:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail={
                     "error_code": "AUTH_REQUIRED",
-                    "message": "需要登录或先调用 /api/v2/auth/anonymous 获得身份",
+                    "message": "需要登录或先获取匿名身份",
                 },
             )
         return uid
@@ -77,7 +77,7 @@ def make_require_admin(container: AppContainer) -> Callable[[Request], str]:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail={
                     "error_code": "AUTH_REQUIRED",
-                    "message": "需要登录或先调用 /api/v2/auth/anonymous 获得身份",
+                    "message": "需要登录或先获取匿名身份",
                 },
             )
         if uid not in admin_set:

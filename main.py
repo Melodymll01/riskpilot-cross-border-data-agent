@@ -23,6 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from api.v2 import build_v2_router
 from api.v2.errors import install_exception_handlers
 from api.v2.ratelimit import build_limiter
+from api.v3 import build_v3_router
 from app.container import AppContainer
 from app.logging_setup import configure_logging
 from app.request_context import (
@@ -214,9 +215,10 @@ app.state.container = container
 limiter = build_limiter(settings)
 
 app.include_router(build_v2_router(container, limiter=limiter), prefix="/api/v2")
+app.include_router(build_v3_router(container), prefix="/api/v3")
 install_exception_handlers(app)
 logger.info(
-    "api/v2 routes mounted (tools=%s, rate_limit=%s)",
+    "api/v2 + api/v3 routes mounted (tools=%s, rate_limit=%s)",
     sorted(container.tool_registry.keys()),
     "on" if limiter is not None else "off",
 )

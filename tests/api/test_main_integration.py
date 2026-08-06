@@ -1,4 +1,4 @@
-"""集成测试：``main:app`` 挂载 ``/api/v2/*``（v1 已于 Step 029 退役）。
+"""集成测试：``main:app`` 同时挂载 ``/api/v2/*`` 与 ``/api/v3/*``。
 
 策略：
 - 不再用 fresh FastAPI + 全 Fake container（那是 unit-level 测试，见 tests/api/）
@@ -87,6 +87,25 @@ def test_v2_require_owner_blocks_unauthed(main_client):
         assert resp.json()["error_code"] == "AUTH_REQUIRED"
 
 
+def test_v3_workspace_route_mounted(main_client):
+    """真实主应用挂载 V3；无登录态访问时应命中鉴权而非 404。"""
+    from fastapi.testclient import TestClient
+
+    import main as main_module
+
+    with TestClient(main_module.app) as fresh:
+        resp = fresh.get("/api/v3/workspaces")
+        assert resp.status_code == 401
+        assert resp.json()["error_code"] == "AUTH_REQUIRED"
+
+
+def test_openapi_contains_v2_and_v3(main_client):
+    paths = main_client.get("/openapi.json").json()["paths"]
+    assert "/api/v2/copilot/chat/stream" in paths
+    assert "/api/v3/workspaces" in paths
+    assert "/api/v3/cases/{case_id}/transitions" in paths
+
+
 def test_legacy_root_still_served(main_client):
     """老的 ``GET /`` 静态前端入口保留（由 main.py 直接服务，非 v1 路由）。"""
     resp = main_client.get("/")
@@ -150,5 +169,3 @@ class TestWarmupResearch:
             # 触发一次请求让事件循环驱动后台预热任务完成
             c.get("/api/v2/health")
         assert calls == [1]
-
-
