@@ -126,6 +126,17 @@ class SqliteDocumentRepo:
         )
         return None if row is None else _row_to_binding(row)
 
+    def list_bindings_for_document(self, document_id: str) -> list[CaseDocument]:
+        rows = self._pool.get().execute(
+            """
+            SELECT * FROM case_documents
+            WHERE document_id = ?
+            ORDER BY added_at, case_id
+            """,
+            (document_id,),
+        ).fetchall()
+        return [_row_to_binding(row) for row in rows]
+
     def list_for_case(
         self,
         case_id: str,

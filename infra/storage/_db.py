@@ -145,6 +145,27 @@ CREATE TABLE IF NOT EXISTS document_parse_snapshots (
     FOREIGN KEY (document_version_id) REFERENCES document_versions(version_id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS evidence_chunks (
+    chunk_id              TEXT PRIMARY KEY,
+    workspace_id          TEXT NOT NULL,
+    case_id               TEXT NOT NULL,
+    document_id           TEXT NOT NULL,
+    document_version_id   TEXT NOT NULL,
+    page_number           INTEGER NOT NULL,
+    chunk_index           INTEGER NOT NULL,
+    text                  TEXT NOT NULL,
+    source_sha256         TEXT NOT NULL,
+    embedding_json        TEXT NOT NULL,
+    created_at            REAL NOT NULL,
+    UNIQUE (case_id, document_version_id, page_number, chunk_index),
+    FOREIGN KEY (case_id) REFERENCES compliance_cases(case_id) ON DELETE CASCADE,
+    FOREIGN KEY (document_id) REFERENCES documents(document_id) ON DELETE CASCADE,
+    FOREIGN KEY (document_version_id) REFERENCES document_versions(version_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_evidence_chunks_scope
+    ON evidence_chunks(workspace_id, case_id, document_version_id);
+
 CREATE TABLE IF NOT EXISTS tasks (
     task_id          TEXT PRIMARY KEY,
     owner_id         TEXT NOT NULL,

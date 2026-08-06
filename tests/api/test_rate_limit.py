@@ -27,6 +27,8 @@ from tests.fakes.fake_document_loader import FakeDocumentLoader
 from tests.fakes.fake_document_parser import FakeDocumentParser
 from tests.fakes.fake_embed import FakeEmbed
 from tests.fakes.fake_evidence import FakeEvidence
+from tests.fakes.fake_evidence_chunker import FakeEvidenceChunker
+from tests.fakes.fake_evidence_index import FakeEvidenceIndex
 from tests.fakes.fake_kb_repo import FakeKbRepo
 from tests.fakes.fake_object_store import FakeObjectStore
 from tests.fakes.fake_repos import (
@@ -44,15 +46,18 @@ _FINAL_JSON = json.dumps({"thought": "", "action": "final_answer", "answer": "do
 
 def _make_container(**overrides: object) -> AppContainer:
     settings = Settings(_env_file=None, **overrides)  # type: ignore[arg-type]
+    document_repo = InMemoryDocumentRepo()
     return AppContainer(
         settings,
         user_repo=InMemoryUserRepo(),
         task_repo=InMemoryTaskRepo(),
         workspace_repo=InMemoryWorkspaceRepo(),
         case_repo=InMemoryCaseRepo(),
-        document_repo=InMemoryDocumentRepo(),
+        document_repo=document_repo,
         object_store=FakeObjectStore(),
         document_parser=FakeDocumentParser(),
+        evidence_chunker=FakeEvidenceChunker(),
+        evidence_index=FakeEvidenceIndex(document_repo),
         audit_log=FakeAuditLogRepo(),
         embedder=FakeEmbed(),
         chat=FakeChat(responses=[_FINAL_JSON, _FINAL_JSON, _FINAL_JSON, _FINAL_JSON]),

@@ -16,6 +16,7 @@ from api.v3.schemas import (
     DocumentOut,
     DocumentUploadResponse,
     DocumentVersionOut,
+    IndexStageResponse,
     ParseStageResponse,
     ProcessingJobOut,
 )
@@ -221,5 +222,21 @@ def build_document_routes(container: AppContainer) -> APIRouter:
     ) -> ProcessingJobOut:
         job = container.document_management.retry_job(job_id, actor_id)
         return _to_job_out(job)
+
+    @router.post(
+        "/processing-jobs/{job_id}/index",
+        response_model=IndexStageResponse,
+        summary="建立案件证据索引并完成处理任务",
+    )
+    def run_index_stage(
+        job_id: str,
+        actor_id: str = Depends(require_owner),
+    ) -> IndexStageResponse:
+        result = container.document_management.run_index_stage(job_id, actor_id)
+        return IndexStageResponse(
+            document=_to_document_out(result.document),
+            job=_to_job_out(result.job),
+            chunk_count=len(result.chunks),
+        )
 
     return router

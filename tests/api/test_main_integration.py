@@ -108,6 +108,8 @@ def test_openapi_contains_v2_and_v3(main_client):
     assert "/api/v3/processing-jobs/{job_id}" in paths
     assert "/api/v3/processing-jobs/{job_id}/parse" in paths
     assert "/api/v3/processing-jobs/{job_id}/retry" in paths
+    assert "/api/v3/processing-jobs/{job_id}/index" in paths
+    assert "/api/v3/cases/{case_id}/evidence/search" in paths
 
 
 def test_legacy_root_still_served(main_client):

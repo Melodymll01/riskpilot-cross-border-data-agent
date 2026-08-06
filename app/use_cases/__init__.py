@@ -8,6 +8,7 @@ from app.use_cases.document_management import (
     DocumentManagementUseCase,
     DocumentUploadResult,
 )
+from app.use_cases.evidence_search import EvidenceSearchUseCase
 from app.use_cases.ingest import IngestionUseCase
 from app.use_cases.kb_management import KbIngestResult, KbManagementUseCase
 from app.use_cases.run_query import RunQueryUseCase
@@ -21,6 +22,7 @@ __all__ = [
     "DocumentDownload",
     "DocumentManagementUseCase",
     "DocumentUploadResult",
+    "EvidenceSearchUseCase",
     "IngestionUseCase",
     "KbIngestResult",
     "KbManagementUseCase",

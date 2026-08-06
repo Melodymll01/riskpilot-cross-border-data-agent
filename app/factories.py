@@ -23,6 +23,8 @@ from domain.ports import (
     DocumentParserPort,
     DocumentRepoPort,
     EmbedPort,
+    EvidenceChunkerPort,
+    EvidenceIndexPort,
     EvidencePort,
     FactStorePort,
     FeedbackRepoPort,
@@ -45,7 +47,7 @@ from infra.audit import SqliteAuditLogRepo
 from infra.auth import AnonymousProvider, AuthService, GitHubOAuthProvider, JwtIssuer
 from infra.chat import OpenAIChatAdapter
 from infra.document_processing import RiskPilotDocumentParser
-from infra.evidence import MockEvidenceClient
+from infra.evidence import MockEvidenceClient, PageEvidenceChunker, SqliteEvidenceIndex
 from infra.kb import ChromaKbRepo, UnifiedLoaderAdapter
 from infra.memory import (
     ChromaFactStore,
@@ -119,6 +121,22 @@ def build_document_parser(_settings: Settings) -> DocumentParserPort:
     import time
 
     return RiskPilotDocumentParser(clock=time.time)
+
+
+def build_evidence_chunker(settings: Settings) -> EvidenceChunkerPort:
+    import time
+
+    return PageEvidenceChunker(
+        chunk_size=settings.chunk_size,
+        chunk_overlap=settings.chunk_overlap,
+        clock=time.time,
+    )
+
+
+def build_evidence_index(
+    settings: Settings, *, pool: SqliteConnectionPool | None = None
+) -> EvidenceIndexPort:
+    return SqliteEvidenceIndex(pool or build_sqlite_pool(settings))
 
 
 def build_audit_log(
@@ -388,6 +406,8 @@ __all__ = [
     "build_document_repo",
     "build_embedder",
     "build_evidence",
+    "build_evidence_chunker",
+    "build_evidence_index",
     "build_fact_store",
     "build_kb_repo",
     "build_memory",

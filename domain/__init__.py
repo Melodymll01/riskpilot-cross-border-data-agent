@@ -49,6 +49,7 @@ from domain.errors import (
     WorkspaceAccessDenied,
     WorkspaceNotFound,
 )
+from domain.evidence import EvidenceChunk, EvidenceSearchHit
 from domain.models import (
     Artifact,
     AuditAction,
@@ -86,6 +87,8 @@ from domain.ports import (
     DocumentParserPort,
     DocumentRepoPort,
     EmbedPort,
+    EvidenceChunkerPort,
+    EvidenceIndexPort,
     EvidencePort,
     KbDocumentRepoPort,
     MemoryPort,
@@ -171,6 +174,8 @@ __all__ = [
     "ParsedPage",
     "DocumentParseSnapshot",
     "ExtractionMethod",
+    "EvidenceChunk",
+    "EvidenceSearchHit",
     # ports
     "AuthPort",
     "AuditLogPort",
@@ -179,6 +184,8 @@ __all__ = [
     "CaseRepoPort",
     "DocumentRepoPort",
     "DocumentParserPort",
+    "EvidenceChunkerPort",
+    "EvidenceIndexPort",
     "ObjectStorePort",
     "TaskRepoPort",
     "EmbedPort",

@@ -136,6 +136,20 @@ class TestDocumentQueries:
         assert parsed.json()["document"]["status"] == "chunking"
         assert parsed.json()["page_count"] == 1
 
+        indexed = client.post(f"/api/v3/processing-jobs/{job_id}/index")
+        assert indexed.status_code == 200
+        assert indexed.json()["job"]["status"] == "completed"
+        assert indexed.json()["document"]["status"] == "ready"
+        assert indexed.json()["chunk_count"] >= 1
+
+        evidence = client.get(
+            f"/api/v3/cases/{case_id}/evidence/search",
+            params={"query": "制度"},
+        )
+        assert evidence.status_code == 200
+        assert evidence.json()["hits"][0]["chunk"]["document_id"] == document_id
+        assert evidence.json()["hits"][0]["chunk"]["page_number"] == 1
+
     def test_outsider_gets_404_for_document_and_job(
         self, authed_client: tuple[TestClient, dict[str, Any]]
     ) -> None:
@@ -205,3 +219,53 @@ class TestProcessingActions:
         assert retried.json()["retry_count"] == 1
         detail = client.get(f"/api/v3/cases/{case_id}/documents/{document_id}")
         assert detail.json()["document"]["status"] == "queued"
+
+
+class TestEvidenceIsolation:
+    def test_search_never_leaks_other_case_chunks(
+        self, authed_client: tuple[TestClient, dict[str, Any]]
+    ) -> None:
+        client, _ = authed_client
+        workspace_id, case_a = _create_case(client)
+        case_b = client.post(
+            "/api/v3/cases",
+            json={"workspace_id": workspace_id, "title": "案件 B"},
+        ).json()["case_id"]
+
+        uploaded_a = client.post(
+            f"/api/v3/cases/{case_a}/documents",
+            files={"file": ("a.txt", "普通说明".encode(), "text/plain")},
+        ).json()
+        client.post(
+            f"/api/v3/processing-jobs/{uploaded_a['job']['job_id']}/parse"
+        )
+        client.post(
+            f"/api/v3/processing-jobs/{uploaded_a['job']['job_id']}/index"
+        )
+
+        uploaded_b = client.post(
+            f"/api/v3/cases/{case_b}/documents",
+            files={
+                "file": (
+                    "b.txt",
+                    "境外接收方承担责任".encode(),
+                    "text/plain",
+                )
+            },
+        ).json()
+        client.post(
+            f"/api/v3/processing-jobs/{uploaded_b['job']['job_id']}/parse"
+        )
+        client.post(
+            f"/api/v3/processing-jobs/{uploaded_b['job']['job_id']}/index"
+        )
+
+        response = client.get(
+            f"/api/v3/cases/{case_a}/evidence/search",
+            params={"query": "境外接收方承担责任"},
+        )
+        assert response.status_code == 200
+        assert all(
+            hit["chunk"]["document_id"] == uploaded_a["document"]["document_id"]
+            for hit in response.json()["hits"]
+        )

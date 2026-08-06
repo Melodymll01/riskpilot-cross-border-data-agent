@@ -21,6 +21,8 @@ from domain.ports import (
     DocumentLoaderPort,
     DocumentRepoPort,
     EmbedPort,
+    EvidenceChunkerPort,
+    EvidenceIndexPort,
     EvidencePort,
     KbDocumentRepoPort,
     ObjectStorePort,
@@ -39,6 +41,8 @@ from tests.fakes import (
     FakeDocumentParser,
     FakeEmbed,
     FakeEvidence,
+    FakeEvidenceChunker,
+    FakeEvidenceIndex,
     FakeKbRepo,
     FakeObjectStore,
     FakeRetrieve,
@@ -52,15 +56,18 @@ from tests.fakes import (
 
 
 def _full_fake_container() -> AppContainer:
+    document_repo = InMemoryDocumentRepo()
     return AppContainer(
         settings,
         user_repo=InMemoryUserRepo(),
         task_repo=InMemoryTaskRepo(),
         workspace_repo=InMemoryWorkspaceRepo(),
         case_repo=InMemoryCaseRepo(),
-        document_repo=InMemoryDocumentRepo(),
+        document_repo=document_repo,
         object_store=FakeObjectStore(),
         document_parser=FakeDocumentParser(),
+        evidence_chunker=FakeEvidenceChunker(),
+        evidence_index=FakeEvidenceIndex(document_repo),
         audit_log=FakeAuditLogRepo(),
         embedder=FakeEmbed(),
         chat=FakeChat(),
@@ -84,6 +91,8 @@ class TestPortConformance:
         assert isinstance(c.case_repo, CaseRepoPort)
         assert isinstance(c.document_repo, DocumentRepoPort)
         assert isinstance(c.object_store, ObjectStorePort)
+        assert isinstance(c.evidence_chunker, EvidenceChunkerPort)
+        assert isinstance(c.evidence_index, EvidenceIndexPort)
         assert isinstance(c.audit_log, AuditLogPort)
         assert isinstance(c.embedder, EmbedPort)
         assert isinstance(c.chat, ChatPort)
@@ -130,15 +139,18 @@ class TestPartialInjection:
 
     def test_inject_only_chat(self) -> None:
         # 用 fake 替掉 chat，其他从工厂；不真正调用 chat / embed
+        document_repo = InMemoryDocumentRepo()
         c = AppContainer(
             settings,
             user_repo=InMemoryUserRepo(),
             task_repo=InMemoryTaskRepo(),
             workspace_repo=InMemoryWorkspaceRepo(),
             case_repo=InMemoryCaseRepo(),
-            document_repo=InMemoryDocumentRepo(),
+            document_repo=document_repo,
             object_store=FakeObjectStore(),
             document_parser=FakeDocumentParser(),
+            evidence_chunker=FakeEvidenceChunker(),
+            evidence_index=FakeEvidenceIndex(document_repo),
             embedder=FakeEmbed(),
             chat=FakeChat(responses=["hi"]),
             retriever=FakeRetrieve(),

@@ -211,6 +211,13 @@ class InMemoryDocumentRepo:
     def get_binding(self, case_id: str, document_id: str) -> CaseDocument | None:
         return self._bindings.get((case_id, document_id))
 
+    def list_bindings_for_document(self, document_id: str) -> list[CaseDocument]:
+        return [
+            binding
+            for (_, binding_document_id), binding in self._bindings.items()
+            if binding_document_id == document_id
+        ]
+
     def list_for_case(
         self,
         case_id: str,

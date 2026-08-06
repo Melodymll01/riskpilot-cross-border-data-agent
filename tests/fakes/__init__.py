@@ -7,6 +7,8 @@ from tests.fakes.fake_document_loader import FakeDocumentLoader
 from tests.fakes.fake_document_parser import FakeDocumentParser
 from tests.fakes.fake_embed import FakeEmbed
 from tests.fakes.fake_evidence import FakeEvidence
+from tests.fakes.fake_evidence_chunker import FakeEvidenceChunker
+from tests.fakes.fake_evidence_index import FakeEvidenceIndex
 from tests.fakes.fake_kb_repo import FakeKbRepo
 from tests.fakes.fake_object_store import FakeObjectStore
 from tests.fakes.fake_repos import (
@@ -26,6 +28,8 @@ __all__ = [
     "FakeDocumentLoader",
     "FakeDocumentParser",
     "FakeEmbed",
+    "FakeEvidenceChunker",
+    "FakeEvidenceIndex",
     "FakeEvidence",
     "FakeKbRepo",
     "FakeObjectStore",

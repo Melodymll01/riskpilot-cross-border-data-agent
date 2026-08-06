@@ -178,3 +178,30 @@ class ParseStageResponse(BaseModel):
     next_stage: Literal["ocr", "chunk"]
     page_count: int
     warnings: list[str]
+
+
+class IndexStageResponse(BaseModel):
+    document: DocumentOut
+    job: ProcessingJobOut
+    chunk_count: int
+
+
+class EvidenceChunkOut(BaseModel):
+    chunk_id: str
+    document_id: str
+    document_version_id: str
+    page_number: int
+    chunk_index: int
+    text: str
+    source_sha256: str
+
+
+class EvidenceSearchHitOut(BaseModel):
+    chunk: EvidenceChunkOut
+    score: float
+    vector_score: float
+    bm25_score: float
+
+
+class EvidenceSearchResponse(BaseModel):
+    hits: list[EvidenceSearchHitOut]

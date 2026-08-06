@@ -26,7 +26,12 @@ from domain.workspaces import WorkspaceRole
 if TYPE_CHECKING:
     from app.use_cases.case_management import CaseManagementUseCase
     from app.use_cases.workspace_management import WorkspaceManagementUseCase
-    from app.workers import DocumentProcessingWorker, ParseStageResult
+    from app.workers import (
+        DocumentProcessingWorker,
+        EvidenceIndexWorker,
+        IndexStageResult,
+        ParseStageResult,
+    )
     from domain.ports import DocumentRepoPort, ObjectStorePort
 
 _SUPPORTED_SUFFIXES = {".pdf", ".docx", ".txt", ".md", ".markdown"}
@@ -72,6 +77,7 @@ class DocumentManagementUseCase:
         workspace_management: WorkspaceManagementUseCase,
         max_upload_bytes: int,
         processing_worker: DocumentProcessingWorker | None = None,
+        index_worker: EvidenceIndexWorker | None = None,
     ) -> None:
         if max_upload_bytes < 1:
             raise ValueError("max_upload_bytes 必须大于 0")
@@ -81,10 +87,14 @@ class DocumentManagementUseCase:
         self._workspace_management = workspace_management
         self._max_upload_bytes = max_upload_bytes
         self._processing_worker = processing_worker
+        self._index_worker = index_worker
 
     def bind_processing_worker(self, worker: DocumentProcessingWorker) -> None:
         """容器完成 Worker 装配后绑定，避免构造期循环依赖。"""
         self._processing_worker = worker
+
+    def bind_index_worker(self, worker: EvidenceIndexWorker) -> None:
+        self._index_worker = worker
 
     def upload(
         self,
@@ -232,6 +242,16 @@ class DocumentManagementUseCase:
         queued_document = document.transition_to("queued", at=retried_job.updated_at)
         self._repo.update_processing_state(queued_document, retried_job)
         return retried_job
+
+    def run_index_stage(
+        self,
+        job_id: str,
+        actor_id: str,
+    ) -> IndexStageResult:
+        self._authorize_job(job_id, actor_id, write=True)
+        if self._index_worker is None:
+            raise RuntimeError("证据索引 Worker 尚未装配")
+        return self._index_worker.run(job_id)
 
     def _authorize_job(
         self,

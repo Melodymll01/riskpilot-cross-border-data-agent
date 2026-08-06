@@ -19,6 +19,7 @@ from typing import Any, Literal, Protocol, runtime_checkable
 from domain.cases import Case
 from domain.document_content import DocumentParseSnapshot
 from domain.documents import CaseDocument, Document, DocumentVersion, ProcessingJob
+from domain.evidence import EvidenceChunk, EvidenceSearchHit
 from domain.models import (
     Artifact,
     AuditEntry,
@@ -167,6 +168,8 @@ class DocumentRepoPort(Protocol):
 
     def get_binding(self, case_id: str, document_id: str) -> CaseDocument | None: ...
 
+    def list_bindings_for_document(self, document_id: str) -> list[CaseDocument]: ...
+
     def list_for_case(
         self,
         case_id: str,
@@ -210,6 +213,54 @@ class DocumentParserPort(Protocol):
         version: DocumentVersion,
         content: bytes,
     ) -> DocumentParseSnapshot: ...
+
+
+@runtime_checkable
+class EvidenceChunkerPort(Protocol):
+    """页级解析快照到作用域证据块的转换端口。"""
+
+    def chunk(
+        self,
+        document: Document,
+        version: DocumentVersion,
+        snapshot: DocumentParseSnapshot,
+        bindings: list[CaseDocument],
+    ) -> list[EvidenceChunk]: ...
+
+
+@runtime_checkable
+class EvidenceIndexPort(Protocol):
+    """先按 Workspace/Case 过滤，再执行混合检索的证据索引端口。"""
+
+    def replace_version_chunks(
+        self,
+        document_version_id: str,
+        chunks: list[EvidenceChunk],
+        embeddings: list[list[float]],
+    ) -> None: ...
+
+    def search(
+        self,
+        *,
+        workspace_id: str,
+        case_id: str,
+        query: str,
+        query_embedding: list[float],
+        top_k: int = 5,
+    ) -> list[EvidenceSearchHit]: ...
+
+    def count_version(self, document_version_id: str) -> int: ...
+
+    def complete_version_indexing(
+        self,
+        document_version_id: str,
+        chunks: list[EvidenceChunk],
+        embeddings: list[list[float]],
+        document: Document,
+        job: ProcessingJob,
+    ) -> None:
+        """原子替换版本证据块，并完成文档与任务状态。"""
+        ...
 
 
 # === 任务 / 消息 ===

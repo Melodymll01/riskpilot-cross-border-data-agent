@@ -33,6 +33,8 @@ from app.factories import (
     build_document_repo,
     build_embedder,
     build_evidence,
+    build_evidence_chunker,
+    build_evidence_index,
     build_fact_store,
     build_feedback_repo,
     build_kb_repo,
@@ -55,6 +57,7 @@ from app.use_cases import (
     AuthLoginUseCase,
     CaseManagementUseCase,
     DocumentManagementUseCase,
+    EvidenceSearchUseCase,
     IngestionUseCase,
     KbManagementUseCase,
     RunQueryUseCase,
@@ -78,6 +81,8 @@ if TYPE_CHECKING:
         DocumentParserPort,
         DocumentRepoPort,
         EmbedPort,
+        EvidenceChunkerPort,
+        EvidenceIndexPort,
         EvidencePort,
         FactStorePort,
         KbDocumentRepoPort,
@@ -119,6 +124,8 @@ class AppContainer:
         document_loader: DocumentLoaderPort | None = None,
         document_parser: DocumentParserPort | None = None,
         document_repo: DocumentRepoPort | None = None,
+        evidence_chunker: EvidenceChunkerPort | None = None,
+        evidence_index: EvidenceIndexPort | None = None,
         object_store: ObjectStorePort | None = None,
         auth: AuthPort | None = None,
         memory: MemoryPort | None = None,
@@ -134,6 +141,7 @@ class AppContainer:
                 or workspace_repo is None
                 or case_repo is None
                 or document_repo is None
+                or evidence_index is None
                 or audit_log is None
             )
             else None
@@ -152,6 +160,9 @@ class AppContainer:
         )
         self.document_repo: DocumentRepoPort = document_repo or build_document_repo(
             settings, pool=pool
+        )
+        self.evidence_index: EvidenceIndexPort = (
+            evidence_index or build_evidence_index(settings, pool=pool)
         )
         self.audit_log: AuditLogPort = audit_log or build_audit_log(
             settings, pool=pool
@@ -176,6 +187,9 @@ class AppContainer:
         self.object_store: ObjectStorePort = object_store or build_object_store(settings)
         self.document_parser: DocumentParserPort = (
             document_parser or build_document_parser(settings)
+        )
+        self.evidence_chunker: EvidenceChunkerPort = (
+            evidence_chunker or build_evidence_chunker(settings)
         )
 
         # ── 鉴权（依赖 user_repo） ────────────────────────────────────
@@ -242,7 +256,7 @@ class AppContainer:
             workspace_management=self.workspace_management,
             max_upload_bytes=settings.max_upload_mb * 1024 * 1024,
         )
-        from app.workers import DocumentProcessingWorker
+        from app.workers import DocumentProcessingWorker, EvidenceIndexWorker
 
         self.document_processing_worker = DocumentProcessingWorker(
             document_repo=self.document_repo,
@@ -251,6 +265,18 @@ class AppContainer:
         )
         self.document_management.bind_processing_worker(
             self.document_processing_worker
+        )
+        self.evidence_index_worker = EvidenceIndexWorker(
+            document_repo=self.document_repo,
+            chunker=self.evidence_chunker,
+            evidence_index=self.evidence_index,
+            embedder=self.embedder,
+        )
+        self.document_management.bind_index_worker(self.evidence_index_worker)
+        self.evidence_search = EvidenceSearchUseCase(
+            evidence_index=self.evidence_index,
+            embedder=self.embedder,
+            case_management=self.case_management,
         )
         self.feedback = FeedbackUseCase(self.feedback_repo)
         self.forget_memory = ForgetMemoryUseCase(

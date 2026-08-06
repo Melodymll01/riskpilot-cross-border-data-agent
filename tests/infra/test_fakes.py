@@ -12,6 +12,8 @@ from domain.ports import (
     DocumentParserPort,
     DocumentRepoPort,
     EmbedPort,
+    EvidenceChunkerPort,
+    EvidenceIndexPort,
     EvidencePort,
     KbDocumentRepoPort,
     ObjectStorePort,
@@ -27,6 +29,8 @@ from tests.fakes import (
     FakeDocumentParser,
     FakeEmbed,
     FakeEvidence,
+    FakeEvidenceChunker,
+    FakeEvidenceIndex,
     FakeKbRepo,
     FakeObjectStore,
     FakeRetrieve,
@@ -113,6 +117,10 @@ class TestFakeBehavior:
         assert isinstance(j, EvidenceJudgement)
         assert j.label == "moderate"
         assert ev.calls == [("F1", {"region": "EU"})]
+
+    def test_evidence_fakes_satisfy_ports(self) -> None:
+        assert isinstance(FakeEvidenceChunker(), EvidenceChunkerPort)
+        assert isinstance(FakeEvidenceIndex(), EvidenceIndexPort)
 
     def test_fake_websearch_max_results(self) -> None:
         ws = FakeWebSearch(
