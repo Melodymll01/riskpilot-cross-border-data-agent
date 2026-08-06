@@ -5,6 +5,19 @@
 
 from __future__ import annotations
 
+from domain.assessments import (
+    ActionItem,
+    ActionPriority,
+    ActionStatus,
+    Assessment,
+    AssessmentBundle,
+    AssessmentStatus,
+    Finding,
+    FindingSeverity,
+    FindingStatus,
+    FindingType,
+    RiskLevel,
+)
 from domain.cases import Case, CaseStatus
 from domain.document_content import (
     DocumentParseSnapshot,
@@ -22,6 +35,7 @@ from domain.documents import (
     ProcessingStage,
 )
 from domain.errors import (
+    AssessmentNotFound,
     AuthError,
     CaseArchived,
     CaseFactNotFound,
@@ -30,6 +44,7 @@ from domain.errors import (
     DocumentTooLarge,
     DomainError,
     EvidenceServiceError,
+    InvalidAssessmentTransition,
     InvalidCaseFactTransition,
     InvalidCaseTransition,
     InvalidDocumentContent,
@@ -125,6 +140,8 @@ from domain.workspaces import Workspace, WorkspaceMembership, WorkspaceRole, Wor
 __all__ = [
     # errors
     "DomainError",
+    "AssessmentNotFound",
+    "InvalidAssessmentTransition",
     "AuthError",
     "InvalidToken",
     "OAuthFlowError",
@@ -210,6 +227,17 @@ __all__ = [
     "PolicyRuleStatus",
     "PolicyEvaluationStatus",
     "PolicyRuleEngine",
+    "Assessment",
+    "AssessmentBundle",
+    "AssessmentStatus",
+    "RiskLevel",
+    "Finding",
+    "FindingType",
+    "FindingSeverity",
+    "FindingStatus",
+    "ActionItem",
+    "ActionPriority",
+    "ActionStatus",
     # ports
     "AuthPort",
     "AuditLogPort",

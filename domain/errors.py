@@ -145,6 +145,20 @@ class PolicyRuleNotFound(DomainError):
     """按 rule_id + ruleset_version 找不到规则。"""
 
 
+class AssessmentNotFound(DomainError):
+    """按 assessment_id 找不到评估或当前用户不可见。"""
+
+
+class InvalidAssessmentTransition(DomainError):
+    """Assessment 状态转换不符合领域状态机。"""
+
+    def __init__(self, assessment_id: str, source: str, target: str) -> None:
+        self.assessment_id = assessment_id
+        self.source = source
+        self.target = target
+        super().__init__(f"Assessment {assessment_id!r} 不允许从 {source!r} 转换到 {target!r}")
+
+
 # === Tool / Agent ===
 
 
