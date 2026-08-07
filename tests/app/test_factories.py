@@ -10,6 +10,7 @@ import tempfile
 import pytest
 
 from app.factories import (
+    build_assessment_repo,
     build_audit_log,
     build_auth,
     build_case_fact_repo,
@@ -30,6 +31,7 @@ from app.factories import (
 )
 from config import Settings
 from domain.ports import (
+    AssessmentRepoPort,
     AuditLogPort,
     AuthPort,
     CaseFactRepoPort,
@@ -61,6 +63,10 @@ def settings() -> Settings:
 
 
 class TestStorageFactories:
+    def test_assessment_repo_satisfies_port(self, settings: Settings) -> None:
+        pool = build_sqlite_pool(settings)
+        assert isinstance(build_assessment_repo(settings, pool=pool), AssessmentRepoPort)
+
     def test_user_repo_satisfies_port(self, settings: Settings) -> None:
         pool = build_sqlite_pool(settings)
         assert isinstance(build_user_repo(settings, pool=pool), UserRepoPort)

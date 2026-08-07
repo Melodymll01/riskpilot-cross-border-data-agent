@@ -112,6 +112,7 @@ from domain.policies import (
 )
 from domain.policy_engine import PolicyRuleEngine
 from domain.ports import (
+    AssessmentRepoPort,
     AuditLogPort,
     AuthPort,
     CaseFactRepoPort,
@@ -240,6 +241,7 @@ __all__ = [
     "ActionStatus",
     # ports
     "AuthPort",
+    "AssessmentRepoPort",
     "AuditLogPort",
     "UserRepoPort",
     "WorkspaceRepoPort",

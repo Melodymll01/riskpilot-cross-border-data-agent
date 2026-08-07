@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING
 
 from app.agent import ComplianceCopilotAgent, register_default_tools
 from app.factories import (
+    build_assessment_repo,
     build_audit_log,
     build_auth,
     build_case_fact_repo,
@@ -56,6 +57,7 @@ from app.factories import (
 )
 from app.memory import MemoryAssembler
 from app.use_cases import (
+    AssessmentManagementUseCase,
     AuthLoginUseCase,
     CaseManagementUseCase,
     DocumentManagementUseCase,
@@ -76,6 +78,7 @@ from app.use_cases.run_copilot import RunCopilotUseCase
 if TYPE_CHECKING:
     from config import Settings
     from domain.ports import (
+        AssessmentRepoPort,
         AuditLogPort,
         AuthPort,
         CaseFactRepoPort,
@@ -114,6 +117,7 @@ class AppContainer:
         self,
         settings: Settings,
         *,
+        assessment_repo: AssessmentRepoPort | None = None,
         user_repo: UserRepoPort | None = None,
         task_repo: TaskRepoPort | None = None,
         workspace_repo: WorkspaceRepoPort | None = None,
@@ -144,7 +148,8 @@ class AppContainer:
         pool = (
             build_sqlite_pool(settings)
             if (
-                user_repo is None
+                assessment_repo is None
+                or user_repo is None
                 or task_repo is None
                 or workspace_repo is None
                 or case_repo is None
@@ -155,6 +160,9 @@ class AppContainer:
                 or audit_log is None
             )
             else None
+        )
+        self.assessment_repo: AssessmentRepoPort = (
+            assessment_repo or build_assessment_repo(settings, pool=pool)
         )
         self.user_repo: UserRepoPort = user_repo or build_user_repo(
             settings, pool=pool
@@ -305,6 +313,13 @@ class AppContainer:
             fact_repo=self.case_fact_repo,
             case_management=self.case_management,
             workspace_management=self.workspace_management,
+        )
+        self.assessment_management = AssessmentManagementUseCase(
+            assessment_repo=self.assessment_repo,
+            fact_repo=self.case_fact_repo,
+            case_management=self.case_management,
+            workspace_management=self.workspace_management,
+            policy_management=self.policy_management,
         )
         self.feedback = FeedbackUseCase(self.feedback_repo)
         self.forget_memory = ForgetMemoryUseCase(

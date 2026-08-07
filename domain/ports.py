@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Protocol, runtime_checkable
 
+from domain.assessments import Assessment, AssessmentBundle
 from domain.cases import Case
 from domain.document_content import DocumentParseSnapshot
 from domain.documents import CaseDocument, Document, DocumentVersion, ProcessingJob
@@ -325,6 +326,30 @@ class PolicyRuleRepoPort(Protocol):
     ) -> list[PolicyRule]: ...
 
     def update_status(self, rule: PolicyRule) -> None: ...
+
+
+@runtime_checkable
+class AssessmentRepoPort(Protocol):
+    """不可变 Assessment 版本与 Bundle 持久化端口。"""
+
+    def create_version(
+        self,
+        bundle: AssessmentBundle,
+        previous: Assessment | None,
+        case: Case,
+    ) -> None:
+        """原子保存新版本、supersede 旧版本并更新 Case.active_assessment_id。"""
+        ...
+
+    def get(self, assessment_id: str) -> AssessmentBundle | None: ...
+
+    def get_active(self, case_id: str) -> AssessmentBundle | None: ...
+
+    def list_for_case(self, case_id: str) -> list[Assessment]: ...
+
+    def next_version(self, case_id: str) -> int: ...
+
+    def update_status(self, assessment: Assessment) -> None: ...
 
 
 # === 任务 / 消息 ===

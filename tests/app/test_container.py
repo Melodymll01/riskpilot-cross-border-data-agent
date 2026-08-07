@@ -14,6 +14,7 @@ from app.use_cases import (
 )
 from config import settings
 from domain.ports import (
+    AssessmentRepoPort,
     AuditLogPort,
     AuthPort,
     CaseFactRepoPort,
@@ -49,6 +50,7 @@ from tests.fakes import (
     FakeObjectStore,
     FakeRetrieve,
     FakeWebSearch,
+    InMemoryAssessmentRepo,
     InMemoryCaseFactRepo,
     InMemoryCaseRepo,
     InMemoryDocumentRepo,
@@ -61,12 +63,14 @@ from tests.fakes import (
 
 def _full_fake_container() -> AppContainer:
     document_repo = InMemoryDocumentRepo()
+    case_repo = InMemoryCaseRepo()
     return AppContainer(
         settings,
+        assessment_repo=InMemoryAssessmentRepo(case_repo),
         user_repo=InMemoryUserRepo(),
         task_repo=InMemoryTaskRepo(),
         workspace_repo=InMemoryWorkspaceRepo(),
-        case_repo=InMemoryCaseRepo(),
+        case_repo=case_repo,
         case_fact_repo=InMemoryCaseFactRepo(),
         policy_rule_repo=InMemoryPolicyRuleRepo(),
         document_repo=document_repo,
@@ -91,6 +95,7 @@ class TestPortConformance:
 
     def test_all_ports_present_and_typed(self) -> None:
         c = _full_fake_container()
+        assert isinstance(c.assessment_repo, AssessmentRepoPort)
         assert isinstance(c.user_repo, UserRepoPort)
         assert isinstance(c.task_repo, TaskRepoPort)
         assert isinstance(c.workspace_repo, WorkspaceRepoPort)
@@ -148,12 +153,14 @@ class TestPartialInjection:
     def test_inject_only_chat(self) -> None:
         # 用 fake 替掉 chat，其他从工厂；不真正调用 chat / embed
         document_repo = InMemoryDocumentRepo()
+        case_repo = InMemoryCaseRepo()
         c = AppContainer(
             settings,
+            assessment_repo=InMemoryAssessmentRepo(case_repo),
             user_repo=InMemoryUserRepo(),
             task_repo=InMemoryTaskRepo(),
             workspace_repo=InMemoryWorkspaceRepo(),
-            case_repo=InMemoryCaseRepo(),
+            case_repo=case_repo,
             case_fact_repo=InMemoryCaseFactRepo(),
             policy_rule_repo=InMemoryPolicyRuleRepo(),
             document_repo=document_repo,

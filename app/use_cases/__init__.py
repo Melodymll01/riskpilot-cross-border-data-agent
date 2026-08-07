@@ -1,5 +1,6 @@
 """use case 出口。"""
 
+from app.use_cases.assessment_management import AssessmentManagementUseCase
 from app.use_cases.auth_login import AuthLoginUseCase
 from app.use_cases.case_management import CaseManagementUseCase
 from app.use_cases.document_management import (
@@ -23,6 +24,7 @@ from app.use_cases.workspace_management import WorkspaceManagementUseCase
 
 __all__ = [
     "AuthLoginUseCase",
+    "AssessmentManagementUseCase",
     "CaseManagementUseCase",
     "DocumentDetail",
     "DocumentDownload",

@@ -32,6 +32,7 @@ from tests.fakes.fake_evidence_index import FakeEvidenceIndex
 from tests.fakes.fake_kb_repo import FakeKbRepo
 from tests.fakes.fake_object_store import FakeObjectStore
 from tests.fakes.fake_repos import (
+    InMemoryAssessmentRepo,
     InMemoryCaseFactRepo,
     InMemoryCaseRepo,
     InMemoryDocumentRepo,
@@ -49,12 +50,14 @@ _FINAL_JSON = json.dumps({"thought": "", "action": "final_answer", "answer": "do
 def _make_container(**overrides: object) -> AppContainer:
     settings = Settings(_env_file=None, **overrides)  # type: ignore[arg-type]
     document_repo = InMemoryDocumentRepo()
+    case_repo = InMemoryCaseRepo()
     return AppContainer(
         settings,
+        assessment_repo=InMemoryAssessmentRepo(case_repo),
         user_repo=InMemoryUserRepo(),
         task_repo=InMemoryTaskRepo(),
         workspace_repo=InMemoryWorkspaceRepo(),
-        case_repo=InMemoryCaseRepo(),
+        case_repo=case_repo,
         case_fact_repo=InMemoryCaseFactRepo(),
         policy_rule_repo=InMemoryPolicyRuleRepo(),
         document_repo=document_repo,

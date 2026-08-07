@@ -37,6 +37,16 @@ class PolicyRuleEngine:
             and rule.jurisdiction == jurisdiction
             and rule.is_effective_on(assessment_date)
         ]
+        confirmed_facts = [fact for fact in facts if fact.usable_for_rules]
+        field_names = [fact.field_name for fact in confirmed_facts]
+        duplicate_fields = sorted(
+            field_name
+            for field_name in set(field_names)
+            if field_names.count(field_name) > 1
+        )
+        if duplicate_fields:
+            fields = ", ".join(duplicate_fields)
+            raise ValueError(f"同一字段存在多个 confirmed 事实: {fields}")
         confirmed = {fact.field_name: fact for fact in facts if fact.usable_for_rules}
         evaluations = [self._evaluate_rule(rule, confirmed) for rule in applicable_rules]
         return PolicyEvaluationReport(

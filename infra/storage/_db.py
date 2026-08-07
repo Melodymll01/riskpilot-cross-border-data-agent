@@ -238,6 +238,59 @@ CREATE TABLE IF NOT EXISTS policy_rules (
 CREATE INDEX IF NOT EXISTS idx_policy_rules_lookup
     ON policy_rules(workspace_id, ruleset_version, jurisdiction, status, effective_from);
 
+CREATE TABLE IF NOT EXISTS assessments (
+    assessment_id        TEXT PRIMARY KEY,
+    case_id              TEXT NOT NULL,
+    version              INTEGER NOT NULL,
+    status               TEXT NOT NULL,
+    assessment_date      TEXT NOT NULL,
+    jurisdiction         TEXT NOT NULL,
+    ruleset_version      TEXT NOT NULL,
+    fact_versions_json   TEXT NOT NULL,
+    policy_evaluations_json TEXT NOT NULL,
+    risk_level           TEXT NOT NULL,
+    candidate_paths_json TEXT NOT NULL,
+    generated_by_run_id  TEXT,
+    approved_by          TEXT,
+    approved_at          REAL,
+    review_comment       TEXT NOT NULL DEFAULT '',
+    created_at           REAL NOT NULL,
+    updated_at           REAL NOT NULL,
+    UNIQUE (case_id, version),
+    FOREIGN KEY (case_id) REFERENCES compliance_cases(case_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_assessments_case
+    ON assessments(case_id, version DESC);
+
+CREATE TABLE IF NOT EXISTS assessment_findings (
+    finding_id          TEXT PRIMARY KEY,
+    assessment_id       TEXT NOT NULL,
+    finding_type        TEXT NOT NULL,
+    severity            TEXT NOT NULL,
+    title               TEXT NOT NULL,
+    description         TEXT NOT NULL,
+    fact_ids_json       TEXT NOT NULL,
+    evidence_ids_json   TEXT NOT NULL,
+    clause_ids_json     TEXT NOT NULL,
+    rule_ids_json       TEXT NOT NULL,
+    status              TEXT NOT NULL,
+    FOREIGN KEY (assessment_id) REFERENCES assessments(assessment_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS assessment_actions (
+    action_id                TEXT PRIMARY KEY,
+    assessment_id            TEXT NOT NULL,
+    title                    TEXT NOT NULL,
+    description              TEXT NOT NULL,
+    priority                 TEXT NOT NULL,
+    owner_id                 TEXT,
+    due_at                   REAL,
+    status                   TEXT NOT NULL,
+    related_finding_ids_json TEXT NOT NULL,
+    FOREIGN KEY (assessment_id) REFERENCES assessments(assessment_id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS tasks (
     task_id          TEXT PRIMARY KEY,
     owner_id         TEXT NOT NULL,

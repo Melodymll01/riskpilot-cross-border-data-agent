@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 
+from domain.assessments import Assessment, AssessmentBundle
 from domain.cases import Case
 from domain.document_content import DocumentParseSnapshot
 from domain.documents import CaseDocument, Document, DocumentVersion, ProcessingJob
@@ -381,3 +382,59 @@ class InMemoryPolicyRuleRepo:
 
     def update_status(self, rule: PolicyRule) -> None:
         self._rules[(rule.workspace_id, rule.rule_id, rule.ruleset_version)] = rule
+
+
+class InMemoryAssessmentRepo:
+    """`AssessmentRepoPort` 的内存实现。"""
+
+    def __init__(self, case_repo: InMemoryCaseRepo | None = None) -> None:
+        self._bundles: dict[str, AssessmentBundle] = {}
+        self._active: dict[str, str] = {}
+        self._case_repo = case_repo
+
+    def create_version(
+        self,
+        bundle: AssessmentBundle,
+        previous: Assessment | None,
+        case: Case,
+    ) -> None:
+        if previous is not None:
+            previous_bundle = self._bundles[previous.assessment_id]
+            self._bundles[previous.assessment_id] = previous_bundle.model_copy(
+                update={"assessment": previous}
+            )
+        self._bundles[bundle.assessment.assessment_id] = bundle
+        self._active[bundle.assessment.case_id] = bundle.assessment.assessment_id
+        if self._case_repo is not None:
+            self._case_repo.update(case)
+
+    def get(self, assessment_id: str) -> AssessmentBundle | None:
+        return self._bundles.get(assessment_id)
+
+    def get_active(self, case_id: str) -> AssessmentBundle | None:
+        assessment_id = self._active.get(case_id)
+        return None if assessment_id is None else self._bundles.get(assessment_id)
+
+    def list_for_case(self, case_id: str) -> list[Assessment]:
+        assessments = [
+            bundle.assessment
+            for bundle in self._bundles.values()
+            if bundle.assessment.case_id == case_id
+        ]
+        assessments.sort(key=lambda assessment: assessment.version, reverse=True)
+        return assessments
+
+    def next_version(self, case_id: str) -> int:
+        versions = [
+            bundle.assessment.version
+            for bundle in self._bundles.values()
+            if bundle.assessment.case_id == case_id
+        ]
+        return max(versions, default=0) + 1
+
+    def update_status(self, assessment: Assessment) -> None:
+        bundle = self._bundles.get(assessment.assessment_id)
+        if bundle is not None:
+            self._bundles[assessment.assessment_id] = bundle.model_copy(
+                update={"assessment": assessment}
+            )

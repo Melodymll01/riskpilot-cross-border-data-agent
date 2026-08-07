@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from domain.ports import (
+    AssessmentRepoPort,
     AuditLogPort,
     AuthPort,
     CaseFactRepoPort,
@@ -62,6 +63,7 @@ from infra.research import AgenticResearchAdapter
 from infra.risk_profile import StubRiskProfileService
 from infra.search import EmbedderAdapter, HybridRetrieverAdapter
 from infra.storage import (
+    SqliteAssessmentRepo,
     SqliteCaseFactRepo,
     SqliteCaseRepo,
     SqliteConsolidationStateStore,
@@ -85,6 +87,12 @@ if TYPE_CHECKING:
 def build_sqlite_pool(settings: Settings) -> SqliteConnectionPool:
     """单例 SQLite 连接池：所有 repo 共享。"""
     return SqliteConnectionPool(settings.sqlite_db_path)
+
+
+def build_assessment_repo(
+    settings: Settings, *, pool: SqliteConnectionPool | None = None
+) -> AssessmentRepoPort:
+    return SqliteAssessmentRepo(pool or build_sqlite_pool(settings))
 
 
 def build_user_repo(
@@ -411,6 +419,7 @@ def build_auth(settings: Settings, user_repo: UserRepoPort) -> AuthPort:
 
 
 __all__ = [
+    "build_assessment_repo",
     "build_audit_log",
     "build_auth",
     "build_case_repo",
