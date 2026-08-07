@@ -28,6 +28,7 @@ from app.factories import (
     build_task_repo,
     build_user_repo,
     build_web_search,
+    build_workflow_runtime,
     build_workspace_repo,
 )
 from config import Settings
@@ -49,6 +50,7 @@ from domain.ports import (
     TaskRepoPort,
     UserRepoPort,
     WebSearchPort,
+    WorkflowRuntimePort,
     WorkspaceRepoPort,
 )
 
@@ -147,3 +149,9 @@ class TestExternalFactories:
 
     def test_evidence_satisfies_port(self, settings: Settings) -> None:
         assert isinstance(build_evidence(settings), EvidencePort)
+
+    def test_workflow_runtime_satisfies_port(self, settings: Settings) -> None:
+        settings = settings.model_copy(
+            update={"langgraph_checkpoint_db_path": ":memory:"}
+        )
+        assert isinstance(build_workflow_runtime(settings), WorkflowRuntimePort)

@@ -17,6 +17,8 @@ diskcache>=5.6.0
 # v2 HTTP 限流：用 limits 的 moving-window 算法 + FastAPI 依赖接入（见 api/v2/ratelimit.py）。
 # 不用 slowapi：其装饰器与本仓库 `from __future__ import annotations`（PEP 563）冲突。
 limits>=3.0
+langgraph>=1.0.10,<2.0
+langgraph-checkpoint-sqlite>=3.0.1,<4.0
 rank-bm25==0.2.2
 jieba==0.42.1
 

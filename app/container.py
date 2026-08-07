@@ -54,11 +54,13 @@ from app.factories import (
     build_task_repo,
     build_user_repo,
     build_web_search,
+    build_workflow_runtime,
     build_workspace_repo,
 )
 from app.memory import MemoryAssembler
 from app.use_cases import (
     AssessmentManagementUseCase,
+    AssessmentRunUseCase,
     AuthLoginUseCase,
     CaseManagementUseCase,
     DocumentManagementUseCase,
@@ -108,6 +110,7 @@ if TYPE_CHECKING:
         TaskRepoPort,
         UserRepoPort,
         WebSearchPort,
+        WorkflowRuntimePort,
         WorkspaceRepoPort,
     )
 
@@ -142,6 +145,7 @@ class AppContainer:
         evidence_index: EvidenceIndexPort | None = None,
         policy_rule_repo: PolicyRuleRepoPort | None = None,
         object_store: ObjectStorePort | None = None,
+        workflow_runtime: WorkflowRuntimePort | None = None,
         auth: AuthPort | None = None,
         memory: MemoryPort | None = None,
     ) -> None:
@@ -221,6 +225,9 @@ class AppContainer:
         )
         self.evidence_chunker: EvidenceChunkerPort = (
             evidence_chunker or build_evidence_chunker(settings)
+        )
+        self.workflow_runtime: WorkflowRuntimePort = (
+            workflow_runtime or build_workflow_runtime(settings)
         )
 
         # ── 鉴权（依赖 user_repo） ────────────────────────────────────
@@ -327,6 +334,16 @@ class AppContainer:
             case_management=self.case_management,
             workspace_management=self.workspace_management,
             policy_management=self.policy_management,
+        )
+        self.assessment_runs = AssessmentRunUseCase(
+            run_repo=self.agent_run_repo,
+            workflow_runtime=self.workflow_runtime,
+            document_repo=self.document_repo,
+            fact_repo=self.case_fact_repo,
+            case_management=self.case_management,
+            workspace_management=self.workspace_management,
+            policy_management=self.policy_management,
+            assessment_management=self.assessment_management,
         )
         self.feedback = FeedbackUseCase(self.feedback_repo)
         self.forget_memory = ForgetMemoryUseCase(

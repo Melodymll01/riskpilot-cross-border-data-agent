@@ -35,6 +35,7 @@ from domain.documents import (
     ProcessingStage,
 )
 from domain.errors import (
+    AgentRunAlreadyActive,
     AgentRunConflict,
     AgentRunNotFound,
     AssessmentNotActive,
@@ -139,14 +140,20 @@ from domain.ports import (
     TaskRepoPort,
     UserRepoPort,
     WebSearchPort,
+    WorkflowRuntimePort,
     WorkspaceRepoPort,
 )
 from domain.runs import (
     AgentRun,
     AgentRunStatus,
+    CaseDocumentReadiness,
     RunCheckpoint,
     RunEvent,
     RunEventType,
+    WorkflowExecutionResult,
+    WorkflowExecutionStatus,
+    WorkflowInterrupt,
+    WorkflowInterruptKind,
     WorkflowType,
 )
 from domain.workspaces import Workspace, WorkspaceMembership, WorkspaceRole, WorkspaceStatus
@@ -154,6 +161,7 @@ from domain.workspaces import Workspace, WorkspaceMembership, WorkspaceRole, Wor
 __all__ = [
     # errors
     "DomainError",
+    "AgentRunAlreadyActive",
     "AgentRunConflict",
     "AgentRunNotFound",
     "InvalidAgentRunTransition",
@@ -258,7 +266,12 @@ __all__ = [
     "ActionStatus",
     "AgentRun",
     "AgentRunStatus",
+    "CaseDocumentReadiness",
     "WorkflowType",
+    "WorkflowExecutionResult",
+    "WorkflowExecutionStatus",
+    "WorkflowInterrupt",
+    "WorkflowInterruptKind",
     "RunCheckpoint",
     "RunEvent",
     "RunEventType",
@@ -287,4 +300,5 @@ __all__ = [
     "DocumentLoaderPort",
     "WebSearchPort",
     "MemoryPort",
+    "WorkflowRuntimePort",
 ]

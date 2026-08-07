@@ -319,6 +319,16 @@ CREATE TABLE IF NOT EXISTS agent_runs (
 CREATE INDEX IF NOT EXISTS idx_agent_runs_case
     ON agent_runs(workspace_id, case_id, created_at DESC);
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_active_case_workflow
+    ON agent_runs(case_id, workflow_type)
+    WHERE status IN (
+        'queued',
+        'running',
+        'waiting_for_user',
+        'waiting_for_review',
+        'retrying'
+    );
+
 CREATE TABLE IF NOT EXISTS run_checkpoints (
     checkpoint_id  TEXT PRIMARY KEY,
     run_id         TEXT NOT NULL,

@@ -98,6 +98,7 @@ class Settings(BaseSettings):
 
     # ── 应用层（Step 008 PR-5：DI 容器 + use case） ────────────────────────────
     sqlite_db_path: str = "./data/rag.sqlite3"
+    langgraph_checkpoint_db_path: str = "./data/langgraph-checkpoints.sqlite3"
     jwt_secret: str = "dev-jwt-secret-please-change-32-chars-minimum-length"
     jwt_ttl_seconds: int = Field(86400, ge=60, le=30 * 86400)  # 1min-30day
     github_client_id: str = "dev-placeholder-client-id"

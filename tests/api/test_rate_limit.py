@@ -20,6 +20,7 @@ from api.v2.ratelimit import RateLimiter, build_limiter
 from app.container import AppContainer
 from app.request_context import install_request_id_middleware
 from config import Settings
+from infra.workflows import LangGraphWorkflowRuntime
 from tests.fakes.fake_audit_log import FakeAuditLogRepo
 from tests.fakes.fake_auth import FakeAuth
 from tests.fakes.fake_chat import FakeChat
@@ -67,6 +68,7 @@ def _make_container(**overrides: object) -> AppContainer:
         document_parser=FakeDocumentParser(),
         evidence_chunker=FakeEvidenceChunker(),
         evidence_index=FakeEvidenceIndex(document_repo),
+        workflow_runtime=LangGraphWorkflowRuntime(":memory:"),
         audit_log=FakeAuditLogRepo(),
         embedder=FakeEmbed(),
         chat=FakeChat(responses=[_FINAL_JSON, _FINAL_JSON, _FINAL_JSON, _FINAL_JSON]),

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from app.container import AppContainer
 from app.use_cases import (
+    AssessmentRunUseCase,
     AuthLoginUseCase,
     CaseManagementUseCase,
     IngestionUseCase,
@@ -35,8 +36,10 @@ from domain.ports import (
     TaskRepoPort,
     UserRepoPort,
     WebSearchPort,
+    WorkflowRuntimePort,
     WorkspaceRepoPort,
 )
+from infra.workflows import LangGraphWorkflowRuntime
 from tests.fakes import (
     FakeAuditLogRepo,
     FakeAuth,
@@ -81,6 +84,7 @@ def _full_fake_container() -> AppContainer:
         document_parser=FakeDocumentParser(),
         evidence_chunker=FakeEvidenceChunker(),
         evidence_index=FakeEvidenceIndex(document_repo),
+        workflow_runtime=LangGraphWorkflowRuntime(":memory:"),
         audit_log=FakeAuditLogRepo(),
         embedder=FakeEmbed(),
         chat=FakeChat(),
@@ -115,6 +119,7 @@ class TestPortConformance:
         assert isinstance(c.chat, ChatPort)
         assert isinstance(c.retriever, RetrievePort)
         assert isinstance(c.web_search, WebSearchPort)
+        assert isinstance(c.workflow_runtime, WorkflowRuntimePort)
         assert isinstance(c.evidence, EvidencePort)
         assert isinstance(c.risk_profile, RiskProfilePort)
         assert isinstance(c.kb_repo, KbDocumentRepoPort)
@@ -134,6 +139,7 @@ class TestUseCaseWiring:
         assert isinstance(c.ingest, IngestionUseCase)
         assert isinstance(c.run_query, RunQueryUseCase)
         assert isinstance(c.kb_management, KbManagementUseCase)
+        assert isinstance(c.assessment_runs, AssessmentRunUseCase)
 
     def test_use_cases_share_container_instances(self) -> None:
         """auth_login._auth is container.auth，避免无意中建第二个实例。"""
@@ -143,6 +149,9 @@ class TestUseCaseWiring:
         assert c.workspace_management._repo is c.workspace_repo
         assert c.case_management._case_repo is c.case_repo
         assert c.case_management._workspace_repo is c.workspace_repo
+        assert c.assessment_runs._runs is c.agent_run_repo
+        assert c.assessment_runs._runtime is c.workflow_runtime
+        assert c.assessment_runs._assessments is c.assessment_management
         assert c.ingest._embedder is c.embedder
         assert c.run_query._chat is c.chat
         assert c.run_query._retriever is c.retriever
@@ -173,6 +182,7 @@ class TestPartialInjection:
             document_parser=FakeDocumentParser(),
             evidence_chunker=FakeEvidenceChunker(),
             evidence_index=FakeEvidenceIndex(document_repo),
+            workflow_runtime=LangGraphWorkflowRuntime(":memory:"),
             embedder=FakeEmbed(),
             chat=FakeChat(responses=["hi"]),
             retriever=FakeRetrieve(),

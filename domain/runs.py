@@ -22,6 +22,13 @@ AgentRunStatus = Literal[
     "failed",
     "cancelled",
 ]
+WorkflowExecutionStatus = Literal["interrupted", "completed"]
+WorkflowInterruptKind = Literal[
+    "documents_required",
+    "fact_confirmation",
+    "assessment_generation",
+    "assessment_review",
+]
 RunEventType = Literal[
     "run_started",
     "stage_started",
@@ -78,9 +85,18 @@ class AgentRun(BaseDomainModel):
                 "cancelled",
             }
         ),
-        "waiting_for_user": frozenset({"running", "cancelled"}),
+        "waiting_for_user": frozenset({"running", "waiting_for_review", "failed", "cancelled"}),
         "waiting_for_review": frozenset({"running", "completed", "failed", "cancelled"}),
-        "retrying": frozenset({"running", "failed", "cancelled"}),
+        "retrying": frozenset(
+            {
+                "running",
+                "waiting_for_user",
+                "waiting_for_review",
+                "completed",
+                "failed",
+                "cancelled",
+            }
+        ),
         "completed": frozenset(),
         "failed": frozenset({"retrying"}),
         "cancelled": frozenset(),
@@ -196,6 +212,7 @@ class AgentRun(BaseDomainModel):
         return self._transition(
             "waiting_for_user",
             at=at,
+            force_update=True,
             checkpoint_id=checkpoint_id,
             current_stage=stage,
         )
@@ -210,6 +227,7 @@ class AgentRun(BaseDomainModel):
         return self._transition(
             "waiting_for_review",
             at=at,
+            force_update=True,
             checkpoint_id=checkpoint_id,
             current_stage=stage,
         )
@@ -312,11 +330,12 @@ class AgentRun(BaseDomainModel):
         target: AgentRunStatus,
         *,
         at: float | None,
+        force_update: bool = False,
         **updates: Any,
     ) -> AgentRun:
-        if target == self.status:
+        if target == self.status and not force_update:
             return self
-        if target not in self._ALLOWED_TRANSITIONS[self.status]:
+        if target != self.status and target not in self._ALLOWED_TRANSITIONS[self.status]:
             raise InvalidAgentRunTransition(self.run_id, self.status, target)
         transition_time = self._validate_update_time(at)
         return cast(
@@ -376,6 +395,61 @@ class RunEvent(BaseDomainModel):
             self.payload,
             field_name="event.payload",
             max_bytes=_MAX_EVENT_PAYLOAD_BYTES,
+        )
+        return self
+
+
+class CaseDocumentReadiness(BaseDomainModel):
+    ready_document_ids: list[str] = Field(default_factory=list)
+    pending_document_ids: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_readiness(self) -> CaseDocumentReadiness:
+        if len(self.ready_document_ids) != len(set(self.ready_document_ids)):
+            raise ValueError("ready_document_ids 不能重复")
+        if len(self.pending_document_ids) != len(set(self.pending_document_ids)):
+            raise ValueError("pending_document_ids 不能重复")
+        if set(self.ready_document_ids) & set(self.pending_document_ids):
+            raise ValueError("同一文档不能同时处于 ready 和 pending")
+        return self
+
+    @property
+    def blocked(self) -> bool:
+        return not self.ready_document_ids or bool(self.pending_document_ids)
+
+
+class WorkflowInterrupt(BaseDomainModel):
+    kind: WorkflowInterruptKind
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_interrupt(self) -> WorkflowInterrupt:
+        _validate_safe_json(
+            self.payload,
+            field_name="workflow_interrupt.payload",
+            max_bytes=_MAX_EVENT_PAYLOAD_BYTES,
+        )
+        return self
+
+
+class WorkflowExecutionResult(BaseDomainModel):
+    status: WorkflowExecutionStatus
+    checkpoint_id: str = Field(min_length=1)
+    stage: str = Field(min_length=1, max_length=100)
+    state: dict[str, Any] = Field(default_factory=dict)
+    completed_stages: list[str] = Field(default_factory=list)
+    interrupt: WorkflowInterrupt | None = None
+
+    @model_validator(mode="after")
+    def validate_execution_result(self) -> WorkflowExecutionResult:
+        if (self.status == "interrupted") != (self.interrupt is not None):
+            raise ValueError("只有 interrupted 执行结果必须携带 interrupt")
+        if len(self.completed_stages) != len(set(self.completed_stages)):
+            raise ValueError("completed_stages 不能重复")
+        _validate_safe_json(
+            self.state,
+            field_name="workflow_execution.state",
+            max_bytes=_MAX_CHECKPOINT_BYTES,
         )
         return self
 

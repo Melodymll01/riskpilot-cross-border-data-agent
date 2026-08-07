@@ -45,7 +45,13 @@ from domain.models import (
     WebResult,
 )
 from domain.policies import PolicyRule
-from domain.runs import AgentRun, RunCheckpoint, RunEvent
+from domain.runs import (
+    AgentRun,
+    CaseDocumentReadiness,
+    RunCheckpoint,
+    RunEvent,
+    WorkflowExecutionResult,
+)
 from domain.workspaces import Workspace, WorkspaceMembership
 
 # === 身份 ===
@@ -404,6 +410,37 @@ class AgentRunRepoPort(Protocol):
     ) -> None:
         """以乐观锁原子保存 Run、检查点和事件。"""
         ...
+
+
+@runtime_checkable
+class WorkflowRuntimePort(Protocol):
+    """框架无关的案件评估工作流运行时端口。"""
+
+    def inspect_case_assessment(
+        self,
+        *,
+        thread_id: str,
+    ) -> WorkflowExecutionResult | None: ...
+
+    def start_case_assessment(
+        self,
+        *,
+        thread_id: str,
+        case_id: str,
+        workspace_id: str,
+        actor_id: str,
+        ruleset_version: str,
+        document_readiness: CaseDocumentReadiness,
+        missing_fact_fields: list[str],
+    ) -> WorkflowExecutionResult: ...
+
+    def resume_case_assessment(
+        self,
+        *,
+        thread_id: str,
+        resume_value: dict[str, Any],
+        state_update: dict[str, Any] | None = None,
+    ) -> WorkflowExecutionResult: ...
 
 
 # === 任务 / 消息 ===

@@ -199,6 +199,15 @@ class AgentRunConflict(DomainError):
         super().__init__(f"AgentRun {run_id!r} 已被其他执行器更新，请刷新后重试")
 
 
+class AgentRunAlreadyActive(DomainError):
+    """同一 Case 和 Workflow 已存在非终态运行。"""
+
+    def __init__(self, case_id: str, run_id: str) -> None:
+        self.case_id = case_id
+        self.run_id = run_id
+        super().__init__(f"案件 {case_id!r} 已存在活动 AgentRun {run_id!r}")
+
+
 # === Tool / Agent ===
 
 

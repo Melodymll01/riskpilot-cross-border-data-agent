@@ -45,6 +45,7 @@ from domain.ports import (
     TaskRepoPort,
     UserRepoPort,
     WebSearchPort,
+    WorkflowRuntimePort,
     WorkspaceRepoPort,
 )
 from infra.audit import SqliteAuditLogRepo
@@ -81,6 +82,7 @@ from infra.storage import (
 )
 from infra.storage._db import SqliteConnectionPool
 from infra.web import DuckDuckGoAdapter
+from infra.workflows import LangGraphWorkflowRuntime
 
 if TYPE_CHECKING:
     from config import Settings
@@ -199,6 +201,10 @@ def build_retriever(_settings: Settings) -> RetrievePort:
 
 def build_web_search(_settings: Settings) -> WebSearchPort:
     return DuckDuckGoAdapter()
+
+
+def build_workflow_runtime(settings: Settings) -> WorkflowRuntimePort:
+    return LangGraphWorkflowRuntime(settings.langgraph_checkpoint_db_path)
 
 
 def build_evidence(_settings: Settings) -> EvidencePort:
@@ -458,5 +464,6 @@ __all__ = [
     "build_task_repo",
     "build_user_repo",
     "build_web_search",
+    "build_workflow_runtime",
     "build_workspace_repo",
 ]
