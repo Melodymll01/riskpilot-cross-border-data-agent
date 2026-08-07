@@ -17,7 +17,7 @@ class FakeEvidenceChunker:
     ) -> list[EvidenceChunk]:
         return [
             EvidenceChunk(
-                chunk_id=f"evc_{binding.case_id}",
+                chunk_id=f"evc_{version.version_id}_{binding.case_id}",
                 workspace_id=document.workspace_id,
                 case_id=binding.case_id,
                 document_id=document.document_id,

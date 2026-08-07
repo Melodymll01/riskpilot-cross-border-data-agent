@@ -524,3 +524,88 @@ class RunEventOut(BaseModel):
 
 class RunEventListResponse(BaseModel):
     events: list[RunEventOut]
+
+
+QACorpusValue = Literal["regulatory", "workspace", "case", "assessment"]
+EvidenceQAStatusValue = Literal["answered", "partially_answered", "refused"]
+
+
+class EvidenceQARequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    question: str = Field(min_length=1, max_length=2000)
+    corpora: list[QACorpusValue] = Field(min_length=1)
+    workspace_id: str | None = Field(default=None, min_length=1)
+    case_id: str | None = Field(default=None, min_length=1)
+    assessment_id: str | None = Field(default=None, min_length=1)
+    top_k: int = Field(default=5, ge=1, le=20)
+
+
+class EvidenceQAScopeOut(BaseModel):
+    corpora: list[QACorpusValue]
+    workspace_id: str | None
+    case_id: str | None
+    assessment_id: str | None
+
+
+class EvidenceQACitationOut(BaseModel):
+    citation_id: str
+    corpus: QACorpusValue
+    source_id: str
+    source_name: str
+    title: str
+    quote: str
+    source_url: str | None
+    workspace_id: str | None
+    case_id: str | None
+    document_id: str | None
+    document_version_id: str | None
+    page_number: int | None
+    source_sha256: str | None
+    assessment_id: str | None
+    clause_id: str | None
+    score: float
+
+
+class EvidenceQAClaimOut(BaseModel):
+    claim_id: str
+    text: str
+    citation_ids: list[str]
+
+
+class ClaimCitationVerificationOut(BaseModel):
+    claim_count: int
+    cited_claim_count: int
+    coverage: float
+    uncited_claim_ids: list[str]
+    unknown_citation_ids: list[str]
+    unused_citation_ids: list[str]
+    valid: bool
+    method: Literal["structural_v1"]
+
+
+class ClaimSupportJudgementOut(BaseModel):
+    claim_id: str
+    supported: bool
+    citation_ids: list[str]
+    reason: str
+
+
+class ClaimSupportResultOut(BaseModel):
+    judgements: list[ClaimSupportJudgementOut]
+    unsupported_claim_ids: list[str]
+    valid: bool
+    method: Literal["independent_llm_v1"]
+
+
+class EvidenceQAResponse(BaseModel):
+    question: str
+    scope: EvidenceQAScopeOut
+    status: EvidenceQAStatusValue
+    answer: str
+    claims: list[EvidenceQAClaimOut]
+    citations: list[EvidenceQACitationOut]
+    refusal_reason: str
+    unanswered_aspects: list[str]
+    verification: ClaimCitationVerificationOut
+    support_verification: ClaimSupportResultOut
