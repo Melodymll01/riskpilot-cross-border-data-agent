@@ -110,6 +110,8 @@ docs/*
 !docs/design/**
 !docs/decisions/
 !docs/decisions/**
+!docs/guides/
+!docs/guides/**
 .github/skills/
 .copilot/
 .claude/

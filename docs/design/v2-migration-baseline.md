@@ -1,5 +1,8 @@
 # RiskPilot V2 迁移基线
 
+> 本文件记录 2026-08-06 重构开始时的历史快照，不代表当前实现状态。当前进度见
+> `docs/design/riskpilot-v2.md` 第 18 节和 `docs/architecture/overview.md`。
+
 ## 记录时间
 
 2026-08-06
@@ -83,3 +86,16 @@ tests/api/test_copilot.py::TestChatMode::test_explicit_research_mode_persisted
 - 一个可验证步骤对应一个中文 commit；
 - 不在功能提交中顺手清理无关遗留问题；
 - 领域层不得依赖 FastAPI、LangGraph 和具体数据库。
+
+## 2026-08-07 进度检查点
+
+- `/api/v2` 仍可用，`/api/v3` 已覆盖 Workspace、Case、Document、Evidence、Fact、
+  Policy、Assessment 和 Assessment Run；
+- 上传文件已经成为案件级、可版本化证据；
+- 已实现只消费 confirmed facts 的版本化规则引擎；
+- 已实现不可变 Assessment、Reviewer/Admin 审批和 Case 状态原子同步；
+- 已实现 AgentRun、RunCheckpoint、RunEvent、乐观锁和连续事件；
+- 已接入 LangGraph 1.x 与 SQLite checkpointer，支持中断恢复、失败重试、取消和
+  进程重建后继续；
+- 最新离线回归为 `1139 passed, 1 skipped, 1 deselected`；显式 deselect 的仍是
+  本文件记录的存量真实 embeddings 401 用例。

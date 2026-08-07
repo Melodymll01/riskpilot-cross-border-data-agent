@@ -738,12 +738,45 @@ evaluations/
 
 ## 18. 当前实施切片
 
-本轮首先交付：
+截至 2026-08-07，已完成：
 
-1. V2 设计与 ADR；
-2. Workspace 与 Case 领域模型；
-3. SQLite Repository 和应用用例；
-4. `/api/v3/cases` 最小案件接口；
-5. 对应单元测试和 API 测试。
+1. Workspace、成员角色和 Case 状态机；
+2. 案件级 Document、DocumentVersion、原始对象存储与 ProcessingJob；
+3. 页级解析、案件范围证据 Chunk、向量 + BM25 + RRF 检索；
+4. CaseFact、版本化证据引用、关键事实人工确认；
+5. Workspace 隔离的 PolicyRule 和只消费 confirmed facts 的确定性规则引擎；
+6. 不可变 Assessment、Finding、ActionItem、版本替换与人工审批；
+7. AgentRun、RunCheckpoint、RunEvent、乐观锁和连续事件持久化；
+8. LangGraph 1.x Case Assessment 运行时、SQLite checkpointer、
+   `interrupt/Command` 暂停恢复、失败重试和取消；
+9. `/api/v3` 的 Workspace、Case、Document、Evidence、Fact、Policy、
+   Assessment 和 Assessment Run 资源接口；
+10. `/api/v2` 保持可用，未进行 Big Bang 退役。
 
-文档、LangGraph、规则引擎和前端将在后续独立步骤中实现，每一步单独验证和提交。
+当前 Case Assessment Graph 已落地的确定性骨架：
+
+```text
+load_case
+→ authorize
+→ validate_documents
+→ detect_missing_facts
+→ select_policy_snapshot
+→ evaluate_policy_rules
+→ draft_assessment
+→ human_review
+→ complete
+```
+
+其中正式 Assessment 的生成和审批由应用用例执行，LangGraph 只负责流程推进与中断恢复，
+不会直接批准报告或写入最终 Assessment。checkpoint 只保存对象 ID 和轻量状态，禁用
+pickle fallback。
+
+尚未完成：
+
+1. V3 Evidence QA 与 Claim-Citation 校验；
+2. LLM 事实抽取、冲突解决和引用修复节点；
+3. Deep Research Graph；
+4. V3 案件工作台前端；
+5. 评测中心、故障注入指标、安全红队和报告导出。
+
+后续仍按“一个可验证步骤对应一个中文 commit”推进。
