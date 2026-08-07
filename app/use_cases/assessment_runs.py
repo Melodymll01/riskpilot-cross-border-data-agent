@@ -291,6 +291,46 @@ class AssessmentRunUseCase:
         )
         return self.continue_run(run_id, actor_id)
 
+    def cancel_run(self, run_id: str, actor_id: str) -> AgentRun:
+        run = self._get_authorized_run(run_id, actor_id, write=True)
+        if run.status == "cancelled":
+            return run
+        if run.status in {"completed", "failed"}:
+            raise ValueError("completed 或 failed Run 不能取消")
+        now = max(time.time(), run.updated_at)
+        checkpoint = RunCheckpoint(
+            checkpoint_id=_new_id("run_checkpoint"),
+            run_id=run.run_id,
+            thread_id=run.thread_id,
+            version=run.revision + 1,
+            stage=run.current_stage,
+            state={
+                **self._latest_checkpoint_state(run),
+                "cancelled": True,
+            },
+            created_at=now,
+        )
+        cancelled = run.cancel(
+            checkpoint_id=checkpoint.checkpoint_id,
+            stage=run.current_stage,
+            at=now,
+        )
+        event = RunEvent(
+            event_id=_new_id("run_event"),
+            run_id=run.run_id,
+            sequence=self._runs.next_event_sequence(run.run_id),
+            event_type="run_cancelled",
+            stage=run.current_stage,
+            created_at=now,
+        )
+        self._runs.save_progress(
+            cancelled,
+            checkpoint,
+            [event],
+            expected_revision=run.revision,
+        )
+        return cancelled
+
     def review_run(
         self,
         run_id: str,
@@ -335,7 +375,10 @@ class AssessmentRunUseCase:
 
     def list_for_case(self, case_id: str, actor_id: str, *, limit: int = 50) -> list[AgentRun]:
         self._case_management.get_case(case_id, actor_id)
-        return self._runs.list_for_case(case_id, limit=limit)
+        return cast(
+            "list[AgentRun]",
+            self._runs.list_for_case(case_id, limit=limit),
+        )
 
     def list_events(
         self,
@@ -346,10 +389,13 @@ class AssessmentRunUseCase:
         limit: int = 200,
     ) -> list[RunEvent]:
         self._get_authorized_run(run_id, actor_id, write=False)
-        return self._runs.list_events(
-            run_id,
-            after_sequence=after_sequence,
-            limit=limit,
+        return cast(
+            "list[RunEvent]",
+            self._runs.list_events(
+                run_id,
+                after_sequence=after_sequence,
+                limit=limit,
+            ),
         )
 
     def _generate_assessment_and_resume(

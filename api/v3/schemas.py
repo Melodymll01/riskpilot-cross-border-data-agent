@@ -438,3 +438,89 @@ class AssessmentBundleResponse(BaseModel):
 
 class AssessmentListResponse(BaseModel):
     assessments: list[AssessmentOut]
+
+
+AgentRunStatusValue = Literal[
+    "queued",
+    "running",
+    "waiting_for_user",
+    "waiting_for_review",
+    "retrying",
+    "completed",
+    "failed",
+    "cancelled",
+]
+RunEventTypeValue = Literal[
+    "run_started",
+    "stage_started",
+    "stage_progress",
+    "stage_completed",
+    "tool_started",
+    "tool_completed",
+    "evidence_found",
+    "facts_proposed",
+    "fact_confirmation_required",
+    "conflict_detected",
+    "human_input_required",
+    "human_review_required",
+    "artifact_ready",
+    "run_paused",
+    "run_resumed",
+    "run_retrying",
+    "run_failed",
+    "run_completed",
+    "run_cancelled",
+]
+
+
+class StartAssessmentRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ruleset_version: str = Field(min_length=1, max_length=100)
+    model_config_snapshot: dict[str, object] = Field(default_factory=dict)
+
+
+class ReviewAssessmentRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decision: Literal["approved", "rejected"]
+    comment: str = Field(default="", max_length=5000)
+
+
+class AgentRunOut(BaseModel):
+    run_id: str
+    workspace_id: str
+    case_id: str
+    workflow_type: Literal["case_assessment", "deep_research"]
+    status: AgentRunStatusValue
+    current_stage: str
+    checkpoint_id: str | None
+    token_usage: int
+    cost: float
+    retry_count: int
+    revision: int
+    created_by: str
+    error_code: str | None
+    error_message: str | None
+    created_at: float
+    updated_at: float
+    started_at: float | None
+    completed_at: float | None
+
+
+class AgentRunListResponse(BaseModel):
+    runs: list[AgentRunOut]
+
+
+class RunEventOut(BaseModel):
+    event_id: str
+    run_id: str
+    sequence: int
+    event_type: RunEventTypeValue
+    stage: str | None
+    payload: dict[str, object]
+    created_at: float
+
+
+class RunEventListResponse(BaseModel):
+    events: list[RunEventOut]

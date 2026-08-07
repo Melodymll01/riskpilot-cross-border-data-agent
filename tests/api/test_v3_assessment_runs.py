@@ -1,0 +1,319 @@
+"""V3 Case Assessment Run API 端到端测试。"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from fastapi.testclient import TestClient
+
+from app.container import AppContainer
+
+
+def _switch_actor(client: TestClient, actor_id: str) -> None:
+    container: AppContainer = client.app.state.container  # type: ignore[attr-defined]
+    token = container.auth.issue_jwt(actor_id)
+    client.cookies.set(container.settings.cookie_name, token)
+
+
+def _setup_case(client: TestClient) -> tuple[str, str]:
+    workspace_id = client.post(
+        "/api/v3/workspaces",
+        json={"name": "跨境合规组"},
+    ).json()["workspace_id"]
+    for user_id, role in (
+        ("github:editor", "editor"),
+        ("github:reviewer", "reviewer"),
+        ("github:viewer", "viewer"),
+    ):
+        response = client.put(
+            f"/api/v3/workspaces/{workspace_id}/members/{user_id}",
+            json={"role": role},
+        )
+        assert response.status_code == 200
+    _switch_actor(client, "github:editor")
+    case = client.post(
+        "/api/v3/cases",
+        json={
+            "workspace_id": workspace_id,
+            "title": "海外客服项目",
+            "assessment_date": "2026-08-07",
+            "reviewer_id": "github:reviewer",
+        },
+    )
+    assert case.status_code == 201
+    case_id = case.json()["case_id"]
+    for target in ("collecting", "ready_for_assessment"):
+        response = client.post(
+            f"/api/v3/cases/{case_id}/transitions",
+            json={"target": target},
+        )
+        assert response.status_code == 200
+    _switch_actor(client, case.json()["owner_id"])
+    return workspace_id, case_id
+
+
+def _publish_rule(client: TestClient, workspace_id: str) -> None:
+    container: AppContainer = client.app.state.container  # type: ignore[attr-defined]
+    workspace = container.workspace_repo.get(workspace_id)
+    assert workspace is not None
+    _switch_actor(client, workspace.created_by)
+    payload = {
+        "rule_id": "SYNTHETIC-001",
+        "ruleset_version": "synthetic-v1",
+        "jurisdiction": "CN",
+        "effective_from": "2026-01-01",
+        "required_fact_fields": ["important_data_involved"],
+        "condition": {
+            "field": "important_data_involved",
+            "operator": "eq",
+            "value": True,
+        },
+        "result": {
+            "candidate_path": "security_assessment",
+            "risk_level": "high",
+            "required_actions": ["提交安全评估材料"],
+        },
+        "source_clause_ids": ["synthetic-clause"],
+    }
+    created = client.post(
+        f"/api/v3/workspaces/{workspace_id}/policy-rules",
+        json=payload,
+    )
+    assert created.status_code == 201
+    published = client.post(
+        f"/api/v3/workspaces/{workspace_id}/policy-rules/SYNTHETIC-001/synthetic-v1/publish"
+    )
+    assert published.status_code == 200
+    _switch_actor(client, "github:editor")
+
+
+def _upload(client: TestClient, case_id: str) -> dict[str, Any]:
+    response = client.post(
+        f"/api/v3/cases/{case_id}/documents",
+        files={
+            "file": (
+                "case.txt",
+                "材料明确说明涉及重要数据。".encode(),
+                "text/plain",
+            )
+        },
+    )
+    assert response.status_code == 202
+    return response.json()
+
+
+def _process_document(client: TestClient, job_id: str) -> None:
+    parsed = client.post(f"/api/v3/processing-jobs/{job_id}/parse")
+    assert parsed.status_code == 200
+    indexed = client.post(f"/api/v3/processing-jobs/{job_id}/index")
+    assert indexed.status_code == 200
+    assert indexed.json()["document"]["status"] == "ready"
+
+
+def _confirm_fact(client: TestClient, case_id: str) -> str:
+    created = client.post(
+        f"/api/v3/cases/{case_id}/facts",
+        json={
+            "field_name": "important_data_involved",
+            "value": True,
+            "source_type": "user",
+            "confidence": 1.0,
+            "criticality": "critical",
+        },
+    )
+    assert created.status_code == 201
+    fact_id = created.json()["fact"]["fact_id"]
+    _switch_actor(client, "github:reviewer")
+    confirmed = client.post(
+        f"/api/v3/facts/{fact_id}/transitions",
+        json={"target": "confirmed"},
+    )
+    assert confirmed.status_code == 200
+    _switch_actor(client, "github:editor")
+    return fact_id
+
+
+def _start(client: TestClient, case_id: str) -> Any:
+    return client.post(
+        f"/api/v3/cases/{case_id}/assessment-runs",
+        json={
+            "ruleset_version": "synthetic-v1",
+            "model_config_snapshot": {
+                "provider": "deterministic",
+                "model": "rule-engine",
+            },
+        },
+    )
+
+
+class TestAssessmentRunApi:
+    def test_requires_authentication(self, client: TestClient) -> None:
+        response = client.get("/api/v3/runs/run_x")
+        assert response.status_code == 401
+
+    def test_ready_case_runs_to_review_and_reviewer_approves(
+        self,
+        authed_client: tuple[TestClient, dict[str, Any]],
+    ) -> None:
+        client, _ = authed_client
+        workspace_id, case_id = _setup_case(client)
+        _publish_rule(client, workspace_id)
+        uploaded = _upload(client, case_id)
+        _process_document(client, uploaded["job"]["job_id"])
+        _confirm_fact(client, case_id)
+
+        started = _start(client, case_id)
+        assert started.status_code == 201
+        run = started.json()
+        run_id = run["run_id"]
+        assert run["status"] == "waiting_for_review"
+        assert run["current_stage"] == "human_review"
+        assert "thread_id" not in run
+        assert "model_config_snapshot" not in run
+
+        detail = client.get(f"/api/v3/runs/{run_id}")
+        assert detail.status_code == 200
+        assert detail.json() == run
+        listed = client.get(f"/api/v3/cases/{case_id}/assessment-runs")
+        assert listed.status_code == 200
+        assert listed.json()["runs"] == [run]
+
+        events = client.get(f"/api/v3/runs/{run_id}/events")
+        assert events.status_code == 200
+        event_items = events.json()["events"]
+        assert event_items[-1]["event_type"] == "human_review_required"
+        assert [item["sequence"] for item in event_items] == list(range(1, len(event_items) + 1))
+        assert all("thought" not in item["payload"] for item in event_items)
+        after = client.get(
+            f"/api/v3/runs/{run_id}/events",
+            params={"after_sequence": event_items[-2]["sequence"]},
+        )
+        assert after.json()["events"] == [event_items[-1]]
+
+        _switch_actor(client, "github:reviewer")
+        approved = client.post(
+            f"/api/v3/runs/{run_id}/review",
+            json={"decision": "approved", "comment": "审核通过"},
+        )
+        assert approved.status_code == 200
+        assert approved.json()["status"] == "completed"
+        case = client.get(f"/api/v3/cases/{case_id}")
+        assert case.status_code == 200
+        assert case.json()["status"] == "completed"
+
+    def test_document_and_fact_interrupts_continue_until_review(
+        self,
+        authed_client: tuple[TestClient, dict[str, Any]],
+    ) -> None:
+        client, _ = authed_client
+        workspace_id, case_id = _setup_case(client)
+        _publish_rule(client, workspace_id)
+        uploaded = _upload(client, case_id)
+
+        started = _start(client, case_id)
+        assert started.status_code == 201
+        run_id = started.json()["run_id"]
+        assert started.json()["current_stage"] == "validate_documents"
+
+        still_waiting = client.post(f"/api/v3/runs/{run_id}/continue")
+        assert still_waiting.status_code == 200
+        assert still_waiting.json()["current_stage"] == "validate_documents"
+
+        _process_document(client, uploaded["job"]["job_id"])
+        missing_fact = client.post(f"/api/v3/runs/{run_id}/continue")
+        assert missing_fact.status_code == 200
+        assert missing_fact.json()["current_stage"] == "detect_missing_facts"
+
+        _confirm_fact(client, case_id)
+        review = client.post(f"/api/v3/runs/{run_id}/continue")
+        assert review.status_code == 200
+        assert review.json()["status"] == "waiting_for_review"
+
+    def test_duplicate_run_and_sensitive_snapshot_rejected(
+        self,
+        authed_client: tuple[TestClient, dict[str, Any]],
+    ) -> None:
+        client, _ = authed_client
+        workspace_id, case_id = _setup_case(client)
+        _publish_rule(client, workspace_id)
+        _upload(client, case_id)
+
+        sensitive = client.post(
+            f"/api/v3/cases/{case_id}/assessment-runs",
+            json={
+                "ruleset_version": "synthetic-v1",
+                "model_config_snapshot": {"api_key": "secret"},
+            },
+        )
+        assert sensitive.status_code == 400
+        assert "敏感" in sensitive.json()["message"]
+
+        first = _start(client, case_id)
+        assert first.status_code == 201
+        duplicate = _start(client, case_id)
+        assert duplicate.status_code == 409
+        assert duplicate.json()["error_code"] == "AGENT_RUN_ALREADY_ACTIVE"
+        retry_active = client.post(f"/api/v3/runs/{first.json()['run_id']}/retry")
+        assert retry_active.status_code == 400
+        invalid_continue = client.post(
+            f"/api/v3/runs/{first.json()['run_id']}/review",
+            json={"decision": "approved", "extra": True},
+        )
+        assert invalid_continue.status_code == 422
+
+        cancelled = client.post(f"/api/v3/runs/{first.json()['run_id']}/cancel")
+        assert cancelled.status_code == 200
+        assert cancelled.json()["status"] == "cancelled"
+        repeated = client.post(f"/api/v3/runs/{first.json()['run_id']}/cancel")
+        assert repeated.json() == cancelled.json()
+        continued = client.post(f"/api/v3/runs/{first.json()['run_id']}/continue")
+        assert continued.status_code == 400
+
+    def test_viewer_and_outsider_cannot_access_run(
+        self,
+        authed_client: tuple[TestClient, dict[str, Any]],
+    ) -> None:
+        client, _ = authed_client
+        workspace_id, case_id = _setup_case(client)
+        _publish_rule(client, workspace_id)
+        _upload(client, case_id)
+
+        _switch_actor(client, "github:viewer")
+        forbidden = _start(client, case_id)
+        assert forbidden.status_code == 403
+
+        _switch_actor(client, "github:editor")
+        run_id = _start(client, case_id).json()["run_id"]
+        _switch_actor(client, "github:outsider")
+        hidden = client.get(f"/api/v3/runs/{run_id}")
+        assert hidden.status_code == 404
+        assert hidden.json()["error_code"] == "AGENT_RUN_NOT_FOUND"
+        events = client.get(f"/api/v3/runs/{run_id}/events")
+        assert events.status_code == 404
+
+    def test_review_rejects_wrong_role_and_missing_comment(
+        self,
+        authed_client: tuple[TestClient, dict[str, Any]],
+    ) -> None:
+        client, _ = authed_client
+        workspace_id, case_id = _setup_case(client)
+        _publish_rule(client, workspace_id)
+        uploaded = _upload(client, case_id)
+        _process_document(client, uploaded["job"]["job_id"])
+        _confirm_fact(client, case_id)
+        run_id = _start(client, case_id).json()["run_id"]
+
+        editor_review = client.post(
+            f"/api/v3/runs/{run_id}/review",
+            json={"decision": "approved"},
+        )
+        assert editor_review.status_code == 403
+
+        _switch_actor(client, "github:reviewer")
+        missing_comment = client.post(
+            f"/api/v3/runs/{run_id}/review",
+            json={"decision": "rejected"},
+        )
+        assert missing_comment.status_code == 400
+        detail = client.get(f"/api/v3/runs/{run_id}")
+        assert detail.json()["status"] == "waiting_for_review"

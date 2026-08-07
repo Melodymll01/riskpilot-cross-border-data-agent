@@ -11,6 +11,9 @@ from fastapi.responses import JSONResponse
 
 from api.v2.schemas import ErrorResponse
 from domain.errors import (
+    AgentRunAlreadyActive,
+    AgentRunConflict,
+    AgentRunNotFound,
     AssessmentNotActive,
     AssessmentNotFound,
     AuthError,
@@ -20,6 +23,7 @@ from domain.errors import (
     DocumentNotFound,
     DocumentTooLarge,
     DomainError,
+    InvalidAgentRunTransition,
     InvalidAssessmentTransition,
     InvalidCaseTransition,
     InvalidDocumentContent,
@@ -58,6 +62,16 @@ _DOMAIN_MAP: dict[type[DomainError], tuple[int, str]] = {
     InvalidAssessmentTransition: (
         status.HTTP_409_CONFLICT,
         "INVALID_ASSESSMENT_TRANSITION",
+    ),
+    AgentRunNotFound: (status.HTTP_404_NOT_FOUND, "AGENT_RUN_NOT_FOUND"),
+    AgentRunAlreadyActive: (
+        status.HTTP_409_CONFLICT,
+        "AGENT_RUN_ALREADY_ACTIVE",
+    ),
+    AgentRunConflict: (status.HTTP_409_CONFLICT, "AGENT_RUN_CONFLICT"),
+    InvalidAgentRunTransition: (
+        status.HTTP_409_CONFLICT,
+        "INVALID_AGENT_RUN_TRANSITION",
     ),
     InvalidCaseTransition: (status.HTTP_409_CONFLICT, "INVALID_CASE_TRANSITION"),
     DocumentNotFound: (status.HTTP_404_NOT_FOUND, "DOCUMENT_NOT_FOUND"),

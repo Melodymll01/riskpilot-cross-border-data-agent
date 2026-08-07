@@ -344,6 +344,28 @@ class TestAssessmentRunLifecycle:
 
 
 class TestAssessmentRunSafety:
+    def test_cancel_waiting_run_is_idempotent_and_blocks_continue(
+        self,
+        setup: _Setup,
+    ) -> None:
+        setup.seed_document(status="queued")
+        run = setup.run_uc.start(
+            setup.case_id,
+            "github:editor",
+            ruleset_version="synthetic-v1",
+        )
+
+        cancelled = setup.run_uc.cancel_run(run.run_id, "github:editor")
+        repeated = setup.run_uc.cancel_run(run.run_id, "github:editor")
+
+        assert cancelled.status == "cancelled"
+        assert repeated == cancelled
+        assert setup.run_uc.list_events(run.run_id, "github:editor")[-1].event_type == (
+            "run_cancelled"
+        )
+        with pytest.raises(ValueError, match="可以继续"):
+            setup.run_uc.continue_run(run.run_id, "github:editor")
+
     def test_same_case_cannot_start_two_active_runs(self, setup: _Setup) -> None:
         setup.seed_document(status="queued")
         first = setup.run_uc.start(
