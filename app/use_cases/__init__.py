@@ -10,6 +10,7 @@ from app.use_cases.document_management import (
     DocumentManagementUseCase,
     DocumentUploadResult,
 )
+from app.use_cases.evidence_qa import EvidenceQAUseCase
 from app.use_cases.evidence_search import EvidenceSearchUseCase
 from app.use_cases.fact_management import (
     FactDetail,
@@ -33,6 +34,7 @@ __all__ = [
     "DocumentManagementUseCase",
     "DocumentUploadResult",
     "EvidenceSearchUseCase",
+    "EvidenceQAUseCase",
     "FactDetail",
     "FactEvidenceInput",
     "FactManagementUseCase",

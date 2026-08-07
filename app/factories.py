@@ -21,6 +21,7 @@ from domain.ports import (
     CaseFactRepoPort,
     CaseRepoPort,
     ChatPort,
+    ClaimSupportVerifierPort,
     ConsolidationStatePort,
     DocumentLoaderPort,
     DocumentParserPort,
@@ -29,6 +30,7 @@ from domain.ports import (
     EvidenceChunkerPort,
     EvidenceIndexPort,
     EvidencePort,
+    EvidenceQAGeneratorPort,
     FactStorePort,
     FeedbackRepoPort,
     KbDocumentRepoPort,
@@ -61,6 +63,7 @@ from infra.memory import (
     ThreadPoolMemoryScheduler,
 )
 from infra.object_store import LocalObjectStore
+from infra.qa import StructuredClaimSupportVerifier, StructuredEvidenceQAGenerator
 from infra.research import AgenticResearchAdapter
 from infra.risk_profile import StubRiskProfileService
 from infra.search import EmbedderAdapter, HybridRetrieverAdapter
@@ -193,6 +196,22 @@ def build_embedder(_settings: Settings) -> EmbedPort:
 
 def build_chat(_settings: Settings) -> ChatPort:
     return OpenAIChatAdapter()
+
+
+def build_evidence_qa_generator(
+    _settings: Settings,
+    *,
+    chat: ChatPort,
+) -> EvidenceQAGeneratorPort:
+    return StructuredEvidenceQAGenerator(chat)
+
+
+def build_claim_support_verifier(
+    _settings: Settings,
+    *,
+    chat: ChatPort,
+) -> ClaimSupportVerifierPort:
+    return StructuredClaimSupportVerifier(chat)
 
 
 def build_retriever(_settings: Settings) -> RetrievePort:
@@ -440,6 +459,7 @@ __all__ = [
     "build_case_repo",
     "build_case_fact_repo",
     "build_chat",
+    "build_claim_support_verifier",
     "build_consolidation_state_store",
     "build_consolidation_worker",
     "build_document_loader",
@@ -447,6 +467,7 @@ __all__ = [
     "build_document_repo",
     "build_embedder",
     "build_evidence",
+    "build_evidence_qa_generator",
     "build_evidence_chunker",
     "build_evidence_index",
     "build_fact_store",

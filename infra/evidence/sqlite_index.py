@@ -75,58 +75,55 @@ class SqliteEvidenceIndex:
             )
             .fetchall()
         )
-        if not rows:
-            return []
-        candidates = [_row_to_candidate(row) for row in rows]
-        if any(len(candidate["embedding"]) != len(query_embedding) for candidate in candidates):
-            raise ValueError("query_embedding 维度与索引不一致")
+        return _rank_rows(
+            rows,
+            query=query,
+            query_embedding=query_embedding,
+            top_k=top_k,
+        )
 
-        vector_ranking = sorted(
-            candidates,
-            key=lambda candidate: _cosine_similarity(
-                query_embedding,
-                candidate["embedding"],
-            ),
-            reverse=True,
-        )
-        vector_scores = {
-            candidate["chunk"].chunk_id: _cosine_similarity(
-                query_embedding,
-                candidate["embedding"],
+    def search_workspace(
+        self,
+        *,
+        workspace_id: str,
+        query: str,
+        query_embedding: list[float],
+        top_k: int = 5,
+    ) -> list[EvidenceSearchHit]:
+        if not workspace_id:
+            raise ValueError("workspace_id 必填")
+        if not query.strip():
+            raise ValueError("query 不能为空")
+        if top_k < 1:
+            raise ValueError("top_k 必须大于 0")
+        rows = (
+            self._pool.get()
+            .execute(
+                """
+                SELECT ec.*
+                FROM evidence_chunks AS ec
+                JOIN documents AS d ON d.document_id = ec.document_id
+                WHERE ec.workspace_id = ?
+                  AND d.workspace_id = ?
+                  AND d.document_type = 'workspace_knowledge'
+                  AND d.status = 'ready'
+                  AND d.current_version_id = ec.document_version_id
+                GROUP BY
+                    ec.document_id,
+                    ec.document_version_id,
+                    ec.page_number,
+                    ec.chunk_index
+                """,
+                (workspace_id, workspace_id),
             )
-            for candidate in vector_ranking
-        }
-        bm25_scores = _bm25_scores(query, candidates)
-        bm25_ranking = sorted(
-            candidates,
-            key=lambda candidate: bm25_scores[candidate["chunk"].chunk_id],
-            reverse=True,
+            .fetchall()
         )
-        vector_ranks = {
-            candidate["chunk"].chunk_id: rank
-            for rank, candidate in enumerate(vector_ranking, start=1)
-        }
-        bm25_ranks = {
-            candidate["chunk"].chunk_id: rank
-            for rank, candidate in enumerate(bm25_ranking, start=1)
-            if bm25_scores[candidate["chunk"].chunk_id] > 0
-        }
-        hits: list[EvidenceSearchHit] = []
-        for candidate in candidates:
-            chunk = candidate["chunk"]
-            score = 1.0 / (_RRF_K + vector_ranks[chunk.chunk_id])
-            if chunk.chunk_id in bm25_ranks:
-                score += 1.0 / (_RRF_K + bm25_ranks[chunk.chunk_id])
-            hits.append(
-                EvidenceSearchHit(
-                    chunk=chunk,
-                    score=score,
-                    vector_score=vector_scores[chunk.chunk_id],
-                    bm25_score=bm25_scores[chunk.chunk_id],
-                )
-            )
-        hits.sort(key=lambda hit: (hit.score, hit.vector_score), reverse=True)
-        return hits[:top_k]
+        return _rank_rows(
+            rows,
+            query=query,
+            query_embedding=query_embedding,
+            top_k=top_k,
+        )
 
     def count_version(self, document_version_id: str) -> int:
         row = (
@@ -141,6 +138,66 @@ class SqliteEvidenceIndex:
             .fetchone()
         )
         return int(row["n"])
+
+
+def _rank_rows(
+    rows: list[Any],
+    *,
+    query: str,
+    query_embedding: list[float],
+    top_k: int,
+) -> list[EvidenceSearchHit]:
+    if not rows:
+        return []
+    candidates = [_row_to_candidate(row) for row in rows]
+    if any(len(candidate["embedding"]) != len(query_embedding) for candidate in candidates):
+        raise ValueError("query_embedding 维度与索引不一致")
+
+    vector_ranking = sorted(
+        candidates,
+        key=lambda candidate: _cosine_similarity(
+            query_embedding,
+            candidate["embedding"],
+        ),
+        reverse=True,
+    )
+    vector_scores = {
+        candidate["chunk"].chunk_id: _cosine_similarity(
+            query_embedding,
+            candidate["embedding"],
+        )
+        for candidate in vector_ranking
+    }
+    bm25_scores = _bm25_scores(query, candidates)
+    bm25_ranking = sorted(
+        candidates,
+        key=lambda candidate: bm25_scores[candidate["chunk"].chunk_id],
+        reverse=True,
+    )
+    vector_ranks = {
+        candidate["chunk"].chunk_id: rank for rank, candidate in enumerate(vector_ranking, start=1)
+    }
+    bm25_ranks = {
+        candidate["chunk"].chunk_id: rank
+        for rank, candidate in enumerate(bm25_ranking, start=1)
+        if bm25_scores[candidate["chunk"].chunk_id] > 0
+    }
+    hits: list[EvidenceSearchHit] = []
+    for candidate in candidates:
+        chunk = candidate["chunk"]
+        score = 1.0 / (_RRF_K + vector_ranks[chunk.chunk_id])
+        if chunk.chunk_id in bm25_ranks:
+            score += 1.0 / (_RRF_K + bm25_ranks[chunk.chunk_id])
+        hits.append(
+            EvidenceSearchHit(
+                chunk=chunk,
+                score=score,
+                vector_score=vector_scores[chunk.chunk_id],
+                bm25_score=bm25_scores[chunk.chunk_id],
+            )
+        )
+    hits.sort(key=lambda hit: (hit.score, hit.vector_score), reverse=True)
+    return hits[:top_k]
 
 
 def _validate_index_payload(

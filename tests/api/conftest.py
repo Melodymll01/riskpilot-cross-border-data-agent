@@ -37,6 +37,7 @@ from tests.fakes.fake_evidence_chunker import FakeEvidenceChunker
 from tests.fakes.fake_evidence_index import FakeEvidenceIndex
 from tests.fakes.fake_kb_repo import FakeKbRepo
 from tests.fakes.fake_object_store import FakeObjectStore
+from tests.fakes.fake_qa import FakeClaimSupportVerifier, FakeEvidenceQAGenerator
 from tests.fakes.fake_repos import (
     InMemoryAgentRunRepo,
     InMemoryAssessmentRepo,
@@ -105,6 +106,8 @@ def container(
         audit_log=FakeAuditLogRepo(),
         embedder=FakeEmbed(),
         chat=FakeChat(responses=chat_script),
+        evidence_qa_generator=FakeEvidenceQAGenerator(),
+        claim_support_verifier=FakeClaimSupportVerifier(),
         retriever=FakeRetrieve(),
         web_search=FakeWebSearch(),
         evidence=FakeEvidence(),

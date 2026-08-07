@@ -17,10 +17,12 @@ from app.factories import (
     build_case_fact_repo,
     build_case_repo,
     build_chat,
+    build_claim_support_verifier,
     build_document_parser,
     build_document_repo,
     build_embedder,
     build_evidence,
+    build_evidence_qa_generator,
     build_object_store,
     build_policy_rule_repo,
     build_retriever,
@@ -40,10 +42,12 @@ from domain.ports import (
     CaseFactRepoPort,
     CaseRepoPort,
     ChatPort,
+    ClaimSupportVerifierPort,
     DocumentParserPort,
     DocumentRepoPort,
     EmbedPort,
     EvidencePort,
+    EvidenceQAGeneratorPort,
     ObjectStorePort,
     PolicyRuleRepoPort,
     RetrievePort,
@@ -137,6 +141,17 @@ class TestExternalFactories:
 
     def test_chat_satisfies_port(self, settings: Settings) -> None:
         assert isinstance(build_chat(settings), ChatPort)
+
+    def test_evidence_qa_components_satisfy_ports(self, settings: Settings) -> None:
+        chat = build_chat(settings)
+        assert isinstance(
+            build_evidence_qa_generator(settings, chat=chat),
+            EvidenceQAGeneratorPort,
+        )
+        assert isinstance(
+            build_claim_support_verifier(settings, chat=chat),
+            ClaimSupportVerifierPort,
+        )
 
     def test_embedder_satisfies_port(self, settings: Settings) -> None:
         assert isinstance(build_embedder(settings), EmbedPort)

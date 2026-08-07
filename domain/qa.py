@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Literal
 
 from pydantic import Field, model_validator
@@ -10,6 +11,7 @@ from domain.models import BaseDomainModel
 
 QACorpus = Literal["regulatory", "workspace", "case", "assessment"]
 EvidenceQAStatus = Literal["answered", "partially_answered", "refused"]
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 class EvidenceQAScope(BaseDomainModel):
@@ -24,12 +26,19 @@ class EvidenceQAScope(BaseDomainModel):
     def validate_scope(self) -> EvidenceQAScope:
         if len(self.corpora) != len(set(self.corpora)):
             raise ValueError("corpora 不能重复")
-        if (
-            any(corpus in {"workspace", "case", "assessment"} for corpus in self.corpora)
-            and not self.workspace_id
-        ):
+        needs_workspace = any(
+            corpus in {"workspace", "case", "assessment"} for corpus in self.corpora
+        )
+        needs_case = any(corpus in {"case", "assessment"} for corpus in self.corpora)
+        if not needs_workspace and self.workspace_id is not None:
+            raise ValueError("当前 corpora 不接受 workspace_id")
+        if not needs_case and self.case_id is not None:
+            raise ValueError("当前 corpora 不接受 case_id")
+        if "assessment" not in self.corpora and self.assessment_id is not None:
+            raise ValueError("当前 corpora 不接受 assessment_id")
+        if needs_workspace and not self.workspace_id:
             raise ValueError("Workspace、Case 或 Assessment 范围必须提供 workspace_id")
-        if any(corpus in {"case", "assessment"} for corpus in self.corpora) and not self.case_id:
+        if needs_case and not self.case_id:
             raise ValueError("Case 或 Assessment 范围必须提供 case_id")
         if "assessment" in self.corpora and not self.assessment_id:
             raise ValueError("Assessment 范围必须提供 assessment_id")
@@ -55,6 +64,7 @@ class EvidenceQACitation(BaseDomainModel):
     document_id: str | None = None
     document_version_id: str | None = None
     page_number: int | None = Field(default=None, ge=1)
+    source_sha256: str | None = Field(default=None, min_length=64, max_length=64)
     assessment_id: str | None = None
     clause_id: str | None = None
     score: float = Field(default=0.0, ge=0.0)
@@ -63,19 +73,21 @@ class EvidenceQACitation(BaseDomainModel):
     def validate_source_location(self) -> EvidenceQACitation:
         if not self.quote.strip():
             raise ValueError("quote 不能为空白字符串")
-        if self.corpus == "workspace" and self.workspace_id is None:
-            raise ValueError("Workspace 引用必须提供 workspace_id")
-        if self.corpus == "case":
+        if self.source_sha256 is not None and not _SHA256_RE.fullmatch(self.source_sha256):
+            raise ValueError("source_sha256 必须是 64 位小写十六进制")
+        if self.corpus in {"workspace", "case"}:
             required = {
                 "workspace_id": self.workspace_id,
-                "case_id": self.case_id,
                 "document_id": self.document_id,
                 "document_version_id": self.document_version_id,
                 "page_number": self.page_number,
+                "source_sha256": self.source_sha256,
             }
+            if self.corpus == "case":
+                required["case_id"] = self.case_id
             missing = [field_name for field_name, value in required.items() if value is None]
             if missing:
-                raise ValueError(f"Case 引用缺少定位字段: {', '.join(missing)}")
+                raise ValueError(f"{self.corpus} 引用缺少定位字段: {', '.join(missing)}")
         if self.corpus == "assessment":
             required = {
                 "workspace_id": self.workspace_id,
@@ -131,6 +143,48 @@ class ClaimCitationVerification(BaseDomainModel):
         return self
 
 
+class ClaimSupportJudgement(BaseDomainModel):
+    """独立验证器对单个 Claim 的证据支持判定。"""
+
+    claim_id: str = Field(min_length=1, max_length=100)
+    supported: bool
+    citation_ids: list[str] = Field(default_factory=list)
+    reason: str = Field(default="", max_length=1000)
+
+    @model_validator(mode="after")
+    def validate_judgement(self) -> ClaimSupportJudgement:
+        if len(self.citation_ids) != len(set(self.citation_ids)):
+            raise ValueError("ClaimSupport citation_ids 不能重复")
+        if self.supported and not self.citation_ids:
+            raise ValueError("supported Claim 必须记录实际支持它的 citation_ids")
+        if not self.supported and not self.reason.strip():
+            raise ValueError("unsupported Claim 必须说明 reason")
+        return self
+
+
+class ClaimSupportResult(BaseDomainModel):
+    """语义支持校验结果；任何 Claim 不受支持时整体 fail closed。"""
+
+    judgements: list[ClaimSupportJudgement] = Field(default_factory=list)
+    unsupported_claim_ids: list[str] = Field(default_factory=list)
+    valid: bool
+    method: Literal["independent_llm_v1"] = "independent_llm_v1"
+
+    @model_validator(mode="after")
+    def validate_result(self) -> ClaimSupportResult:
+        claim_ids = [judgement.claim_id for judgement in self.judgements]
+        if len(claim_ids) != len(set(claim_ids)):
+            raise ValueError("ClaimSupport judgement claim_id 不能重复")
+        expected_unsupported = sorted(
+            judgement.claim_id for judgement in self.judgements if not judgement.supported
+        )
+        if self.unsupported_claim_ids != expected_unsupported:
+            raise ValueError("unsupported_claim_ids 与 judgements 不一致")
+        if self.valid != (not self.unsupported_claim_ids):
+            raise ValueError("ClaimSupport valid 与 unsupported_claim_ids 不一致")
+        return self
+
+
 class EvidenceQADraft(BaseDomainModel):
     """LLM 结构化输出；最终答案由服务端基于已校验 Claim 渲染。"""
 
@@ -175,6 +229,7 @@ class EvidenceQAAnswer(BaseDomainModel):
     refusal_reason: str = Field(default="", max_length=2000)
     unanswered_aspects: list[str] = Field(default_factory=list)
     verification: ClaimCitationVerification
+    support_verification: ClaimSupportResult
 
     @model_validator(mode="after")
     def validate_answer(self) -> EvidenceQAAnswer:
@@ -194,8 +249,19 @@ class EvidenceQAAnswer(BaseDomainModel):
             raise ValueError("verification 与当前 Claim-Citation 结构不一致")
         if self.status != "refused" and not self.verification.valid:
             raise ValueError("非拒答结果必须通过 Claim-Citation 校验")
+        if self.status != "refused":
+            expected_claim_ids = {claim.claim_id for claim in self.claims}
+            actual_claim_ids = {
+                judgement.claim_id for judgement in self.support_verification.judgements
+            }
+            if actual_claim_ids != expected_claim_ids:
+                raise ValueError("support_verification 必须覆盖全部 Claim")
+            if not self.support_verification.valid:
+                raise ValueError("非拒答结果必须通过 Claim 语义支持校验")
         if self.status == "refused" and self.citations:
             raise ValueError("refused 不返回未被 Claim 使用的引用")
+        if self.status == "refused" and self.support_verification.judgements:
+            raise ValueError("refused 不返回 Claim 语义判定")
         return self
 
     @property

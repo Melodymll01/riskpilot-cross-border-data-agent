@@ -210,6 +210,137 @@ class TestEvidenceIndex:
         assert hits[0].bm25_score > 0
         assert hits[1].vector_score >= hits[0].vector_score
 
+    def test_workspace_search_only_returns_ready_workspace_knowledge(
+        self,
+        pool: SqliteConnectionPool,
+        index: SqliteEvidenceIndex,
+    ) -> None:
+        workspace_knowledge = _chunk(
+            "workspace",
+            workspace_id="ws_001",
+            case_id="case_a",
+            text="Workspace 跨境制度要求完成审批",
+        )
+        case_material = _chunk(
+            "case",
+            workspace_id="ws_001",
+            case_id="case_a",
+            text="案件材料不应进入 Workspace 检索",
+        )
+        pending_knowledge = _chunk(
+            "pending",
+            workspace_id="ws_001",
+            case_id="case_a",
+            text="未就绪制度不应进入检索",
+        )
+        other_workspace = _chunk(
+            "other",
+            workspace_id="ws_002",
+            case_id="case_b",
+            text="其他 Workspace 制度不能泄漏",
+        )
+        for chunk in (
+            workspace_knowledge,
+            case_material,
+            pending_knowledge,
+            other_workspace,
+        ):
+            _seed_scope(pool, chunk)
+            index.replace_version_chunks(
+                chunk.document_version_id,
+                [chunk],
+                [[1.0, 0.0]],
+            )
+        conn = pool.get()
+        conn.execute(
+            """
+            UPDATE documents
+            SET document_type = 'workspace_knowledge', status = 'ready'
+            WHERE document_id IN (?, ?)
+            """,
+            (workspace_knowledge.document_id, other_workspace.document_id),
+        )
+        conn.execute(
+            """
+            UPDATE documents
+            SET document_type = 'workspace_knowledge', status = 'indexing'
+            WHERE document_id = ?
+            """,
+            (pending_knowledge.document_id,),
+        )
+        conn.commit()
+
+        hits = index.search_workspace(
+            workspace_id="ws_001",
+            query="Workspace 制度",
+            query_embedding=[1.0, 0.0],
+            top_k=10,
+        )
+
+        assert [hit.chunk.chunk_id for hit in hits] == ["workspace"]
+
+    def test_workspace_search_deduplicates_same_document_bound_to_multiple_cases(
+        self,
+        pool: SqliteConnectionPool,
+        index: SqliteEvidenceIndex,
+    ) -> None:
+        first = _chunk(
+            "workspace_a",
+            workspace_id="ws_001",
+            case_id="case_a",
+            text="统一 Workspace 制度",
+        )
+        _seed_scope(pool, first)
+        case_repo = SqliteCaseRepo(pool)
+        case_repo.create(
+            Case(
+                case_id="case_b",
+                workspace_id="ws_001",
+                title="case_b",
+                owner_id="github:alice",
+                created_at=100.0,
+                updated_at=100.0,
+            )
+        )
+        pool.get().execute(
+            """
+            INSERT INTO case_documents
+                (case_id, document_id, purpose, added_by, added_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            ("case_b", first.document_id, "", "github:alice", 100.0),
+        )
+        pool.get().execute(
+            """
+            UPDATE documents
+            SET document_type = 'workspace_knowledge', status = 'ready'
+            WHERE document_id = ?
+            """,
+            (first.document_id,),
+        )
+        pool.get().commit()
+        second = first.model_copy(
+            update={
+                "chunk_id": "workspace_b",
+                "case_id": "case_b",
+            }
+        )
+        index.replace_version_chunks(
+            first.document_version_id,
+            [first, second],
+            [[1.0, 0.0], [1.0, 0.0]],
+        )
+
+        hits = index.search_workspace(
+            workspace_id="ws_001",
+            query="统一制度",
+            query_embedding=[1.0, 0.0],
+            top_k=10,
+        )
+
+        assert len(hits) == 1
+        assert hits[0].chunk.document_version_id == first.document_version_id
+
     def test_replace_version_is_idempotent(
         self,
         pool: SqliteConnectionPool,

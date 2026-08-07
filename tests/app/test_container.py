@@ -7,6 +7,7 @@ from app.use_cases import (
     AssessmentRunUseCase,
     AuthLoginUseCase,
     CaseManagementUseCase,
+    EvidenceQAUseCase,
     IngestionUseCase,
     KbManagementUseCase,
     RunQueryUseCase,
@@ -22,12 +23,14 @@ from domain.ports import (
     CaseFactRepoPort,
     CaseRepoPort,
     ChatPort,
+    ClaimSupportVerifierPort,
     DocumentLoaderPort,
     DocumentRepoPort,
     EmbedPort,
     EvidenceChunkerPort,
     EvidenceIndexPort,
     EvidencePort,
+    EvidenceQAGeneratorPort,
     KbDocumentRepoPort,
     ObjectStorePort,
     PolicyRuleRepoPort,
@@ -44,12 +47,14 @@ from tests.fakes import (
     FakeAuditLogRepo,
     FakeAuth,
     FakeChat,
+    FakeClaimSupportVerifier,
     FakeDocumentLoader,
     FakeDocumentParser,
     FakeEmbed,
     FakeEvidence,
     FakeEvidenceChunker,
     FakeEvidenceIndex,
+    FakeEvidenceQAGenerator,
     FakeKbRepo,
     FakeObjectStore,
     FakeRetrieve,
@@ -88,6 +93,8 @@ def _full_fake_container() -> AppContainer:
         audit_log=FakeAuditLogRepo(),
         embedder=FakeEmbed(),
         chat=FakeChat(),
+        evidence_qa_generator=FakeEvidenceQAGenerator(),
+        claim_support_verifier=FakeClaimSupportVerifier(),
         retriever=FakeRetrieve(),
         web_search=FakeWebSearch(),
         evidence=FakeEvidence(),
@@ -117,6 +124,8 @@ class TestPortConformance:
         assert isinstance(c.audit_log, AuditLogPort)
         assert isinstance(c.embedder, EmbedPort)
         assert isinstance(c.chat, ChatPort)
+        assert isinstance(c.evidence_qa_generator, EvidenceQAGeneratorPort)
+        assert isinstance(c.claim_support_verifier, ClaimSupportVerifierPort)
         assert isinstance(c.retriever, RetrievePort)
         assert isinstance(c.web_search, WebSearchPort)
         assert isinstance(c.workflow_runtime, WorkflowRuntimePort)
@@ -140,6 +149,7 @@ class TestUseCaseWiring:
         assert isinstance(c.run_query, RunQueryUseCase)
         assert isinstance(c.kb_management, KbManagementUseCase)
         assert isinstance(c.assessment_runs, AssessmentRunUseCase)
+        assert isinstance(c.evidence_qa, EvidenceQAUseCase)
 
     def test_use_cases_share_container_instances(self) -> None:
         """auth_login._auth is container.auth，避免无意中建第二个实例。"""
@@ -152,6 +162,11 @@ class TestUseCaseWiring:
         assert c.assessment_runs._runs is c.agent_run_repo
         assert c.assessment_runs._runtime is c.workflow_runtime
         assert c.assessment_runs._assessments is c.assessment_management
+        assert c.evidence_qa._retriever is c.retriever
+        assert c.evidence_qa._evidence_index is c.evidence_index
+        assert c.evidence_qa._documents is c.document_repo
+        assert c.evidence_qa._generator is c.evidence_qa_generator
+        assert c.evidence_qa._support_verifier is c.claim_support_verifier
         assert c.ingest._embedder is c.embedder
         assert c.run_query._chat is c.chat
         assert c.run_query._retriever is c.retriever
@@ -185,6 +200,8 @@ class TestPartialInjection:
             workflow_runtime=LangGraphWorkflowRuntime(":memory:"),
             embedder=FakeEmbed(),
             chat=FakeChat(responses=["hi"]),
+            evidence_qa_generator=FakeEvidenceQAGenerator(),
+            claim_support_verifier=FakeClaimSupportVerifier(),
             retriever=FakeRetrieve(),
             web_search=FakeWebSearch(),
             evidence=FakeEvidence(),

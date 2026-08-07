@@ -29,6 +29,7 @@ from app.factories import (
     build_case_fact_repo,
     build_case_repo,
     build_chat,
+    build_claim_support_verifier,
     build_consolidation_state_store,
     build_consolidation_worker,
     build_document_loader,
@@ -38,6 +39,7 @@ from app.factories import (
     build_evidence,
     build_evidence_chunker,
     build_evidence_index,
+    build_evidence_qa_generator,
     build_fact_store,
     build_feedback_repo,
     build_kb_repo,
@@ -64,6 +66,7 @@ from app.use_cases import (
     AuthLoginUseCase,
     CaseManagementUseCase,
     DocumentManagementUseCase,
+    EvidenceQAUseCase,
     EvidenceSearchUseCase,
     FactManagementUseCase,
     IngestionUseCase,
@@ -88,6 +91,7 @@ if TYPE_CHECKING:
         CaseFactRepoPort,
         CaseRepoPort,
         ChatPort,
+        ClaimSupportVerifierPort,
         ConsolidationStatePort,
         DocumentLoaderPort,
         DocumentParserPort,
@@ -96,6 +100,7 @@ if TYPE_CHECKING:
         EvidenceChunkerPort,
         EvidenceIndexPort,
         EvidencePort,
+        EvidenceQAGeneratorPort,
         FactStorePort,
         KbDocumentRepoPort,
         MemoryJobSchedulerPort,
@@ -132,6 +137,8 @@ class AppContainer:
         audit_log: AuditLogPort | None = None,
         embedder: EmbedPort | None = None,
         chat: ChatPort | None = None,
+        evidence_qa_generator: EvidenceQAGeneratorPort | None = None,
+        claim_support_verifier: ClaimSupportVerifierPort | None = None,
         retriever: RetrievePort | None = None,
         web_search: WebSearchPort | None = None,
         evidence: EvidencePort | None = None,
@@ -208,6 +215,14 @@ class AppContainer:
         # ── LLM / 检索 / 外部 ─────────────────────────────────────────
         self.embedder: EmbedPort = embedder or build_embedder(settings)
         self.chat: ChatPort = chat or build_chat(settings)
+        self.evidence_qa_generator: EvidenceQAGeneratorPort = (
+            evidence_qa_generator
+            or build_evidence_qa_generator(settings, chat=self.chat)
+        )
+        self.claim_support_verifier: ClaimSupportVerifierPort = (
+            claim_support_verifier
+            or build_claim_support_verifier(settings, chat=self.chat)
+        )
         self.retriever: RetrievePort = retriever or build_retriever(settings)
         self.web_search: WebSearchPort = web_search or build_web_search(settings)
         self.evidence: EvidencePort = evidence or build_evidence(settings)
@@ -334,6 +349,17 @@ class AppContainer:
             case_management=self.case_management,
             workspace_management=self.workspace_management,
             policy_management=self.policy_management,
+        )
+        self.evidence_qa = EvidenceQAUseCase(
+            retriever=self.retriever,
+            evidence_index=self.evidence_index,
+            document_repo=self.document_repo,
+            embedder=self.embedder,
+            generator=self.evidence_qa_generator,
+            support_verifier=self.claim_support_verifier,
+            workspace_management=self.workspace_management,
+            case_management=self.case_management,
+            assessment_management=self.assessment_management,
         )
         self.assessment_runs = AssessmentRunUseCase(
             run_repo=self.agent_run_repo,

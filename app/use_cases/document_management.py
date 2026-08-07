@@ -109,10 +109,13 @@ class DocumentManagementUseCase:
         case = self._case_management.get_case(case_id, actor_id)
         if case.status == "archived":
             raise CaseArchived(case.case_id)
+        allowed_roles: set[WorkspaceRole] = (
+            {"admin"} if document_type == "workspace_knowledge" else _WRITE_ROLES
+        )
         self._workspace_management.require_role(
             case.workspace_id,
             actor_id,
-            _WRITE_ROLES,
+            allowed_roles,
             action="上传案件材料",
         )
         logical_name, suffix = _normalize_filename(filename)

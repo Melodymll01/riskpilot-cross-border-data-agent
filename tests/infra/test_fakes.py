@@ -11,6 +11,7 @@ from domain.ports import (
     AuditLogPort,
     CaseFactRepoPort,
     ChatPort,
+    ClaimSupportVerifierPort,
     DocumentLoaderPort,
     DocumentParserPort,
     DocumentRepoPort,
@@ -18,6 +19,7 @@ from domain.ports import (
     EvidenceChunkerPort,
     EvidenceIndexPort,
     EvidencePort,
+    EvidenceQAGeneratorPort,
     KbDocumentRepoPort,
     ObjectStorePort,
     PolicyRuleRepoPort,
@@ -29,12 +31,14 @@ from domain.ports import (
 from tests.fakes import (
     FakeAuditLogRepo,
     FakeChat,
+    FakeClaimSupportVerifier,
     FakeDocumentLoader,
     FakeDocumentParser,
     FakeEmbed,
     FakeEvidence,
     FakeEvidenceChunker,
     FakeEvidenceIndex,
+    FakeEvidenceQAGenerator,
     FakeKbRepo,
     FakeObjectStore,
     FakeRetrieve,
@@ -52,6 +56,10 @@ from tests.fakes import (
 class TestFakeProtocolConformance:
     def test_fake_chat_is_chat_port(self) -> None:
         assert isinstance(FakeChat(), ChatPort)
+
+    def test_fake_qa_components_satisfy_ports(self) -> None:
+        assert isinstance(FakeEvidenceQAGenerator(), EvidenceQAGeneratorPort)
+        assert isinstance(FakeClaimSupportVerifier(), ClaimSupportVerifierPort)
 
     def test_fake_embed_is_embed_port(self) -> None:
         assert isinstance(FakeEmbed(), EmbedPort)

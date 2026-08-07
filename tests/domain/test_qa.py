@@ -7,6 +7,8 @@ from pydantic import ValidationError
 
 from domain.qa import (
     ClaimCitationVerifier,
+    ClaimSupportJudgement,
+    ClaimSupportResult,
     EvidenceQAAnswer,
     EvidenceQACitation,
     EvidenceQAClaim,
@@ -27,6 +29,7 @@ def _case_citation(**overrides: object) -> EvidenceQACitation:
         "document_id": "doc_001",
         "document_version_id": "ver_001",
         "page_number": 2,
+        "source_sha256": "a" * 64,
         "score": 0.9,
     }
     values.update(overrides)
@@ -47,6 +50,8 @@ class TestEvidenceQAScope:
     def test_regulatory_scope_needs_no_workspace(self) -> None:
         scope = EvidenceQAScope(corpora=["regulatory"])
         assert scope.workspace_id is None
+        with pytest.raises(ValidationError, match="不接受 workspace_id"):
+            EvidenceQAScope(corpora=["regulatory"], workspace_id="ws_001")
 
     def test_case_scope_requires_workspace_and_case(self) -> None:
         with pytest.raises(ValidationError, match="workspace_id"):
@@ -65,6 +70,13 @@ class TestEvidenceQAScope:
     def test_duplicate_corpora_rejected(self) -> None:
         with pytest.raises(ValidationError, match="corpora"):
             EvidenceQAScope(corpora=["regulatory", "regulatory"])
+        with pytest.raises(ValidationError, match="assessment_id"):
+            EvidenceQAScope(
+                corpora=["case"],
+                workspace_id="ws_001",
+                case_id="case_001",
+                assessment_id="assessment_001",
+            )
 
 
 class TestEvidenceQACitation:
@@ -73,6 +85,8 @@ class TestEvidenceQACitation:
             _case_citation(page_number=None)
         with pytest.raises(ValidationError, match="document_version_id"):
             _case_citation(document_version_id=None)
+        with pytest.raises(ValidationError, match="source_sha256"):
+            _case_citation(source_sha256=None)
 
     def test_assessment_citation_requires_assessment_id(self) -> None:
         with pytest.raises(ValidationError, match="assessment_id"):
@@ -111,6 +125,26 @@ class TestEvidenceQADraft:
     def test_duplicate_claim_id_rejected(self) -> None:
         with pytest.raises(ValidationError, match="claim_id"):
             EvidenceQADraft(status="answered", claims=[_claim(), _claim()])
+
+
+def _support_result(
+    *,
+    supported: bool = True,
+    claim_id: str = "C1",
+    citation_ids: list[str] | None = None,
+) -> ClaimSupportResult:
+    judgement = ClaimSupportJudgement(
+        claim_id=claim_id,
+        supported=supported,
+        citation_ids=(["E1"] if supported else []) if citation_ids is None else citation_ids,
+        reason="" if supported else "原文不支持",
+    )
+    unsupported = [] if supported else [claim_id]
+    return ClaimSupportResult(
+        judgements=[judgement],
+        unsupported_claim_ids=unsupported,
+        valid=supported,
+    )
 
 
 class TestClaimCitationVerifier:
@@ -169,6 +203,7 @@ class TestEvidenceQAAnswer:
             claims=[claim],
             citations=[citation],
             verification=ClaimCitationVerifier.verify([claim], [citation]),
+            support_verification=_support_result(),
         )
         assert answer.answer == "1. 境外接收方应承担安全保护责任。[E1]"
         assert "document_version_id" in answer.model_dump()["citations"][0]
@@ -188,6 +223,7 @@ class TestEvidenceQAAnswer:
             citations=[citation],
             unanswered_aspects=["未找到保存期限"],
             verification=ClaimCitationVerifier.verify([claim], [citation]),
+            support_verification=_support_result(),
         )
         assert answer.answer.startswith("⚠️")
         assert "未找到保存期限" in answer.answer
@@ -203,6 +239,7 @@ class TestEvidenceQAAnswer:
                 claims=[claim],
                 citations=[citation],
                 verification=ClaimCitationVerifier.verify([claim], [citation]),
+                support_verification=_support_result(),
             )
 
     def test_refusal_has_no_citations_or_claims(self) -> None:
@@ -213,6 +250,11 @@ class TestEvidenceQAAnswer:
             status="refused",
             refusal_reason="根据当前检索范围未找到足够证据。",
             verification=verification,
+            support_verification=ClaimSupportResult(
+                judgements=[],
+                unsupported_claim_ids=[],
+                valid=True,
+            ),
         )
         assert answer.answer == "根据当前检索范围未找到足够证据。"
         assert answer.citations == []
@@ -229,4 +271,45 @@ class TestEvidenceQAAnswer:
                 claims=[claim],
                 citations=[citation],
                 verification=forged,
+                support_verification=_support_result(),
+            )
+
+    def test_support_verification_must_cover_every_claim(self) -> None:
+        claim = _claim()
+        citation = _case_citation()
+        with pytest.raises(ValidationError, match="覆盖全部"):
+            EvidenceQAAnswer(
+                question="问题",
+                scope=EvidenceQAScope(
+                    corpora=["case"],
+                    workspace_id="ws_001",
+                    case_id="case_001",
+                ),
+                status="answered",
+                claims=[claim],
+                citations=[citation],
+                verification=ClaimCitationVerifier.verify([claim], [citation]),
+                support_verification=ClaimSupportResult(
+                    judgements=[],
+                    unsupported_claim_ids=[],
+                    valid=True,
+                ),
+            )
+
+    def test_unsupported_claim_blocks_answer(self) -> None:
+        claim = _claim()
+        citation = _case_citation()
+        with pytest.raises(ValidationError, match="语义支持"):
+            EvidenceQAAnswer(
+                question="问题",
+                scope=EvidenceQAScope(
+                    corpora=["case"],
+                    workspace_id="ws_001",
+                    case_id="case_001",
+                ),
+                status="answered",
+                claims=[claim],
+                citations=[citation],
+                verification=ClaimCitationVerifier.verify([claim], [citation]),
+                support_verification=_support_result(supported=False),
             )

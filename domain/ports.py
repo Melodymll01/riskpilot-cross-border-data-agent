@@ -45,6 +45,12 @@ from domain.models import (
     WebResult,
 )
 from domain.policies import PolicyRule
+from domain.qa import (
+    ClaimSupportResult,
+    EvidenceQACitation,
+    EvidenceQAClaim,
+    EvidenceQADraft,
+)
 from domain.runs import (
     AgentRun,
     CaseDocumentReadiness,
@@ -258,6 +264,17 @@ class EvidenceIndexPort(Protocol):
         query_embedding: list[float],
         top_k: int = 5,
     ) -> list[EvidenceSearchHit]: ...
+
+    def search_workspace(
+        self,
+        *,
+        workspace_id: str,
+        query: str,
+        query_embedding: list[float],
+        top_k: int = 5,
+    ) -> list[EvidenceSearchHit]:
+        """只搜索显式标记为 workspace_knowledge 的当前就绪文档。"""
+        ...
 
     def count_version(self, document_version_id: str) -> int: ...
 
@@ -514,6 +531,29 @@ class RetrievePort(Protocol):
         owner_id: str | None = None,
         filters: dict[str, str] | None = None,
     ) -> list[Chunk]: ...
+
+
+@runtime_checkable
+class ClaimSupportVerifierPort(Protocol):
+    """独立校验 Claim 是否由其引用原文支持；失败时必须 fail closed。"""
+
+    def verify(
+        self,
+        claims: list[EvidenceQAClaim],
+        citations: list[EvidenceQACitation],
+    ) -> ClaimSupportResult: ...
+
+
+@runtime_checkable
+class EvidenceQAGeneratorPort(Protocol):
+    """基于服务端编号证据生成结构化 Claim，不生成自由长答案。"""
+
+    def generate(
+        self,
+        *,
+        question: str,
+        citations: list[EvidenceQACitation],
+    ) -> EvidenceQADraft: ...
 
 
 # === 外部服务 ===

@@ -94,6 +94,32 @@ def _setup(
 
 
 class TestUpload:
+    def test_workspace_knowledge_requires_admin(self) -> None:
+        workspace_uc, case_uc, uc, _, _, case_id = _setup()
+        case = case_uc.get_case(case_id, "github:alice")
+        workspace_uc.add_or_update_member(
+            case.workspace_id,
+            "github:alice",
+            user_id="github:editor",
+            role="editor",
+        )
+        with pytest.raises(WorkspaceAccessDenied):
+            uc.upload(
+                "github:editor",
+                case_id=case_id,
+                filename="policy.txt",
+                content=b"workspace policy",
+                document_type="workspace_knowledge",
+            )
+        uploaded = uc.upload(
+            "github:alice",
+            case_id=case_id,
+            filename="policy.txt",
+            content=b"workspace policy",
+            document_type="workspace_knowledge",
+        )
+        assert uploaded.document.document_type == "workspace_knowledge"
+
     @pytest.mark.parametrize(
         ("filename", "content", "expected_mime"),
         [
