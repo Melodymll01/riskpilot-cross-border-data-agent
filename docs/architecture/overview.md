@@ -42,6 +42,30 @@ V2 的关键边界：
 5. 文档、事实、证据和 Assessment 均为一等领域对象；
 6. `/api/v2` 与 `/api/v3` 在迁移期并行运行。
 
+### Evidence QA
+
+```text
+POST /api/v3/qa
+  → EvidenceQAUseCase
+    → server-authorized scope
+    → Regulatory / Workspace / Case / Assessment retrieval
+    → reread current source span
+    → EvidenceQAGeneratorPort
+    → structural_v1 Claim-Citation verification
+    → ClaimSupportVerifierPort
+    → answer or refuse
+```
+
+- Regulatory 只检索公共法规语料，不携带当前用户私人 KB owner；
+- Workspace 范围只读取 `document_type=workspace_knowledge` 的 ready 当前版本，且只有
+  Workspace admin 可以上传该类文档；
+- Case 范围按 `workspace_id + case_id` 下推过滤；
+- Document Citation 必须带 `document_id`、`document_version_id`、页码和 SHA-256；
+- 回答前重新读取当前解析页，确认版本、SHA、CaseDocument 绑定和 quote 仍一致；
+- LLM 只生成原子 Claim 和 citation IDs，服务端不直接透出自由长答案；
+- 独立验证调用不能扩大 Claim 声明的引用范围；任一 Claim 不受支持即 fail closed；
+- API 不返回 Prompt、原始模型响应或思维链。
+
 ### Case Assessment
 
 ```text
@@ -65,8 +89,8 @@ AssessmentRunUseCase
 
 ### 当前边界
 
-已实现的是 Case Assessment 的工程骨架与确定性闭环。LLM 事实抽取、证据冲突解决、
-Claim-Citation 修复、V3 Evidence QA、Deep Research Graph 和 V3 前端仍待后续切片。
+已实现的是 Evidence QA 与 Case Assessment 的工程骨架和确定性闭环。LLM 事实抽取、
+证据冲突解决、Assessment 引用修复、Deep Research Graph 和 V3 前端仍待后续切片。
 
 完整产品和技术设计见：
 

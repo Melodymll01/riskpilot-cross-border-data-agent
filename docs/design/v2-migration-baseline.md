@@ -97,5 +97,7 @@ tests/api/test_copilot.py::TestChatMode::test_explicit_research_mode_persisted
 - 已实现 AgentRun、RunCheckpoint、RunEvent、乐观锁和连续事件；
 - 已接入 LangGraph 1.x 与 SQLite checkpointer，支持中断恢复、失败重试、取消和
   进程重建后继续；
-- 最新离线回归为 `1139 passed, 1 skipped, 1 deselected`；显式 deselect 的仍是
+- 已实现 `/api/v3/qa`，支持公共法规、Workspace Knowledge、Case Evidence 和
+  Assessment 四类授权范围，并执行结构覆盖与独立语义支持双校验；
+- 最新离线回归为 `1202 passed, 1 skipped, 1 deselected`；显式 deselect 的仍是
   本文件记录的存量真实 embeddings 401 用例。

@@ -752,6 +752,12 @@ evaluations/
 9. `/api/v3` 的 Workspace、Case、Document、Evidence、Fact、Policy、
    Assessment 和 Assessment Run 资源接口；
 10. `/api/v2` 保持可用，未进行 Big Bang 退役。
+11. `/api/v3/qa` Evidence QA：公共法规、Workspace Knowledge、Case Evidence 和
+    Assessment 四类服务端授权范围；
+12. 结构化 Claim 生成、版本化页码引用、`structural_v1` 覆盖校验和独立
+    `independent_llm_v1` 语义支持校验；
+13. Case/Workspace 引用在回答前重新读取当前 DocumentVersion 解析页，并校验
+    `source_sha256`、CaseDocument 绑定和原文 quote。
 
 当前 Case Assessment Graph 已落地的确定性骨架：
 
@@ -773,8 +779,8 @@ pickle fallback。
 
 尚未完成：
 
-1. V3 Evidence QA 与 Claim-Citation 校验；
-2. LLM 事实抽取、冲突解决和引用修复节点；
+1. LLM 事实抽取、冲突解决和 Assessment 引用修复节点；
+2. 面向自然语言蕴含的专用 Claim-Citation 评测集与自动修复；
 3. Deep Research Graph；
 4. V3 案件工作台前端；
 5. 评测中心、故障注入指标、安全红队和报告导出。

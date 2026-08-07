@@ -1,7 +1,7 @@
 # RiskPilot · 数据出境合规案件智能体
 
 [![CI](https://github.com/Melodymll01/riskpilot-cross-border-data-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Melodymll01/riskpilot-cross-border-data-agent/actions/workflows/ci.yml)
-[![tests](https://img.shields.io/badge/offline_tests-1139%20passed-brightgreen)](https://github.com/Melodymll01/riskpilot-cross-border-data-agent/actions/workflows/ci.yml)
+[![tests](https://img.shields.io/badge/offline_tests-1202%20passed-brightgreen)](https://github.com/Melodymll01/riskpilot-cross-border-data-agent/actions/workflows/ci.yml)
 [![python](https://img.shields.io/badge/python-3.12-blue)](pyproject.toml)
 [![arch](https://img.shields.io/badge/arch-DDD%204--layer-9b5bff)](docs/architecture/overview.md)
 [![agent](https://img.shields.io/badge/agent-ReAct%20%C2%B7%204%20tools-ff7a59)](app/agent/copilot.py)
@@ -48,14 +48,15 @@
 | **案件级证据** | Workspace/Case/Document 隔离，原件、版本、页码、Chunk、事实引用可追溯 | [domain/documents.py](domain/documents.py) |
 | **确定性合规评估** | 只消费 confirmed facts 的版本化规则引擎，生成 Finding、ActionItem 和不可变 Assessment | [domain/policy_engine.py](domain/policy_engine.py) |
 | **可恢复案件工作流** | LangGraph + SQLite checkpointer，支持 interrupt/resume、失败重试、取消和人工审批 | [assessment_runs.py](app/use_cases/assessment_runs.py) |
+| **V3 Evidence QA** | 公共法规、Workspace Knowledge、Case Evidence、Assessment 四类授权检索；结构覆盖与独立语义支持双校验 | [evidence_qa.py](app/use_cases/evidence_qa.py) |
 
 ## 关键指标
 
 | 维度 | 数值 |
 | --- | --- |
-| 离线回归 | **1139 passed · 1 skipped · 1 个存量用例显式排除** |
-| 架构规模 | **33 Port + 17 Use Case** · DDD 4 层 |
-| V3 资源接口 | **40 个路由** · Workspace → Assessment Run |
+| 离线回归 | **1202 passed · 1 skipped · 1 个存量用例显式排除** |
+| 架构规模 | **35 Port + 18 Use Case** · DDD 4 层 |
+| V3 资源接口 | **41 个路由** · Workspace → Evidence QA / Assessment Run |
 | Agent 工具 | **4 个领域工具** + 9 类流式 AgentEvent |
 | 记忆系统 | **4 层**（L1 最近消息 → L4 语义事实） |
 | Top-K=2 检索命中率 | **93.3%**（chunk_size=300, overlap=60） |
@@ -70,8 +71,8 @@
 ```mermaid
 flowchart TB
     API[api/v2 + api/v3 · 入口层<br/>QA / Case / Evidence / Assessment Run]
-    APP[app · 用例编排层<br/>AppContainer + 17 Use Case]
-    DOMAIN[domain · 纯模型 + 33 Port Protocol]
+    APP[app · 用例编排层<br/>AppContainer + 18 Use Case]
+    DOMAIN[domain · 纯模型 + 35 Port Protocol]
     INFRA[infra · 适配器<br/>storage / retrieval / LLM / memory / LangGraph]
 
     API --> APP --> DOMAIN
@@ -81,7 +82,9 @@ flowchart TB
 
 ### 双路径 AI 架构
 
-- **Evidence QA / 旧问答**：普通应用服务与自研 ReAct，不为简单问题引入 Graph；
+- **V3 Evidence QA**：普通线性应用服务，不使用 LangGraph；先做授权范围检索，再生成
+  原子 Claim，最后执行结构覆盖和独立语义支持校验；
+- **旧问答**：`/api/v2` 继续保留自研 ReAct，迁移期不做 Big Bang 删除；
 - **Case Assessment**：通过 `WorkflowRuntimePort` 使用 LangGraph，领域层不依赖框架；
 - **确定性边界**：LangGraph 负责流程状态，`PolicyRuleEngine` 负责门槛计算，
   `AssessmentManagementUseCase` 负责最终快照与审批；
@@ -114,10 +117,12 @@ flowchart LR
 
 ## 工程亮点
 
-- **DDD 4 层架构** + 33 Port Protocol + Container 依赖注入，domain 不依赖 FastAPI、
+- **DDD 4 层架构** + 35 Port Protocol + Container 依赖注入，domain 不依赖 FastAPI、
   LangGraph 或具体数据库
-- **分层 AI 运行时**：简单 QA 使用自研 ReAct，Case Assessment 使用
-  `WorkflowRuntimePort + LangGraph`
+- **分层 AI 运行时**：V3 简单 QA 使用普通应用服务，V2 兼容问答保留自研 ReAct，
+  Case Assessment 使用 `WorkflowRuntimePort + LangGraph`
+- **可验证 Evidence QA**：LLM 只返回结构化 Claim；服务端重新读取当前文档版本原文，
+  再用独立调用验证 Claim-Citation 语义支持，失败即拒答
 - **可恢复人工闭环**：SQLite checkpointer + 产品 Run 乐观锁 + 连续事件 +
   Reviewer/Admin 审批
 - **混合检索**：向量 + BM25 + RRF 融合 + Cross-Encoder 重排
@@ -207,18 +212,22 @@ ADMIN_USER_IDS=github:your-github-login
 | POST/GET | `/workspaces/{workspace_id}/policy-rules` | 版本化规则创建与发布 |
 | POST/GET | `/cases/{case_id}/assessments` | 确定性 Assessment 生成与版本查询 |
 | POST/GET | `/cases/{case_id}/assessment-runs` | LangGraph 案件评估运行 |
+| POST | `/qa` | 四类授权语料范围的 Evidence QA |
 | POST | `/runs/{run_id}/continue` | 重新检查材料/事实后恢复 |
 | POST | `/runs/{run_id}/retry` | 重试 failed Run |
 | POST | `/runs/{run_id}/cancel` | 幂等取消非终态 Run |
 | POST | `/runs/{run_id}/review` | Reviewer/Admin 审批正式 Assessment |
 | GET | `/runs/{run_id}/events` | 按 sequence 增量读取可审计事件 |
 
-完整演示流程见 [V3 Case Assessment Run 指南](docs/guides/v3-assessment-run.md)。
+完整演示流程见：
+
+- [V3 Evidence QA 指南](docs/guides/v3-evidence-qa.md)
+- [V3 Case Assessment Run 指南](docs/guides/v3-assessment-run.md)
 
 ## 技术栈
 
 - **后端**：FastAPI + Pydantic v2
-- **架构**：DDD 4 层 + 33 Port + Container DI + WorkflowRuntimePort
+- **架构**：DDD 4 层 + 35 Port + Container DI + WorkflowRuntimePort
 - **工作流**：LangGraph 1.x + SQLite checkpointer + interrupt/resume
 - **存储**：SQLite（业务对象 / Run / Event）+ 独立 LangGraph checkpoint SQLite + ChromaDB
 - **鉴权**：GitHub OAuth + JWT（HS256）+ admin 白名单
@@ -226,7 +235,7 @@ ADMIN_USER_IDS=github:your-github-login
 - **检索**：ChromaDB + jieba BM25 + RRF 融合 + bge-reranker-base 重排
 - **记忆**：5 层分层记忆 + TTL + 语义事实去重 + 被遗忘权
 - **前端**：原生 HTML + ES module（无构建依赖）
-- **质量**：离线 pytest（1139 passed）+ ruff + GitHub Actions CI
+- **质量**：离线 pytest（1202 passed）+ ruff + GitHub Actions CI
 
 ## 文档
 
@@ -235,6 +244,7 @@ ADMIN_USER_IDS=github:your-github-login
 3. **架构决策**：[docs/decisions/](docs/decisions/)
 4. **迁移基线**：[docs/design/v2-migration-baseline.md](docs/design/v2-migration-baseline.md)
 5. **Assessment Run 演示**：[docs/guides/v3-assessment-run.md](docs/guides/v3-assessment-run.md)
+6. **Evidence QA 演示**：[docs/guides/v3-evidence-qa.md](docs/guides/v3-evidence-qa.md)
 
 ## 协议
 
