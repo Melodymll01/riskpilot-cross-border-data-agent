@@ -35,6 +35,8 @@ from domain.documents import (
     ProcessingStage,
 )
 from domain.errors import (
+    AgentRunConflict,
+    AgentRunNotFound,
     AssessmentNotActive,
     AssessmentNotFound,
     AuthError,
@@ -45,6 +47,7 @@ from domain.errors import (
     DocumentTooLarge,
     DomainError,
     EvidenceServiceError,
+    InvalidAgentRunTransition,
     InvalidAssessmentTransition,
     InvalidCaseFactTransition,
     InvalidCaseTransition,
@@ -113,6 +116,7 @@ from domain.policies import (
 )
 from domain.policy_engine import PolicyRuleEngine
 from domain.ports import (
+    AgentRunRepoPort,
     AssessmentRepoPort,
     AuditLogPort,
     AuthPort,
@@ -137,11 +141,22 @@ from domain.ports import (
     WebSearchPort,
     WorkspaceRepoPort,
 )
+from domain.runs import (
+    AgentRun,
+    AgentRunStatus,
+    RunCheckpoint,
+    RunEvent,
+    RunEventType,
+    WorkflowType,
+)
 from domain.workspaces import Workspace, WorkspaceMembership, WorkspaceRole, WorkspaceStatus
 
 __all__ = [
     # errors
     "DomainError",
+    "AgentRunConflict",
+    "AgentRunNotFound",
+    "InvalidAgentRunTransition",
     "AssessmentNotActive",
     "AssessmentNotFound",
     "InvalidAssessmentTransition",
@@ -241,9 +256,16 @@ __all__ = [
     "ActionItem",
     "ActionPriority",
     "ActionStatus",
+    "AgentRun",
+    "AgentRunStatus",
+    "WorkflowType",
+    "RunCheckpoint",
+    "RunEvent",
+    "RunEventType",
     # ports
     "AuthPort",
     "AssessmentRepoPort",
+    "AgentRunRepoPort",
     "AuditLogPort",
     "UserRepoPort",
     "WorkspaceRepoPort",

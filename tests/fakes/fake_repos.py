@@ -8,9 +8,11 @@ from domain.assessments import Assessment, AssessmentBundle
 from domain.cases import Case
 from domain.document_content import DocumentParseSnapshot
 from domain.documents import CaseDocument, Document, DocumentVersion, ProcessingJob
+from domain.errors import AgentRunConflict
 from domain.facts import CaseFact, CaseFactEvidence
 from domain.models import Artifact, Message, Task, ToolCall, User
 from domain.policies import PolicyRule
+from domain.runs import AgentRun, RunCheckpoint, RunEvent
 from domain.workspaces import Workspace, WorkspaceMembership
 
 
@@ -440,3 +442,121 @@ class InMemoryAssessmentRepo:
             )
         if self._case_repo is not None:
             self._case_repo.update(case)
+
+
+class InMemoryAgentRunRepo:
+    """`AgentRunRepoPort` 的内存实现。"""
+
+    def __init__(self) -> None:
+        self._runs: dict[str, AgentRun] = {}
+        self._checkpoints: dict[str, RunCheckpoint] = {}
+        self._events: dict[str, list[RunEvent]] = {}
+
+    def create(
+        self,
+        run: AgentRun,
+        checkpoint: RunCheckpoint,
+        event: RunEvent,
+    ) -> None:
+        if run.run_id in self._runs:
+            raise ValueError("AgentRun 已存在")
+        if (
+            checkpoint.run_id != run.run_id
+            or checkpoint.thread_id != run.thread_id
+            or checkpoint.stage != run.current_stage
+            or checkpoint.version != 1
+            or run.revision != 1
+            or run.checkpoint_id != checkpoint.checkpoint_id
+        ):
+            raise ValueError("初始 AgentRun 与 RunCheckpoint 不一致")
+        if (
+            event.run_id != run.run_id
+            or event.sequence != 1
+            or event.event_type != "run_started"
+        ):
+            raise ValueError("首个 RunEvent 必须是 sequence=1 的 run_started")
+        self._runs[run.run_id] = run
+        self._checkpoints[checkpoint.checkpoint_id] = checkpoint
+        self._events[run.run_id] = [event]
+
+    def get(self, run_id: str) -> AgentRun | None:
+        return self._runs.get(run_id)
+
+    def get_checkpoint(self, checkpoint_id: str) -> RunCheckpoint | None:
+        return self._checkpoints.get(checkpoint_id)
+
+    def get_latest_checkpoint(self, run_id: str) -> RunCheckpoint | None:
+        checkpoints = [
+            checkpoint
+            for checkpoint in self._checkpoints.values()
+            if checkpoint.run_id == run_id
+        ]
+        return max(checkpoints, key=lambda item: item.version, default=None)
+
+    def list_for_case(self, case_id: str, *, limit: int = 50) -> list[AgentRun]:
+        runs = [run for run in self._runs.values() if run.case_id == case_id]
+        runs.sort(key=lambda run: (run.created_at, run.run_id), reverse=True)
+        return runs[:limit]
+
+    def list_events(
+        self,
+        run_id: str,
+        *,
+        after_sequence: int = 0,
+        limit: int = 200,
+    ) -> list[RunEvent]:
+        return [
+            event
+            for event in self._events.get(run_id, [])
+            if event.sequence > after_sequence
+        ][:limit]
+
+    def next_checkpoint_version(self, run_id: str) -> int:
+        checkpoint = self.get_latest_checkpoint(run_id)
+        return 1 if checkpoint is None else checkpoint.version + 1
+
+    def next_event_sequence(self, run_id: str) -> int:
+        events = self._events.get(run_id, [])
+        return max((event.sequence for event in events), default=0) + 1
+
+    def save_progress(
+        self,
+        run: AgentRun,
+        checkpoint: RunCheckpoint,
+        events: list[RunEvent],
+        *,
+        expected_revision: int,
+    ) -> None:
+        current = self._runs.get(run.run_id)
+        if current is None or current.revision != expected_revision:
+            raise AgentRunConflict(run.run_id)
+        if run.revision != expected_revision + 1:
+            raise ValueError("AgentRun revision 必须恰好递增 1")
+        if (
+            run.workspace_id != current.workspace_id
+            or run.case_id != current.case_id
+            or run.workflow_type != current.workflow_type
+            or run.thread_id != current.thread_id
+            or run.created_by != current.created_by
+            or run.created_at != current.created_at
+        ):
+            raise ValueError("AgentRun 的归属和创建字段不可修改")
+        if (
+            checkpoint.run_id != run.run_id
+            or checkpoint.thread_id != run.thread_id
+            or checkpoint.stage != run.current_stage
+            or checkpoint.version != run.revision
+            or run.checkpoint_id != checkpoint.checkpoint_id
+        ):
+            raise ValueError("AgentRun 与 RunCheckpoint 不一致")
+        next_sequence = self.next_event_sequence(run.run_id)
+        expected_sequences = list(range(next_sequence, next_sequence + len(events)))
+        if [event.sequence for event in events] != expected_sequences:
+            raise ValueError("RunEvent sequence 必须从当前序号开始连续递增")
+        if any(event.run_id != run.run_id for event in events):
+            raise ValueError("RunEvent 必须属于当前 AgentRun")
+        if checkpoint.checkpoint_id in self._checkpoints:
+            raise ValueError("RunCheckpoint 已存在")
+        self._runs[run.run_id] = run
+        self._checkpoints[checkpoint.checkpoint_id] = checkpoint
+        self._events.setdefault(run.run_id, []).extend(events)

@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from domain.ports import (
+    AgentRunRepoPort,
     AssessmentRepoPort,
     AuditLogPort,
     AuthPort,
@@ -63,6 +64,7 @@ from infra.research import AgenticResearchAdapter
 from infra.risk_profile import StubRiskProfileService
 from infra.search import EmbedderAdapter, HybridRetrieverAdapter
 from infra.storage import (
+    SqliteAgentRunRepo,
     SqliteAssessmentRepo,
     SqliteCaseFactRepo,
     SqliteCaseRepo,
@@ -93,6 +95,12 @@ def build_assessment_repo(
     settings: Settings, *, pool: SqliteConnectionPool | None = None
 ) -> AssessmentRepoPort:
     return SqliteAssessmentRepo(pool or build_sqlite_pool(settings))
+
+
+def build_agent_run_repo(
+    settings: Settings, *, pool: SqliteConnectionPool | None = None
+) -> AgentRunRepoPort:
+    return SqliteAgentRunRepo(pool or build_sqlite_pool(settings))
 
 
 def build_user_repo(
@@ -420,6 +428,7 @@ def build_auth(settings: Settings, user_repo: UserRepoPort) -> AuthPort:
 
 __all__ = [
     "build_assessment_repo",
+    "build_agent_run_repo",
     "build_audit_log",
     "build_auth",
     "build_case_repo",

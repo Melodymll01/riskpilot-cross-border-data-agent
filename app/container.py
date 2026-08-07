@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING
 
 from app.agent import ComplianceCopilotAgent, register_default_tools
 from app.factories import (
+    build_agent_run_repo,
     build_assessment_repo,
     build_audit_log,
     build_auth,
@@ -78,6 +79,7 @@ from app.use_cases.run_copilot import RunCopilotUseCase
 if TYPE_CHECKING:
     from config import Settings
     from domain.ports import (
+        AgentRunRepoPort,
         AssessmentRepoPort,
         AuditLogPort,
         AuthPort,
@@ -117,6 +119,7 @@ class AppContainer:
         self,
         settings: Settings,
         *,
+        agent_run_repo: AgentRunRepoPort | None = None,
         assessment_repo: AssessmentRepoPort | None = None,
         user_repo: UserRepoPort | None = None,
         task_repo: TaskRepoPort | None = None,
@@ -148,7 +151,8 @@ class AppContainer:
         pool = (
             build_sqlite_pool(settings)
             if (
-                assessment_repo is None
+                agent_run_repo is None
+                or assessment_repo is None
                 or user_repo is None
                 or task_repo is None
                 or workspace_repo is None
@@ -160,6 +164,9 @@ class AppContainer:
                 or audit_log is None
             )
             else None
+        )
+        self.agent_run_repo: AgentRunRepoPort = (
+            agent_run_repo or build_agent_run_repo(settings, pool=pool)
         )
         self.assessment_repo: AssessmentRepoPort = (
             assessment_repo or build_assessment_repo(settings, pool=pool)

@@ -291,6 +291,64 @@ CREATE TABLE IF NOT EXISTS assessment_actions (
     FOREIGN KEY (assessment_id) REFERENCES assessments(assessment_id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS agent_runs (
+    run_id                  TEXT PRIMARY KEY,
+    workspace_id            TEXT NOT NULL,
+    case_id                 TEXT NOT NULL,
+    workflow_type           TEXT NOT NULL,
+    status                  TEXT NOT NULL,
+    thread_id               TEXT NOT NULL UNIQUE,
+    checkpoint_id           TEXT,
+    current_stage           TEXT NOT NULL,
+    model_config_json       TEXT NOT NULL,
+    token_usage             INTEGER NOT NULL,
+    cost                    REAL NOT NULL,
+    retry_count             INTEGER NOT NULL,
+    revision                INTEGER NOT NULL,
+    created_by              TEXT NOT NULL,
+    error_code              TEXT,
+    error_message           TEXT,
+    created_at              REAL NOT NULL,
+    updated_at              REAL NOT NULL,
+    started_at              REAL,
+    completed_at            REAL,
+    FOREIGN KEY (workspace_id) REFERENCES workspaces(workspace_id) ON DELETE CASCADE,
+    FOREIGN KEY (case_id) REFERENCES compliance_cases(case_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_runs_case
+    ON agent_runs(workspace_id, case_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS run_checkpoints (
+    checkpoint_id  TEXT PRIMARY KEY,
+    run_id         TEXT NOT NULL,
+    thread_id      TEXT NOT NULL,
+    version        INTEGER NOT NULL,
+    stage          TEXT NOT NULL,
+    state_json     TEXT NOT NULL,
+    created_at     REAL NOT NULL,
+    UNIQUE (run_id, version),
+    FOREIGN KEY (run_id) REFERENCES agent_runs(run_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_run_checkpoints_run
+    ON run_checkpoints(run_id, version DESC);
+
+CREATE TABLE IF NOT EXISTS run_events (
+    event_id       TEXT PRIMARY KEY,
+    run_id         TEXT NOT NULL,
+    sequence       INTEGER NOT NULL,
+    event_type     TEXT NOT NULL,
+    stage          TEXT,
+    payload_json   TEXT NOT NULL,
+    created_at     REAL NOT NULL,
+    UNIQUE (run_id, sequence),
+    FOREIGN KEY (run_id) REFERENCES agent_runs(run_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_run_events_run
+    ON run_events(run_id, sequence);
+
 CREATE TABLE IF NOT EXISTS tasks (
     task_id          TEXT PRIMARY KEY,
     owner_id         TEXT NOT NULL,

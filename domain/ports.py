@@ -45,6 +45,7 @@ from domain.models import (
     WebResult,
 )
 from domain.policies import PolicyRule
+from domain.runs import AgentRun, RunCheckpoint, RunEvent
 from domain.workspaces import Workspace, WorkspaceMembership
 
 # === 身份 ===
@@ -351,6 +352,57 @@ class AssessmentRepoPort(Protocol):
 
     def save_review(self, assessment: Assessment, case: Case) -> None:
         """原子保存审批结果，并同步更新活动 Case 状态。"""
+        ...
+
+
+# === V2 Workflow Run / Checkpoint ===
+
+
+@runtime_checkable
+class AgentRunRepoPort(Protocol):
+    """AgentRun、轻量检查点和阶段事件的原子持久化端口。"""
+
+    def create(
+        self,
+        run: AgentRun,
+        checkpoint: RunCheckpoint,
+        event: RunEvent,
+    ) -> None: ...
+
+    def get(self, run_id: str) -> AgentRun | None: ...
+
+    def get_checkpoint(self, checkpoint_id: str) -> RunCheckpoint | None: ...
+
+    def get_latest_checkpoint(self, run_id: str) -> RunCheckpoint | None: ...
+
+    def list_for_case(
+        self,
+        case_id: str,
+        *,
+        limit: int = 50,
+    ) -> list[AgentRun]: ...
+
+    def list_events(
+        self,
+        run_id: str,
+        *,
+        after_sequence: int = 0,
+        limit: int = 200,
+    ) -> list[RunEvent]: ...
+
+    def next_checkpoint_version(self, run_id: str) -> int: ...
+
+    def next_event_sequence(self, run_id: str) -> int: ...
+
+    def save_progress(
+        self,
+        run: AgentRun,
+        checkpoint: RunCheckpoint,
+        events: list[RunEvent],
+        *,
+        expected_revision: int,
+    ) -> None:
+        """以乐观锁原子保存 Run、检查点和事件。"""
         ...
 
 

@@ -12,6 +12,7 @@ from tests.fakes.fake_evidence_index import FakeEvidenceIndex
 from tests.fakes.fake_kb_repo import FakeKbRepo
 from tests.fakes.fake_object_store import FakeObjectStore
 from tests.fakes.fake_repos import (
+    InMemoryAgentRunRepo,
     InMemoryAssessmentRepo,
     InMemoryCaseFactRepo,
     InMemoryCaseRepo,
@@ -41,6 +42,7 @@ __all__ = [
     "FakeWebSearch",
     "InMemoryTaskRepo",
     "InMemoryUserRepo",
+    "InMemoryAgentRunRepo",
     "InMemoryCaseRepo",
     "InMemoryAssessmentRepo",
     "InMemoryCaseFactRepo",

@@ -174,6 +174,31 @@ class InvalidAssessmentTransition(DomainError):
         super().__init__(f"Assessment {assessment_id!r} 不允许从 {source!r} 转换到 {target!r}")
 
 
+# === V2 Workflow Run ===
+
+
+class AgentRunNotFound(DomainError):
+    """按 run_id 找不到工作流运行或当前用户不可见。"""
+
+
+class InvalidAgentRunTransition(DomainError):
+    """AgentRun 状态转换不符合领域状态机。"""
+
+    def __init__(self, run_id: str, source: str, target: str) -> None:
+        self.run_id = run_id
+        self.source = source
+        self.target = target
+        super().__init__(f"AgentRun {run_id!r} 不允许从 {source!r} 转换到 {target!r}")
+
+
+class AgentRunConflict(DomainError):
+    """运行快照版本已变化，当前写入需要重试。"""
+
+    def __init__(self, run_id: str) -> None:
+        self.run_id = run_id
+        super().__init__(f"AgentRun {run_id!r} 已被其他执行器更新，请刷新后重试")
+
+
 # === Tool / Agent ===
 
 

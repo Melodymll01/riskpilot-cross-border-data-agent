@@ -14,6 +14,7 @@ from app.use_cases import (
 )
 from config import settings
 from domain.ports import (
+    AgentRunRepoPort,
     AssessmentRepoPort,
     AuditLogPort,
     AuthPort,
@@ -50,6 +51,7 @@ from tests.fakes import (
     FakeObjectStore,
     FakeRetrieve,
     FakeWebSearch,
+    InMemoryAgentRunRepo,
     InMemoryAssessmentRepo,
     InMemoryCaseFactRepo,
     InMemoryCaseRepo,
@@ -66,6 +68,7 @@ def _full_fake_container() -> AppContainer:
     case_repo = InMemoryCaseRepo()
     return AppContainer(
         settings,
+        agent_run_repo=InMemoryAgentRunRepo(),
         assessment_repo=InMemoryAssessmentRepo(case_repo),
         user_repo=InMemoryUserRepo(),
         task_repo=InMemoryTaskRepo(),
@@ -95,6 +98,7 @@ class TestPortConformance:
 
     def test_all_ports_present_and_typed(self) -> None:
         c = _full_fake_container()
+        assert isinstance(c.agent_run_repo, AgentRunRepoPort)
         assert isinstance(c.assessment_repo, AssessmentRepoPort)
         assert isinstance(c.user_repo, UserRepoPort)
         assert isinstance(c.task_repo, TaskRepoPort)
@@ -156,6 +160,7 @@ class TestPartialInjection:
         case_repo = InMemoryCaseRepo()
         c = AppContainer(
             settings,
+            agent_run_repo=InMemoryAgentRunRepo(),
             assessment_repo=InMemoryAssessmentRepo(case_repo),
             user_repo=InMemoryUserRepo(),
             task_repo=InMemoryTaskRepo(),

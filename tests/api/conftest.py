@@ -36,6 +36,7 @@ from tests.fakes.fake_evidence_index import FakeEvidenceIndex
 from tests.fakes.fake_kb_repo import FakeKbRepo
 from tests.fakes.fake_object_store import FakeObjectStore
 from tests.fakes.fake_repos import (
+    InMemoryAgentRunRepo,
     InMemoryAssessmentRepo,
     InMemoryCaseFactRepo,
     InMemoryCaseRepo,
@@ -79,6 +80,7 @@ def container(test_settings: Settings, chat_script: list[str]) -> AppContainer:
     case_repo = InMemoryCaseRepo()
     return AppContainer(
         test_settings,
+        agent_run_repo=InMemoryAgentRunRepo(),
         assessment_repo=InMemoryAssessmentRepo(case_repo),
         user_repo=InMemoryUserRepo(),
         task_repo=InMemoryTaskRepo(),
