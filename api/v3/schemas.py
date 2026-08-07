@@ -346,3 +346,95 @@ class PolicyEvaluationReportOut(BaseModel):
     assessment_date: date
     evaluations: list[PolicyEvaluationOut]
     missing_fact_fields: list[str]
+
+
+AssessmentStatusValue = Literal[
+    "draft",
+    "review_required",
+    "approved",
+    "rejected",
+    "superseded",
+]
+RiskLevelValue = Literal["low", "medium", "high", "critical", "unknown"]
+FindingTypeValue = Literal[
+    "risk",
+    "missing_fact",
+    "missing_material",
+    "evidence_conflict",
+    "rule_trigger",
+    "recommendation",
+]
+FindingSeverityValue = Literal["info", "low", "medium", "high", "critical"]
+FindingStatusValue = Literal["open", "accepted", "resolved", "dismissed"]
+ActionPriorityValue = Literal["low", "medium", "high", "urgent"]
+ActionStatusValue = Literal["todo", "in_progress", "done", "cancelled"]
+
+
+class GenerateAssessmentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ruleset_version: str = Field(min_length=1, max_length=100)
+    generated_by_run_id: str | None = Field(default=None, min_length=1)
+
+
+class ReviewAssessmentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decision: Literal["approved", "rejected"]
+    comment: str = Field(default="", max_length=5000)
+
+
+class AssessmentOut(BaseModel):
+    assessment_id: str
+    case_id: str
+    version: int
+    status: AssessmentStatusValue
+    assessment_date: date
+    jurisdiction: str
+    ruleset_version: str
+    fact_versions: dict[str, int]
+    policy_evaluations: list[PolicyEvaluationOut]
+    risk_level: RiskLevelValue
+    candidate_paths: list[str]
+    generated_by_run_id: str | None
+    approved_by: str | None
+    approved_at: float | None
+    review_comment: str
+    created_at: float
+    updated_at: float
+
+
+class FindingOut(BaseModel):
+    finding_id: str
+    assessment_id: str
+    finding_type: FindingTypeValue
+    severity: FindingSeverityValue
+    title: str
+    description: str
+    fact_ids: list[str]
+    evidence_ids: list[str]
+    clause_ids: list[str]
+    rule_ids: list[str]
+    status: FindingStatusValue
+
+
+class ActionItemOut(BaseModel):
+    action_id: str
+    assessment_id: str
+    title: str
+    description: str
+    priority: ActionPriorityValue
+    owner_id: str | None
+    due_at: float | None
+    status: ActionStatusValue
+    related_finding_ids: list[str]
+
+
+class AssessmentBundleResponse(BaseModel):
+    assessment: AssessmentOut
+    findings: list[FindingOut]
+    action_items: list[ActionItemOut]
+
+
+class AssessmentListResponse(BaseModel):
+    assessments: list[AssessmentOut]

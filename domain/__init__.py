@@ -35,6 +35,7 @@ from domain.documents import (
     ProcessingStage,
 )
 from domain.errors import (
+    AssessmentNotActive,
     AssessmentNotFound,
     AuthError,
     CaseArchived,
@@ -141,6 +142,7 @@ from domain.workspaces import Workspace, WorkspaceMembership, WorkspaceRole, Wor
 __all__ = [
     # errors
     "DomainError",
+    "AssessmentNotActive",
     "AssessmentNotFound",
     "InvalidAssessmentTransition",
     "AuthError",

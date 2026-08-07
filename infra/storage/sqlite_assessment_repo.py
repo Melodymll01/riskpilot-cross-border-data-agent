@@ -88,16 +88,26 @@ class SqliteAssessmentRepo:
             conn.execute(
                 """
                 UPDATE compliance_cases SET
+                    status = ?,
                     active_assessment_id = ?,
                     updated_at = ?
                 WHERE case_id = ?
+                  AND (
+                    active_assessment_id = ?
+                    OR (active_assessment_id IS NULL AND ? IS NULL)
+                  )
                 """,
                 (
+                    case.status,
                     case.active_assessment_id,
                     case.updated_at,
                     case.case_id,
+                    None if previous is None else previous.assessment_id,
+                    None if previous is None else previous.assessment_id,
                 ),
             )
+            if conn.execute("SELECT changes()").fetchone()[0] != 1:
+                raise ValueError("Case 活动 Assessment 已变化，请重新生成")
 
     def get(self, assessment_id: str) -> AssessmentBundle | None:
         conn = self._pool.get()
@@ -179,10 +189,51 @@ class SqliteAssessmentRepo:
         )
         return int(row["next_version"])
 
-    def update_status(self, assessment: Assessment) -> None:
+    def save_review(self, assessment: Assessment, case: Case) -> None:
+        if assessment.case_id != case.case_id:
+            raise ValueError("Assessment 必须属于当前 Case")
+        if case.active_assessment_id != assessment.assessment_id:
+            raise ValueError("只能审批 Case 当前活动的 Assessment")
         conn = self._pool.get()
         with conn:
-            _update_assessment_status(conn, assessment)
+            cursor = conn.execute(
+                """
+                UPDATE assessments SET
+                    status = ?, approved_by = ?, approved_at = ?,
+                    review_comment = ?, updated_at = ?
+                WHERE assessment_id = ? AND status = 'review_required'
+                """,
+                (
+                    assessment.status,
+                    assessment.approved_by,
+                    assessment.approved_at,
+                    assessment.review_comment,
+                    assessment.updated_at,
+                    assessment.assessment_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("Assessment 审批状态已变化，请刷新后重试")
+            cursor = conn.execute(
+                """
+                UPDATE compliance_cases SET
+                    status = ?,
+                    active_assessment_id = ?,
+                    updated_at = ?
+                WHERE case_id = ?
+                  AND active_assessment_id = ?
+                  AND status = 'review_required'
+                """,
+                (
+                    case.status,
+                    case.active_assessment_id,
+                    case.updated_at,
+                    case.case_id,
+                    assessment.assessment_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("Case 活动 Assessment 已变化，请刷新后重试")
 
 
 def _assessment_values(assessment: Assessment) -> tuple[object, ...]:

@@ -129,6 +129,7 @@ class TestSqliteAssessmentRepo:
         bundle = _bundle("assessment_001", 1)
         updated_case = case.model_copy(
             update={
+                "status": "review_required",
                 "active_assessment_id": bundle.assessment.assessment_id,
                 "updated_at": 101.0,
             }
@@ -141,6 +142,7 @@ class TestSqliteAssessmentRepo:
         loaded_case = SqliteCaseRepo(pool).get(case.case_id)
         assert loaded_case is not None
         assert loaded_case.active_assessment_id == bundle.assessment.assessment_id
+        assert loaded_case.status == "review_required"
 
     def test_new_version_supersedes_previous_atomically(
         self,
@@ -154,6 +156,7 @@ class TestSqliteAssessmentRepo:
             None,
             case.model_copy(
                 update={
+                    "status": "review_required",
                     "active_assessment_id": first.assessment.assessment_id,
                     "updated_at": 101.0,
                 }
@@ -170,6 +173,7 @@ class TestSqliteAssessmentRepo:
             superseded,
             case.model_copy(
                 update={
+                    "status": "review_required",
                     "active_assessment_id": second.assessment.assessment_id,
                     "updated_at": 102.0,
                 }
@@ -192,6 +196,7 @@ class TestSqliteAssessmentRepo:
             None,
             case.model_copy(
                 update={
+                    "status": "review_required",
                     "active_assessment_id": first.assessment.assessment_id,
                     "updated_at": 101.0,
                 }
@@ -209,9 +214,105 @@ class TestSqliteAssessmentRepo:
                 superseded,
                 case.model_copy(
                     update={
+                        "status": "review_required",
                         "active_assessment_id": invalid.assessment.assessment_id,
                         "updated_at": 102.0,
                     }
                 ),
             )
         assert repo.get(first.assessment.assessment_id) == first
+
+    def test_review_updates_assessment_and_case_atomically(
+        self,
+        pool: SqliteConnectionPool,
+        repo: SqliteAssessmentRepo,
+    ) -> None:
+        case = _seed_case(pool)
+        bundle = _bundle("assessment_001", 1)
+        review_case = case.model_copy(
+            update={
+                "status": "review_required",
+                "active_assessment_id": bundle.assessment.assessment_id,
+                "updated_at": 101.0,
+            }
+        )
+        repo.create_version(bundle, None, review_case)
+        approved = bundle.assessment.transition_to(
+            "approved",
+            actor_id="github:reviewer",
+            comment="审核通过",
+            at=102.0,
+        )
+        completed_case = review_case.transition_to("completed", at=102.0)
+
+        repo.save_review(approved, completed_case)
+
+        loaded = repo.get(bundle.assessment.assessment_id)
+        assert loaded is not None
+        assert loaded.assessment == approved
+        loaded_case = SqliteCaseRepo(pool).get(case.case_id)
+        assert loaded_case is not None
+        assert loaded_case.status == "completed"
+
+    def test_review_rejects_non_active_assessment_without_partial_write(
+        self,
+        pool: SqliteConnectionPool,
+        repo: SqliteAssessmentRepo,
+    ) -> None:
+        case = _seed_case(pool)
+        bundle = _bundle("assessment_001", 1)
+        review_case = case.model_copy(
+            update={
+                "status": "review_required",
+                "active_assessment_id": bundle.assessment.assessment_id,
+                "updated_at": 101.0,
+            }
+        )
+        repo.create_version(bundle, None, review_case)
+        approved = bundle.assessment.transition_to(
+            "approved",
+            actor_id="github:reviewer",
+            at=102.0,
+        )
+        invalid_case = review_case.model_copy(
+            update={
+                "active_assessment_id": "assessment_other",
+                "status": "completed",
+                "updated_at": 102.0,
+            }
+        )
+
+        with pytest.raises(ValueError, match="活动"):
+            repo.save_review(approved, invalid_case)
+
+        assert repo.get(bundle.assessment.assessment_id) == bundle
+
+    def test_review_rolls_back_assessment_when_case_state_is_stale(
+        self,
+        pool: SqliteConnectionPool,
+        repo: SqliteAssessmentRepo,
+    ) -> None:
+        case = _seed_case(pool)
+        bundle = _bundle("assessment_001", 1)
+        review_case = case.model_copy(
+            update={
+                "status": "review_required",
+                "active_assessment_id": bundle.assessment.assessment_id,
+                "updated_at": 101.0,
+            }
+        )
+        repo.create_version(bundle, None, review_case)
+        SqliteCaseRepo(pool).update(
+            review_case.model_copy(update={"status": "assessing", "updated_at": 101.5})
+        )
+        approved = bundle.assessment.transition_to(
+            "approved",
+            actor_id="github:reviewer",
+            at=102.0,
+        )
+        completed_case = review_case.transition_to("completed", at=102.0)
+
+        with pytest.raises(ValueError, match="活动"):
+            repo.save_review(approved, completed_case)
+
+        assert repo.get(bundle.assessment.assessment_id) == bundle

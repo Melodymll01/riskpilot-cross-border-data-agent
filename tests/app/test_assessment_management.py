@@ -13,6 +13,7 @@ from app.use_cases import (
     WorkspaceManagementUseCase,
 )
 from domain import CaseFact, PolicyRule
+from domain.errors import AssessmentNotActive, WorkspaceAccessDenied
 from tests.fakes import (
     InMemoryAssessmentRepo,
     InMemoryCaseFactRepo,
@@ -59,6 +60,14 @@ def _setup():
         user_id="github:editor",
         role="editor",
     )
+    workspace_uc.add_or_update_member(
+        workspace.workspace_id,
+        "github:alice",
+        user_id="github:reviewer",
+        role="reviewer",
+    )
+    case_uc.transition_case(case.case_id, "github:alice", "collecting")
+    case_uc.transition_case(case.case_id, "github:alice", "ready_for_assessment")
     return (
         assessment_uc,
         policy_uc,
@@ -132,7 +141,7 @@ class TestAssessmentGeneration:
             assessment_uc,
             policy_uc,
             fact_repo,
-            _,
+            case_repo,
             _,
             workspace_id,
             case_id,
@@ -171,6 +180,9 @@ class TestAssessmentGeneration:
             "执行合成检查",
             "补充材料：合成材料",
         }
+        active_case = case_repo.get(case_id)
+        assert active_case is not None
+        assert active_case.status == "review_required"
 
     def test_missing_fact_generates_gap_finding_and_action(self) -> None:
         (
@@ -301,4 +313,239 @@ class TestAssessmentGeneration:
                 case_id,
                 "github:editor",
                 ruleset_version="synthetic-v1",
+            )
+
+    def test_empty_ruleset_rejected(self) -> None:
+        (
+            assessment_uc,
+            _,
+            _,
+            _,
+            _,
+            _,
+            case_id,
+        ) = _setup()
+
+        with pytest.raises(ValueError, match="没有已发布规则"):
+            assessment_uc.generate(
+                case_id,
+                "github:editor",
+                ruleset_version="missing-v1",
+            )
+
+    def test_ruleset_without_effective_rule_rejected(self) -> None:
+        (
+            assessment_uc,
+            policy_uc,
+            _,
+            _,
+            _,
+            workspace_id,
+            case_id,
+        ) = _setup()
+        future_rule = _rule(
+            workspace_id,
+            required_fact_fields=["flag"],
+            condition={"field": "flag", "operator": "eq", "value": True},
+            result={},
+        ).model_copy(update={"effective_from": date(2027, 1, 1)})
+        _publish_rule(policy_uc, workspace_id, future_rule)
+
+        with pytest.raises(ValueError, match="没有生效规则"):
+            assessment_uc.generate(
+                case_id,
+                "github:editor",
+                ruleset_version="synthetic-v1",
+            )
+
+
+class TestAssessmentReview:
+    def test_reviewer_approves_active_assessment_and_completes_case(self) -> None:
+        (
+            assessment_uc,
+            policy_uc,
+            fact_repo,
+            case_repo,
+            _,
+            workspace_id,
+            case_id,
+        ) = _setup()
+        fact_repo.create(_confirmed_fact(case_id, "flag", True), [])
+        _publish_rule(
+            policy_uc,
+            workspace_id,
+            _rule(
+                workspace_id,
+                required_fact_fields=["flag"],
+                condition={"field": "flag", "operator": "eq", "value": True},
+                result={"risk_level": "high"},
+            ),
+        )
+        generated = assessment_uc.generate(
+            case_id,
+            "github:editor",
+            ruleset_version="synthetic-v1",
+        )
+
+        reviewed = assessment_uc.review(
+            generated.assessment.assessment_id,
+            "github:reviewer",
+            decision="approved",
+            comment="证据与规则核验通过",
+        )
+
+        assert reviewed.assessment.status == "approved"
+        assert reviewed.assessment.approved_by == "github:reviewer"
+        assert reviewed.assessment.review_comment == "证据与规则核验通过"
+        case = case_repo.get(case_id)
+        assert case is not None
+        assert case.status == "completed"
+
+    def test_rejection_returns_case_to_ready_for_assessment(self) -> None:
+        (
+            assessment_uc,
+            policy_uc,
+            fact_repo,
+            case_repo,
+            _,
+            workspace_id,
+            case_id,
+        ) = _setup()
+        fact_repo.create(_confirmed_fact(case_id, "flag", True), [])
+        _publish_rule(
+            policy_uc,
+            workspace_id,
+            _rule(
+                workspace_id,
+                required_fact_fields=["flag"],
+                condition={"field": "flag", "operator": "eq", "value": True},
+                result={"risk_level": "medium"},
+            ),
+        )
+        generated = assessment_uc.generate(
+            case_id,
+            "github:editor",
+            ruleset_version="synthetic-v1",
+        )
+
+        reviewed = assessment_uc.review(
+            generated.assessment.assessment_id,
+            "github:reviewer",
+            decision="rejected",
+            comment="需要补充传输链路材料",
+        )
+
+        assert reviewed.assessment.status == "rejected"
+        case = case_repo.get(case_id)
+        assert case is not None
+        assert case.status == "ready_for_assessment"
+
+    def test_editor_cannot_review_assessment(self) -> None:
+        (
+            assessment_uc,
+            policy_uc,
+            fact_repo,
+            _,
+            _,
+            workspace_id,
+            case_id,
+        ) = _setup()
+        fact_repo.create(_confirmed_fact(case_id, "flag", True), [])
+        _publish_rule(
+            policy_uc,
+            workspace_id,
+            _rule(
+                workspace_id,
+                required_fact_fields=["flag"],
+                condition={"field": "flag", "operator": "eq", "value": True},
+                result={},
+            ),
+        )
+        generated = assessment_uc.generate(
+            case_id,
+            "github:editor",
+            ruleset_version="synthetic-v1",
+        )
+
+        with pytest.raises(WorkspaceAccessDenied):
+            assessment_uc.review(
+                generated.assessment.assessment_id,
+                "github:editor",
+                decision="approved",
+            )
+
+    def test_missing_facts_cannot_be_approved(self) -> None:
+        (
+            assessment_uc,
+            policy_uc,
+            _,
+            _,
+            _,
+            workspace_id,
+            case_id,
+        ) = _setup()
+        _publish_rule(
+            policy_uc,
+            workspace_id,
+            _rule(
+                workspace_id,
+                required_fact_fields=["missing_field"],
+                condition={
+                    "field": "missing_field",
+                    "operator": "eq",
+                    "value": True,
+                },
+                result={},
+            ),
+        )
+        generated = assessment_uc.generate(
+            case_id,
+            "github:editor",
+            ruleset_version="synthetic-v1",
+        )
+
+        with pytest.raises(ValueError, match="缺失事实"):
+            assessment_uc.review(
+                generated.assessment.assessment_id,
+                "github:reviewer",
+                decision="approved",
+            )
+
+    def test_superseded_assessment_cannot_be_reviewed(self) -> None:
+        (
+            assessment_uc,
+            policy_uc,
+            fact_repo,
+            _,
+            _,
+            workspace_id,
+            case_id,
+        ) = _setup()
+        fact_repo.create(_confirmed_fact(case_id, "flag", True), [])
+        _publish_rule(
+            policy_uc,
+            workspace_id,
+            _rule(
+                workspace_id,
+                required_fact_fields=["flag"],
+                condition={"field": "flag", "operator": "eq", "value": True},
+                result={},
+            ),
+        )
+        first = assessment_uc.generate(
+            case_id,
+            "github:editor",
+            ruleset_version="synthetic-v1",
+        )
+        assessment_uc.generate(
+            case_id,
+            "github:editor",
+            ruleset_version="synthetic-v1",
+        )
+
+        with pytest.raises(AssessmentNotActive):
+            assessment_uc.review(
+                first.assessment.assessment_id,
+                "github:reviewer",
+                decision="approved",
             )

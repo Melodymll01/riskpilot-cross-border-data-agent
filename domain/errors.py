@@ -149,6 +149,21 @@ class AssessmentNotFound(DomainError):
     """按 assessment_id 找不到评估或当前用户不可见。"""
 
 
+class AssessmentNotActive(DomainError):
+    """试图审批的 Assessment 不是 Case 当前活动版本。"""
+
+    def __init__(
+        self,
+        assessment_id: str,
+        case_id: str,
+        active_assessment_id: str | None,
+    ) -> None:
+        self.assessment_id = assessment_id
+        self.case_id = case_id
+        self.active_assessment_id = active_assessment_id
+        super().__init__(f"Assessment {assessment_id!r} 不是案件 {case_id!r} 的活动版本")
+
+
 class InvalidAssessmentTransition(DomainError):
     """Assessment 状态转换不符合领域状态机。"""
 

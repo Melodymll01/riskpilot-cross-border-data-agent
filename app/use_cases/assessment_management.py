@@ -10,11 +10,18 @@ from domain.assessments import (
     ActionItem,
     Assessment,
     AssessmentBundle,
+    AssessmentStatus,
     Finding,
     FindingSeverity,
     RiskLevel,
 )
-from domain.errors import AssessmentNotFound
+from domain.cases import CaseStatus
+from domain.errors import (
+    AssessmentNotActive,
+    AssessmentNotFound,
+    CaseNotFound,
+    WorkspaceAccessDenied,
+)
 from domain.workspaces import WorkspaceRole
 
 if TYPE_CHECKING:
@@ -26,6 +33,7 @@ if TYPE_CHECKING:
     from domain.ports import AssessmentRepoPort, CaseFactRepoPort
 
 _WRITE_ROLES: set[WorkspaceRole] = {"editor", "reviewer", "admin"}
+_REVIEW_ROLES: set[WorkspaceRole] = {"reviewer", "admin"}
 _RISK_ORDER: dict[str, int] = {
     "unknown": 0,
     "low": 1,
@@ -72,6 +80,24 @@ class AssessmentManagementUseCase:
         )
         if case.assessment_date is None:
             raise ValueError("案件必须设置 assessment_date 才能生成 Assessment")
+        if case.status not in {
+            "ready_for_assessment",
+            "assessing",
+            "review_required",
+        }:
+            raise ValueError(
+                "案件必须处于 ready_for_assessment、assessing 或 review_required "
+                "才能生成 Assessment"
+            )
+        published_rules = self._policies.list_rules(
+            case.workspace_id,
+            actor_id,
+            ruleset_version=ruleset_version,
+            jurisdiction=case.jurisdiction,
+            status="published",
+        )
+        if not published_rules:
+            raise ValueError(f"规则集 {ruleset_version!r} 在当前 Workspace 和法域下没有已发布规则")
 
         confirmed_facts = self._facts.list_for_case(
             case.case_id,
@@ -82,6 +108,11 @@ class AssessmentManagementUseCase:
             actor_id,
             ruleset_version=ruleset_version,
         )
+        if not report.evaluations:
+            raise ValueError(
+                f"规则集 {ruleset_version!r} 在评估日期 {case.assessment_date.isoformat()} "
+                "没有生效规则"
+            )
         fact_versions = _fact_versions(confirmed_facts)
         now = time.time()
         assessment_id = _new_id("assessment")
@@ -121,10 +152,13 @@ class AssessmentManagementUseCase:
                 comment=f"由 Assessment v{assessment.version} 替代",
                 at=max(now, previous_bundle.assessment.updated_at),
             )
-        updated_case = case.model_copy(
+        assessing_case = (
+            case if case.status == "assessing" else case.transition_to("assessing", at=now)
+        )
+        review_case = assessing_case.transition_to("review_required", at=now)
+        updated_case = review_case.model_copy(
             update={
                 "active_assessment_id": assessment.assessment_id,
-                "updated_at": max(now, case.updated_at),
             }
         )
         self._assessments.create_version(bundle, previous, updated_case)
@@ -134,7 +168,10 @@ class AssessmentManagementUseCase:
         bundle = self._assessments.get(assessment_id)
         if bundle is None:
             raise AssessmentNotFound(assessment_id)
-        self._case_management.get_case(bundle.assessment.case_id, actor_id)
+        try:
+            self._case_management.get_case(bundle.assessment.case_id, actor_id)
+        except CaseNotFound as exc:
+            raise AssessmentNotFound(assessment_id) from exc
         return bundle
 
     def get_active(self, case_id: str, actor_id: str) -> AssessmentBundle | None:
@@ -143,7 +180,76 @@ class AssessmentManagementUseCase:
 
     def list_versions(self, case_id: str, actor_id: str) -> list[Assessment]:
         self._case_management.get_case(case_id, actor_id)
-        return cast("list[Assessment]", self._assessments.list_for_case(case_id))
+        return self._assessments.list_for_case(case_id)
+
+    def review(
+        self,
+        assessment_id: str,
+        actor_id: str,
+        *,
+        decision: AssessmentStatus,
+        comment: str = "",
+    ) -> AssessmentBundle:
+        if decision not in {"approved", "rejected"}:
+            raise ValueError("Assessment 审批结果只能是 approved 或 rejected")
+        if decision == "rejected" and not comment.strip():
+            raise ValueError("拒绝 Assessment 时必须填写 review_comment")
+
+        bundle = self._assessments.get(assessment_id)
+        if bundle is None:
+            raise AssessmentNotFound(assessment_id)
+        try:
+            case = self._case_management.get_case(bundle.assessment.case_id, actor_id)
+        except CaseNotFound as exc:
+            raise AssessmentNotFound(assessment_id) from exc
+        membership = self._workspace_management.require_role(
+            case.workspace_id,
+            actor_id,
+            _REVIEW_ROLES,
+            action=f"将 Assessment 审批为 {decision}",
+        )
+        if (
+            case.reviewer_id is not None
+            and actor_id != case.reviewer_id
+            and membership.role != "admin"
+        ):
+            raise WorkspaceAccessDenied(
+                case.workspace_id,
+                actor_id,
+                "审批分配给其他 Reviewer 的 Assessment",
+            )
+        if case.active_assessment_id != assessment_id:
+            raise AssessmentNotActive(
+                assessment_id,
+                case.case_id,
+                case.active_assessment_id,
+            )
+        if decision == "approved" and any(
+            evaluation.status == "missing_facts"
+            for evaluation in bundle.assessment.policy_evaluations
+        ):
+            raise ValueError("Assessment 仍存在缺失事实，不能批准")
+
+        updated_assessment = bundle.assessment.transition_to(
+            decision,
+            actor_id=actor_id,
+            comment=comment,
+        )
+        if updated_assessment is bundle.assessment:
+            return bundle
+        target_case_status: CaseStatus = (
+            "completed" if decision == "approved" else "ready_for_assessment"
+        )
+        updated_case = case.transition_to(
+            target_case_status,
+            at=updated_assessment.updated_at,
+        )
+        self._assessments.save_review(updated_assessment, updated_case)
+        return AssessmentBundle(
+            assessment=updated_assessment,
+            findings=bundle.findings,
+            action_items=bundle.action_items,
+        )
 
 
 def _fact_versions(facts: list[CaseFact]) -> dict[str, int]:

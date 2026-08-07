@@ -432,9 +432,11 @@ class InMemoryAssessmentRepo:
         ]
         return max(versions, default=0) + 1
 
-    def update_status(self, assessment: Assessment) -> None:
+    def save_review(self, assessment: Assessment, case: Case) -> None:
         bundle = self._bundles.get(assessment.assessment_id)
         if bundle is not None:
             self._bundles[assessment.assessment_id] = bundle.model_copy(
                 update={"assessment": assessment}
             )
+        if self._case_repo is not None:
+            self._case_repo.update(case)

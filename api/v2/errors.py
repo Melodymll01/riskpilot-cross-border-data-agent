@@ -11,6 +11,8 @@ from fastapi.responses import JSONResponse
 
 from api.v2.schemas import ErrorResponse
 from domain.errors import (
+    AssessmentNotActive,
+    AssessmentNotFound,
     AuthError,
     CaseArchived,
     CaseFactNotFound,
@@ -18,6 +20,7 @@ from domain.errors import (
     DocumentNotFound,
     DocumentTooLarge,
     DomainError,
+    InvalidAssessmentTransition,
     InvalidCaseTransition,
     InvalidDocumentContent,
     InvalidDocumentTransition,
@@ -50,6 +53,12 @@ _DOMAIN_MAP: dict[type[DomainError], tuple[int, str]] = {
     CaseArchived: (status.HTTP_409_CONFLICT, "CASE_ARCHIVED"),
     CaseFactNotFound: (status.HTTP_404_NOT_FOUND, "CASE_FACT_NOT_FOUND"),
     PolicyRuleNotFound: (status.HTTP_404_NOT_FOUND, "POLICY_RULE_NOT_FOUND"),
+    AssessmentNotFound: (status.HTTP_404_NOT_FOUND, "ASSESSMENT_NOT_FOUND"),
+    AssessmentNotActive: (status.HTTP_409_CONFLICT, "ASSESSMENT_NOT_ACTIVE"),
+    InvalidAssessmentTransition: (
+        status.HTTP_409_CONFLICT,
+        "INVALID_ASSESSMENT_TRANSITION",
+    ),
     InvalidCaseTransition: (status.HTTP_409_CONFLICT, "INVALID_CASE_TRANSITION"),
     DocumentNotFound: (status.HTTP_404_NOT_FOUND, "DOCUMENT_NOT_FOUND"),
     ProcessingJobNotFound: (status.HTTP_404_NOT_FOUND, "PROCESSING_JOB_NOT_FOUND"),

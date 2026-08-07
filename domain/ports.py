@@ -349,7 +349,9 @@ class AssessmentRepoPort(Protocol):
 
     def next_version(self, case_id: str) -> int: ...
 
-    def update_status(self, assessment: Assessment) -> None: ...
+    def save_review(self, assessment: Assessment, case: Case) -> None:
+        """原子保存审批结果，并同步更新活动 Case 状态。"""
+        ...
 
 
 # === 任务 / 消息 ===

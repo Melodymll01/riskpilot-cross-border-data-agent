@@ -147,12 +147,13 @@ class CaseManagementUseCase:
         case = self.get_case(case_id, actor_id)
         if target == case.status:
             return case
+        if case.status == "review_required" and target != "archived":
+            raise ValueError("review_required 状态只能由活动 Assessment 审批或重新生成流程更新")
         self._ensure_mutable(case)
-        allowed_roles = _CASE_REVIEW_ROLES if target == "completed" else _CASE_WRITE_ROLES
         self._require_role(
             case.workspace_id,
             actor_id,
-            allowed_roles,
+            _CASE_WRITE_ROLES,
             action=f"将案件状态更新为 {target}",
         )
         updated = case.transition_to(target)

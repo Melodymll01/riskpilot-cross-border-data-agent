@@ -121,7 +121,7 @@ class TestCaseUpdates:
 
 
 class TestCaseTransitions:
-    def test_only_reviewer_or_admin_can_complete(self) -> None:
+    def test_completed_requires_assessment_approval(self) -> None:
         workspace_uc, case_uc, workspace_id = _setup()
         workspace_uc.add_or_update_member(
             workspace_id,
@@ -152,10 +152,10 @@ class TestCaseTransitions:
                 "github:editor",
                 target,  # type: ignore[arg-type]
             )
-        with pytest.raises(WorkspaceAccessDenied):
+        with pytest.raises(ValueError, match="Assessment"):
             case_uc.transition_case(case.case_id, "github:editor", "completed")
-        completed = case_uc.transition_case(case.case_id, "github:reviewer", "completed")
-        assert completed.status == "completed"
+        with pytest.raises(ValueError, match="Assessment"):
+            case_uc.transition_case(case.case_id, "github:reviewer", "completed")
 
     def test_invalid_transition_uses_domain_state_machine(self) -> None:
         _, case_uc, workspace_id = _setup()
@@ -166,6 +166,28 @@ class TestCaseTransitions:
         )
         with pytest.raises(InvalidCaseTransition):
             case_uc.transition_case(case.case_id, "github:alice", "completed")
+
+    def test_review_required_cannot_bypass_assessment_review(self) -> None:
+        _, case_uc, workspace_id = _setup()
+        case = case_uc.create_case(
+            "github:alice",
+            workspace_id=workspace_id,
+            title="案件",
+        )
+        for target in (
+            "collecting",
+            "ready_for_assessment",
+            "assessing",
+            "review_required",
+        ):
+            case = case_uc.transition_case(case.case_id, "github:alice", target)
+
+        with pytest.raises(ValueError, match="Assessment"):
+            case_uc.transition_case(
+                case.case_id,
+                "github:alice",
+                "ready_for_assessment",
+            )
 
     def test_archived_case_cannot_be_updated(self) -> None:
         _, case_uc, workspace_id = _setup()

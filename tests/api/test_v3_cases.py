@@ -144,7 +144,7 @@ class TestCaseTransitions:
         assert response.status_code == 409
         assert response.json()["error_code"] == "INVALID_CASE_TRANSITION"
 
-    def test_reviewer_can_complete_case_but_editor_cannot(
+    def test_case_completion_requires_assessment_approval(
         self, authed_client: tuple[TestClient, dict[str, Any]]
     ) -> None:
         client, _ = authed_client
@@ -166,19 +166,26 @@ class TestCaseTransitions:
             )
             assert response.status_code == 200
 
-        forbidden = client.post(
+        editor_response = client.post(
             f"/api/v3/cases/{case['case_id']}/transitions",
             json={"target": "completed"},
         )
-        assert forbidden.status_code == 403
+        assert editor_response.status_code == 400
+        assert "Assessment" in editor_response.json()["message"]
 
         _switch_actor(client, "github:reviewer")
-        completed = client.post(
+        reviewer_response = client.post(
             f"/api/v3/cases/{case['case_id']}/transitions",
             json={"target": "completed"},
         )
-        assert completed.status_code == 200
-        assert completed.json()["status"] == "completed"
+        assert reviewer_response.status_code == 400
+        assert "Assessment" in reviewer_response.json()["message"]
+        bypass_response = client.post(
+            f"/api/v3/cases/{case['case_id']}/transitions",
+            json={"target": "ready_for_assessment"},
+        )
+        assert bypass_response.status_code == 400
+        assert "Assessment" in bypass_response.json()["message"]
 
     def test_archived_case_rejects_updates(
         self, authed_client: tuple[TestClient, dict[str, Any]]
