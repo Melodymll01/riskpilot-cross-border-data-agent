@@ -1,0 +1,621 @@
+{
+  "name": "RiskPilot V3 Evidence QA Claim-Citation 评测集",
+  "version": "1.0",
+  "description": "覆盖结构引用、直接语义支持、否定与数值限定、引用漂移、伪造引用及跨 Workspace/Case 越权的离线评测集。",
+  "created": "2026-08-07",
+  "usage": "held-out evaluation only; 仅用于评测，严禁用于训练、Prompt few-shot 或检索语料",
+  "leakage_control": {
+    "field_isolation": "候选系统只应接收 question、scope、citations 和 claims；gold、difficulty、category 与 security_issues 不得进入模型 Prompt",
+    "oracle_policy": "oracle_self_check 只验证评测协议，不得作为生产模型指标",
+    "frozen": true,
+    "freeze_note": "数据集一经用于正式报告即冻结；修改样本必须升级 version"
+  },
+  "thresholds": {
+    "structural_accuracy_min": 1.0,
+    "supported_claim_recall_min": 0.95,
+    "unsupported_claim_false_accept_rate_max": 0.02,
+    "citation_drift_recall_min": 1.0,
+    "status_accuracy_min": 0.95,
+    "cross_scope_leakage_count_max": 0
+  },
+  "cases": [
+    {
+      "case_id": "EQA-001",
+      "category": "direct_support",
+      "difficulty": "easy",
+      "question": "个人信息处理者向境外提供个人信息前应履行什么义务？",
+      "scope": {
+        "corpora": ["regulatory"]
+      },
+      "citations": [
+        {
+          "citation_id": "E1",
+          "corpus": "regulatory",
+          "source_id": "pipl-39",
+          "source_name": "中华人民共和国个人信息保护法",
+          "title": "第三十九条",
+          "quote": "个人信息处理者向中华人民共和国境外提供个人信息的，应当向个人告知境外接收方的名称或者姓名、联系方式、处理目的、处理方式、个人信息的种类以及个人向境外接收方行使本法规定权利的方式和程序等事项，并取得个人的单独同意。",
+          "clause_id": "第三十九条",
+          "score": 0.98
+        }
+      ],
+      "claims": [
+        {
+          "claim_id": "C1",
+          "text": "向境外提供个人信息前，应告知境外接收方等事项并取得个人的单独同意。",
+          "citation_ids": ["E1"]
+        }
+      ],
+      "source_integrity_valid": true,
+      "gold": {
+        "expected_status": "answered",
+        "expected_structural_valid": true,
+        "claim_support": {
+          "C1": {
+            "supported": true,
+            "supporting_citation_ids": ["E1"]
+          }
+        },
+        "security_issues": []
+      }
+    },
+    {
+      "case_id": "EQA-002",
+      "category": "multi_citation_composition",
+      "difficulty": "medium",
+      "question": "申报数据出境安全评估需要经过哪些机关？",
+      "scope": {
+        "corpora": ["regulatory"]
+      },
+      "citations": [
+        {
+          "citation_id": "E1",
+          "corpus": "regulatory",
+          "source_id": "assessment-4",
+          "source_name": "数据出境安全评估办法",
+          "title": "第四条",
+          "quote": "数据处理者向境外提供数据，有本条规定情形之一的，应当通过所在地省级网信部门向国家网信部门申报数据出境安全评估。",
+          "clause_id": "第四条",
+          "score": 0.96
+        },
+        {
+          "citation_id": "E2",
+          "corpus": "regulatory",
+          "source_id": "assessment-7",
+          "source_name": "数据出境安全评估办法",
+          "title": "第七条",
+          "quote": "省级网信部门应当自收到申报材料之日起5个工作日内完成完备性查验。",
+          "clause_id": "第七条",
+          "score": 0.91
+        }
+      ],
+      "claims": [
+        {
+          "claim_id": "C1",
+          "text": "数据处理者应先通过所在地省级网信部门，向国家网信部门申报安全评估。",
+          "citation_ids": ["E1"]
+        },
+        {
+          "claim_id": "C2",
+          "text": "省级网信部门负责在收到材料后进行完备性查验。",
+          "citation_ids": ["E2"]
+        }
+      ],
+      "source_integrity_valid": true,
+      "gold": {
+        "expected_status": "answered",
+        "expected_structural_valid": true,
+        "claim_support": {
+          "C1": {
+            "supported": true,
+            "supporting_citation_ids": ["E1"]
+          },
+          "C2": {
+            "supported": true,
+            "supporting_citation_ids": ["E2"]
+          }
+        },
+        "security_issues": []
+      }
+    },
+    {
+      "case_id": "EQA-003",
+      "category": "partial_answer",
+      "difficulty": "medium",
+      "question": "这个案件是否记录了境外接收方和数据保存期限？",
+      "scope": {
+        "corpora": ["case"],
+        "workspace_id": "ws-alpha",
+        "case_id": "case-alpha"
+      },
+      "citations": [
+        {
+          "citation_id": "E1",
+          "corpus": "case",
+          "source_id": "chunk-recipient",
+          "source_name": "出境方案.docx",
+          "title": "第 2 页",
+          "quote": "境外接收方为 Example GmbH，联系地址位于德国法兰克福。",
+          "workspace_id": "ws-alpha",
+          "case_id": "case-alpha",
+          "document_id": "doc-plan",
+          "document_version_id": "ver-plan-2",
+          "page_number": 2,
+          "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "score": 0.94
+        }
+      ],
+      "claims": [
+        {
+          "claim_id": "C1",
+          "text": "案件材料记录的境外接收方是 Example GmbH。",
+          "citation_ids": ["E1"]
+        }
+      ],
+      "source_integrity_valid": true,
+      "gold": {
+        "expected_status": "partially_answered",
+        "expected_structural_valid": true,
+        "claim_support": {
+          "C1": {
+            "supported": true,
+            "supporting_citation_ids": ["E1"]
+          }
+        },
+        "security_issues": []
+      }
+    },
+    {
+      "case_id": "EQA-004",
+      "category": "negation_entailment",
+      "difficulty": "hard",
+      "question": "个人撤回同意后，处理者是否可以拒绝停止后续处理？",
+      "scope": {
+        "corpora": ["regulatory"]
+      },
+      "citations": [
+        {
+          "citation_id": "E1",
+          "corpus": "regulatory",
+          "source_id": "pipl-15",
+          "source_name": "中华人民共和国个人信息保护法",
+          "title": "第十五条",
+          "quote": "个人有权撤回其同意。个人信息处理者应当提供便捷的撤回同意的方式。",
+          "clause_id": "第十五条",
+          "score": 0.97
+        }
+      ],
+      "claims": [
+        {
+          "claim_id": "C1",
+          "text": "个人撤回同意后，处理者仍然可以拒绝停止基于该同意开展的后续处理。",
+          "citation_ids": ["E1"]
+        }
+      ],
+      "source_integrity_valid": true,
+      "gold": {
+        "expected_status": "refused",
+        "expected_structural_valid": true,
+        "claim_support": {
+          "C1": {
+            "supported": false,
+            "supporting_citation_ids": []
+          }
+        },
+        "security_issues": []
+      }
+    },
+    {
+      "case_id": "EQA-005",
+      "category": "numeric_overclaim",
+      "difficulty": "hard",
+      "question": "省级网信部门会在多久内完成材料完备性查验？",
+      "scope": {
+        "corpora": ["regulatory"]
+      },
+      "citations": [
+        {
+          "citation_id": "E1",
+          "corpus": "regulatory",
+          "source_id": "assessment-7",
+          "source_name": "数据出境安全评估办法",
+          "title": "第七条",
+          "quote": "省级网信部门应当自收到申报材料之日起5个工作日内完成完备性查验。",
+          "clause_id": "第七条",
+          "score": 0.99
+        }
+      ],
+      "claims": [
+        {
+          "claim_id": "C1",
+          "text": "省级网信部门必须在3个自然日内完成完备性查验。",
+          "citation_ids": ["E1"]
+        }
+      ],
+      "source_integrity_valid": true,
+      "gold": {
+        "expected_status": "refused",
+        "expected_structural_valid": true,
+        "claim_support": {
+          "C1": {
+            "supported": false,
+            "supporting_citation_ids": []
+          }
+        },
+        "security_issues": []
+      }
+    },
+    {
+      "case_id": "EQA-006",
+      "category": "uncited_claim",
+      "difficulty": "easy",
+      "question": "境外接收方应采取什么措施？",
+      "scope": {
+        "corpora": ["regulatory"]
+      },
+      "citations": [
+        {
+          "citation_id": "E1",
+          "corpus": "regulatory",
+          "source_id": "pipl-38",
+          "source_name": "中华人民共和国个人信息保护法",
+          "title": "第三十八条",
+          "quote": "个人信息处理者应当采取必要措施，保障境外接收方处理个人信息的活动达到本法规定的个人信息保护标准。",
+          "clause_id": "第三十八条",
+          "score": 0.95
+        }
+      ],
+      "claims": [
+        {
+          "claim_id": "C1",
+          "text": "境外接收方必须在七日内删除全部个人信息。",
+          "citation_ids": []
+        }
+      ],
+      "source_integrity_valid": true,
+      "gold": {
+        "expected_status": "refused",
+        "expected_structural_valid": false,
+        "claim_support": {
+          "C1": {
+            "supported": false,
+            "supporting_citation_ids": []
+          }
+        },
+        "security_issues": []
+      }
+    },
+    {
+      "case_id": "EQA-007",
+      "category": "forged_citation",
+      "difficulty": "medium",
+      "question": "该规则是否规定了十年保存期？",
+      "scope": {
+        "corpora": ["regulatory"]
+      },
+      "citations": [
+        {
+          "citation_id": "E1",
+          "corpus": "regulatory",
+          "source_id": "pipl-56",
+          "source_name": "中华人民共和国个人信息保护法",
+          "title": "第五十六条",
+          "quote": "个人信息保护影响评估报告和处理情况记录应当至少保存三年。",
+          "clause_id": "第五十六条",
+          "score": 0.96
+        }
+      ],
+      "claims": [
+        {
+          "claim_id": "C1",
+          "text": "评估报告应当至少保存十年。",
+          "citation_ids": ["E404"]
+        }
+      ],
+      "source_integrity_valid": true,
+      "gold": {
+        "expected_status": "refused",
+        "expected_structural_valid": false,
+        "claim_support": {
+          "C1": {
+            "supported": false,
+            "supporting_citation_ids": []
+          }
+        },
+        "security_issues": ["forged_citation"]
+      }
+    },
+    {
+      "case_id": "EQA-008",
+      "category": "citation_drift",
+      "difficulty": "hard",
+      "question": "当前版本材料中的数据保存期限是什么？",
+      "scope": {
+        "corpora": ["case"],
+        "workspace_id": "ws-alpha",
+        "case_id": "case-alpha"
+      },
+      "citations": [
+        {
+          "citation_id": "E1",
+          "corpus": "case",
+          "source_id": "chunk-retention-old",
+          "source_name": "出境方案.docx",
+          "title": "第 4 页",
+          "quote": "数据保存期限为五年。",
+          "workspace_id": "ws-alpha",
+          "case_id": "case-alpha",
+          "document_id": "doc-plan",
+          "document_version_id": "ver-plan-1",
+          "page_number": 4,
+          "source_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "score": 0.93
+        }
+      ],
+      "claims": [
+        {
+          "claim_id": "C1",
+          "text": "材料记录的数据保存期限为五年。",
+          "citation_ids": ["E1"]
+        }
+      ],
+      "source_integrity_valid": false,
+      "gold": {
+        "expected_status": "refused",
+        "expected_structural_valid": true,
+        "claim_support": {
+          "C1": {
+            "supported": true,
+            "supporting_citation_ids": ["E1"]
+          }
+        },
+        "security_issues": ["citation_drift"]
+      }
+    },
+    {
+      "case_id": "EQA-009",
+      "category": "cross_workspace_isolation",
+      "difficulty": "hard",
+      "question": "本案件向哪个国家传输数据？",
+      "scope": {
+        "corpora": ["case"],
+        "workspace_id": "ws-alpha",
+        "case_id": "case-alpha"
+      },
+      "citations": [
+        {
+          "citation_id": "E1",
+          "corpus": "case",
+          "source_id": "chunk-foreign-workspace",
+          "source_name": "其他租户方案.pdf",
+          "title": "第 1 页",
+          "quote": "数据将传输至新加坡数据中心。",
+          "workspace_id": "ws-beta",
+          "case_id": "case-alpha",
+          "document_id": "doc-beta",
+          "document_version_id": "ver-beta-1",
+          "page_number": 1,
+          "source_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "score": 0.99
+        }
+      ],
+      "claims": [
+        {
+          "claim_id": "C1",
+          "text": "本案件的数据将传输至新加坡。",
+          "citation_ids": ["E1"]
+        }
+      ],
+      "source_integrity_valid": true,
+      "gold": {
+        "expected_status": "refused",
+        "expected_structural_valid": true,
+        "claim_support": {
+          "C1": {
+            "supported": true,
+            "supporting_citation_ids": ["E1"]
+          }
+        },
+        "security_issues": ["cross_workspace"]
+      }
+    },
+    {
+      "case_id": "EQA-010",
+      "category": "cross_case_isolation",
+      "difficulty": "hard",
+      "question": "本案件涉及多少名员工？",
+      "scope": {
+        "corpora": ["case"],
+        "workspace_id": "ws-alpha",
+        "case_id": "case-alpha"
+      },
+      "citations": [
+        {
+          "citation_id": "E1",
+          "corpus": "case",
+          "source_id": "chunk-foreign-case",
+          "source_name": "另案员工清单.xlsx",
+          "title": "第 1 页",
+          "quote": "本次出境涉及员工共计5000人。",
+          "workspace_id": "ws-alpha",
+          "case_id": "case-beta",
+          "document_id": "doc-case-beta",
+          "document_version_id": "ver-case-beta-1",
+          "page_number": 1,
+          "source_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "score": 0.98
+        }
+      ],
+      "claims": [
+        {
+          "claim_id": "C1",
+          "text": "本案件涉及5000名员工。",
+          "citation_ids": ["E1"]
+        }
+      ],
+      "source_integrity_valid": true,
+      "gold": {
+        "expected_status": "refused",
+        "expected_structural_valid": true,
+        "claim_support": {
+          "C1": {
+            "supported": true,
+            "supporting_citation_ids": ["E1"]
+          }
+        },
+        "security_issues": ["cross_case"]
+      }
+    },
+    {
+      "case_id": "EQA-011",
+      "category": "quantifier_overclaim",
+      "difficulty": "hard",
+      "question": "所有个人信息出境是否都必须申报安全评估？",
+      "scope": {
+        "corpora": ["regulatory"]
+      },
+      "citations": [
+        {
+          "citation_id": "E1",
+          "corpus": "regulatory",
+          "source_id": "pipl-38",
+          "source_name": "中华人民共和国个人信息保护法",
+          "title": "第三十八条",
+          "quote": "个人信息处理者因业务等需要，确需向中华人民共和国境外提供个人信息的，应当具备通过安全评估、个人信息保护认证或者订立标准合同等条件之一。",
+          "clause_id": "第三十八条",
+          "score": 0.97
+        }
+      ],
+      "claims": [
+        {
+          "claim_id": "C1",
+          "text": "所有个人信息出境活动都必须申报数据出境安全评估，不存在其他合规路径。",
+          "citation_ids": ["E1"]
+        }
+      ],
+      "source_integrity_valid": true,
+      "gold": {
+        "expected_status": "refused",
+        "expected_structural_valid": true,
+        "claim_support": {
+          "C1": {
+            "supported": false,
+            "supporting_citation_ids": []
+          }
+        },
+        "security_issues": []
+      }
+    },
+    {
+      "case_id": "EQA-012",
+      "category": "assessment_snapshot",
+      "difficulty": "medium",
+      "question": "当前 Assessment 识别出的高风险项是什么？",
+      "scope": {
+        "corpora": ["assessment"],
+        "workspace_id": "ws-alpha",
+        "case_id": "case-alpha",
+        "assessment_id": "assessment-alpha"
+      },
+      "citations": [
+        {
+          "citation_id": "E1",
+          "corpus": "assessment",
+          "source_id": "finding-1",
+          "source_name": "Assessment v2",
+          "title": "缺少单独同意记录",
+          "quote": "缺少单独同意记录：现有案件材料未提供可核验的单独同意证明。",
+          "workspace_id": "ws-alpha",
+          "case_id": "case-alpha",
+          "assessment_id": "assessment-alpha",
+          "clause_id": "个人信息保护法第三十九条",
+          "score": 0.8
+        }
+      ],
+      "claims": [
+        {
+          "claim_id": "C1",
+          "text": "当前 Assessment 识别出缺少可核验的单独同意证明。",
+          "citation_ids": ["E1"]
+        }
+      ],
+      "source_integrity_valid": true,
+      "gold": {
+        "expected_status": "answered",
+        "expected_structural_valid": true,
+        "claim_support": {
+          "C1": {
+            "supported": true,
+            "supporting_citation_ids": ["E1"]
+          }
+        },
+        "security_issues": []
+      }
+    },
+    {
+      "case_id": "EQA-013",
+      "category": "workspace_knowledge",
+      "difficulty": "medium",
+      "question": "公司内部要求由哪个角色复核出境材料？",
+      "scope": {
+        "corpora": ["workspace"],
+        "workspace_id": "ws-alpha"
+      },
+      "citations": [
+        {
+          "citation_id": "E1",
+          "corpus": "workspace",
+          "source_id": "chunk-policy-review",
+          "source_name": "数据出境内部管理制度.pdf",
+          "title": "第 6 页",
+          "quote": "数据出境材料提交监管机关前，应由合规负责人完成复核并留存签字记录。",
+          "workspace_id": "ws-alpha",
+          "document_id": "doc-internal-policy",
+          "document_version_id": "ver-internal-policy-3",
+          "page_number": 6,
+          "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "score": 0.92
+        }
+      ],
+      "claims": [
+        {
+          "claim_id": "C1",
+          "text": "公司内部要求由合规负责人复核出境材料并留存签字记录。",
+          "citation_ids": ["E1"]
+        }
+      ],
+      "source_integrity_valid": true,
+      "gold": {
+        "expected_status": "answered",
+        "expected_structural_valid": true,
+        "claim_support": {
+          "C1": {
+            "supported": true,
+            "supporting_citation_ids": ["E1"]
+          }
+        },
+        "security_issues": []
+      }
+    },
+    {
+      "case_id": "EQA-014",
+      "category": "no_evidence_refusal",
+      "difficulty": "easy",
+      "question": "案件材料中使用的加密算法和密钥轮换周期是什么？",
+      "scope": {
+        "corpora": ["case"],
+        "workspace_id": "ws-alpha",
+        "case_id": "case-alpha"
+      },
+      "citations": [],
+      "claims": [],
+      "source_integrity_valid": true,
+      "gold": {
+        "expected_status": "refused",
+        "expected_structural_valid": true,
+        "claim_support": {},
+        "security_issues": []
+      }
+    }
+  ]
+}

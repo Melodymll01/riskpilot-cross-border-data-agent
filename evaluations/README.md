@@ -20,6 +20,13 @@ evaluations/
 │   ├── reports/
 │   └── run.py                    # 入口: python evaluations/benchmark/run.py
 │
+├── evidence_qa/                  # V3 Claim-Citation 与安全拒答评测
+│   ├── datasets/
+│   │   └── claim_citation_eval_v1.json
+│   ├── reports/
+│   ├── evaluator.py
+│   └── run.py
+│
 └── README.md                     # 本文件
 ```
 
@@ -37,6 +44,7 @@ evaluations/
 | OOD 分类 | [tests/eval_ood.py](../tests/eval_ood.py) | [ood/datasets/eval_dataset_v1.json](ood/datasets/eval_dataset_v1.json) | [ood/reports/ood_eval_latest.md](ood/reports/ood_eval_latest.md) |
 | 切块参数 | [chunk_params/run.py](chunk_params/run.py) | — | [chunk_params/reports/chunk_eval_latest.json](chunk_params/reports/chunk_eval_latest.json) |
 | 端到端基准 | [benchmark/run.py](benchmark/run.py) | — | `logs/benchmark_report.json` |
+| V3 Evidence QA | [evidence_qa/run.py](evidence_qa/run.py) | [evidence_qa/datasets/claim_citation_eval_v1.json](evidence_qa/datasets/claim_citation_eval_v1.json) | `evidence_qa/reports/evidence_qa_eval_latest.md` |
 
 ## 跑评测
 
@@ -52,9 +60,47 @@ python evaluations/chunk_params/run.py
 
 # 端到端基准
 python evaluations/benchmark/run.py
+
+# V3 Evidence QA 评测协议自检（不调用模型，不构成生产效果证据）
+python evaluations/evidence_qa/run.py --oracle-self-check
+
+# V3 Evidence QA 正式候选评测
+python evaluations/evidence_qa/run.py --predictions path/to/predictions.json
 ```
 
 报告会自动写到 `evaluations/<name>/reports/`。
+
+### Evidence QA 预测文件
+
+正式候选预测必须覆盖数据集中的每个 Case 和 Claim：
+
+```json
+{
+  "dataset_name": "RiskPilot V3 Evidence QA Claim-Citation 评测集",
+  "dataset_version": "1.0",
+  "system": "candidate-name",
+  "mode": "production",
+  "cases": [
+    {
+      "case_id": "EQA-001",
+      "status": "answered",
+      "judgements": [
+        {
+          "claim_id": "C1",
+          "supported": true,
+          "citation_ids": ["E1"],
+          "reason": ""
+        }
+      ],
+      "detected_security_issues": []
+    }
+  ]
+}
+```
+
+`--oracle-self-check` 会直接回放 Gold 标签，只用于证明数据集 schema、指标计算和门禁
+实现一致，禁止把该结果写成生产模型效果。正式结果必须使用候选系统独立生成的
+`--predictions` 文件。
 
 ## 扩展新评测
 
