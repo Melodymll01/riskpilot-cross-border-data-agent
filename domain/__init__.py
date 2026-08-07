@@ -143,6 +143,17 @@ from domain.ports import (
     WorkflowRuntimePort,
     WorkspaceRepoPort,
 )
+from domain.qa import (
+    ClaimCitationVerification,
+    ClaimCitationVerifier,
+    EvidenceQAAnswer,
+    EvidenceQACitation,
+    EvidenceQAClaim,
+    EvidenceQADraft,
+    EvidenceQAScope,
+    EvidenceQAStatus,
+    QACorpus,
+)
 from domain.runs import (
     AgentRun,
     AgentRunStatus,
@@ -253,6 +264,15 @@ __all__ = [
     "PolicyRuleStatus",
     "PolicyEvaluationStatus",
     "PolicyRuleEngine",
+    "EvidenceQAScope",
+    "QACorpus",
+    "EvidenceQAStatus",
+    "EvidenceQACitation",
+    "EvidenceQAClaim",
+    "EvidenceQADraft",
+    "EvidenceQAAnswer",
+    "ClaimCitationVerification",
+    "ClaimCitationVerifier",
     "Assessment",
     "AssessmentBundle",
     "AssessmentStatus",
