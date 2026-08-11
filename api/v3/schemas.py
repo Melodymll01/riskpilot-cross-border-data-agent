@@ -598,6 +598,25 @@ class ClaimSupportResultOut(BaseModel):
     method: Literal["independent_llm_v1"]
 
 
+class ClaimRepairReportOut(BaseModel):
+    status: Literal["not_needed", "repaired", "failed"]
+    original_claim_count: int
+    kept_claim_ids: list[str]
+    removed_claim_ids: list[str]
+    removal_reasons: dict[
+        str,
+        list[
+            Literal[
+                "uncited",
+                "unknown_citation",
+                "unsupported",
+                "verification_error",
+            ]
+        ],
+    ]
+    method: Literal["bounded_filter_v1"]
+
+
 class EvidenceQAResponse(BaseModel):
     question: str
     scope: EvidenceQAScopeOut
@@ -609,3 +628,4 @@ class EvidenceQAResponse(BaseModel):
     unanswered_aspects: list[str]
     verification: ClaimCitationVerificationOut
     support_verification: ClaimSupportResultOut
+    repair_report: ClaimRepairReportOut

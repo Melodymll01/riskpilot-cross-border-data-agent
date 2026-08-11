@@ -29,6 +29,7 @@ from domain import (
     EvidenceChunk,
     EvidenceQAClaim,
     EvidenceQADraft,
+    EvidenceSearchHit,
     Finding,
     ParsedPage,
     ProcessingJob,
@@ -449,6 +450,44 @@ class TestEvidenceQAFailClosed:
         assert result.status == "refused"
         assert setup.generator.calls == []
 
+    @pytest.mark.parametrize(
+        ("field_name", "foreign_value"),
+        [
+            ("workspace_id", "ws_foreign"),
+            ("case_id", "case_foreign"),
+        ],
+    )
+    def test_poisoned_index_cross_scope_chunk_is_dropped(
+        self,
+        setup: _Setup,
+        field_name: str,
+        foreign_value: str,
+    ) -> None:
+        chunk = setup.seed_document(document_id="case")
+        poisoned = chunk.model_copy(update={field_name: foreign_value})
+
+        def poisoned_search(**_: object) -> list[EvidenceSearchHit]:
+            return [
+                EvidenceSearchHit(
+                    chunk=poisoned,
+                    score=0.99,
+                    vector_score=0.99,
+                    bm25_score=1.0,
+                )
+            ]
+
+        setup.index.search = poisoned_search  # type: ignore[method-assign]
+
+        result = setup.qa.answer(
+            "github:editor",
+            question="问题",
+            corpora=["case"],
+            case_id=setup.case_id,
+        )
+
+        assert result.status == "refused"
+        assert setup.generator.calls == []
+
     def test_generator_unknown_or_missing_citation_refuses(self, setup: _Setup) -> None:
         setup.seed_document(document_id="case")
         for citation_ids in ([], ["UNKNOWN"]):
@@ -497,6 +536,153 @@ class TestEvidenceQAFailClosed:
         )
         assert result.status == "refused"
         assert "Claim-Citation" in result.refusal_reason
+
+    def test_mixed_claims_are_boundedly_repaired_to_partial_answer(
+        self,
+        setup: _Setup,
+    ) -> None:
+        setup.seed_document(document_id="case")
+        generator = FakeEvidenceQAGenerator(
+            EvidenceQADraft(
+                status="answered",
+                claims=[
+                    EvidenceQAClaim(
+                        claim_id="C1",
+                        text="境外接收方应承担安全保护责任。",
+                        citation_ids=["E1"],
+                    ),
+                    EvidenceQAClaim(
+                        claim_id="C2",
+                        text="没有引用的结论。",
+                        citation_ids=[],
+                    ),
+                    EvidenceQAClaim(
+                        claim_id="C3",
+                        text="原文不支持的结论。",
+                        citation_ids=["E1"],
+                    ),
+                ],
+            )
+        )
+        support = FakeClaimSupportVerifier(
+            ClaimSupportResult(
+                judgements=[
+                    ClaimSupportJudgement(
+                        claim_id="C1",
+                        supported=True,
+                        citation_ids=["E1"],
+                    ),
+                    ClaimSupportJudgement(
+                        claim_id="C3",
+                        supported=False,
+                        citation_ids=[],
+                        reason="原文不支持",
+                    ),
+                ],
+                unsupported_claim_ids=["C3"],
+                valid=False,
+            )
+        )
+
+        result = setup.build_qa(generator=generator, support=support).answer(
+            "github:editor",
+            question="综合判断",
+            corpora=["case"],
+            case_id=setup.case_id,
+        )
+
+        assert result.status == "partially_answered"
+        assert [claim.claim_id for claim in result.claims] == ["C1"]
+        assert [citation.citation_id for citation in result.citations] == ["E1"]
+        assert result.support_verification.valid is True
+        assert result.repair_report.status == "repaired"
+        assert result.repair_report.removed_claim_ids == ["C2", "C3"]
+        assert result.repair_report.removal_reasons == {
+            "C2": ["uncited"],
+            "C3": ["unsupported"],
+        }
+        assert len(generator.calls) == 1
+        assert len(support.calls) == 1
+        assert [claim.claim_id for claim in support.calls[0]["claims"]] == [
+            "C1",
+            "C3",
+        ]
+
+    def test_unknown_citation_is_removed_when_another_claim_is_safe(
+        self,
+        setup: _Setup,
+    ) -> None:
+        setup.seed_document(document_id="case")
+        generator = FakeEvidenceQAGenerator(
+            EvidenceQADraft(
+                status="answered",
+                claims=[
+                    EvidenceQAClaim(
+                        claim_id="C1",
+                        text="可信结论。",
+                        citation_ids=["E1"],
+                    ),
+                    EvidenceQAClaim(
+                        claim_id="C2",
+                        text="伪造引用结论。",
+                        citation_ids=["UNKNOWN"],
+                    ),
+                ],
+            )
+        )
+        support = FakeClaimSupportVerifier()
+
+        result = setup.build_qa(generator=generator, support=support).answer(
+            "github:editor",
+            question="问题",
+            corpora=["case"],
+            case_id=setup.case_id,
+        )
+
+        assert result.status == "partially_answered"
+        assert result.repair_report.removal_reasons == {
+            "C2": ["unknown_citation"],
+        }
+        assert [claim.claim_id for claim in support.calls[0]["claims"]] == ["C1"]
+
+    def test_verifier_contract_error_refuses_all_claims(self, setup: _Setup) -> None:
+        setup.seed_document(document_id="case")
+        support = FakeClaimSupportVerifier(
+            ClaimSupportResult(
+                judgements=[],
+                unsupported_claim_ids=[],
+                valid=True,
+            )
+        )
+
+        result = setup.build_qa(support=support).answer(
+            "github:editor",
+            question="问题",
+            corpora=["case"],
+            case_id=setup.case_id,
+        )
+
+        assert result.status == "refused"
+        assert result.repair_report.status == "failed"
+        assert result.repair_report.removal_reasons == {
+            "C1": ["verification_error"],
+        }
+        assert "生成或校验失败" in result.refusal_reason
+
+    def test_unmodified_safe_answer_reports_no_repair(self, setup: _Setup) -> None:
+        setup.seed_document(document_id="case")
+
+        result = setup.qa.answer(
+            "github:editor",
+            question="问题",
+            corpora=["case"],
+            case_id=setup.case_id,
+        )
+
+        assert result.status == "answered"
+        assert result.repair_report.status == "not_needed"
+        assert result.repair_report.kept_claim_ids == ["C1"]
+        assert result.repair_report.removed_claim_ids == []
 
     @pytest.mark.parametrize(
         "error",

@@ -11,6 +11,13 @@ from domain.models import BaseDomainModel
 
 QACorpus = Literal["regulatory", "workspace", "case", "assessment"]
 EvidenceQAStatus = Literal["answered", "partially_answered", "refused"]
+ClaimRepairStatus = Literal["not_needed", "repaired", "failed"]
+ClaimRemovalReason = Literal[
+    "uncited",
+    "unknown_citation",
+    "unsupported",
+    "verification_error",
+]
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -163,7 +170,7 @@ class ClaimSupportJudgement(BaseDomainModel):
 
 
 class ClaimSupportResult(BaseDomainModel):
-    """语义支持校验结果；任何 Claim 不受支持时整体 fail closed。"""
+    """语义支持校验结果；结果层只能移除不受支持的 Claim，不能把它放行。"""
 
     judgements: list[ClaimSupportJudgement] = Field(default_factory=list)
     unsupported_claim_ids: list[str] = Field(default_factory=list)
@@ -182,6 +189,44 @@ class ClaimSupportResult(BaseDomainModel):
             raise ValueError("unsupported_claim_ids 与 judgements 不一致")
         if self.valid != (not self.unsupported_claim_ids):
             raise ValueError("ClaimSupport valid 与 unsupported_claim_ids 不一致")
+        return self
+
+
+class ClaimRepairReport(BaseDomainModel):
+    """结果层有限修复报告；只允许删除坏 Claim，不改写内容或补造引用。"""
+
+    status: ClaimRepairStatus
+    original_claim_count: int = Field(ge=0)
+    kept_claim_ids: list[str] = Field(default_factory=list)
+    removed_claim_ids: list[str] = Field(default_factory=list)
+    removal_reasons: dict[str, list[ClaimRemovalReason]] = Field(default_factory=dict)
+    method: Literal["bounded_filter_v1"] = "bounded_filter_v1"
+
+    @model_validator(mode="after")
+    def validate_report(self) -> ClaimRepairReport:
+        if len(self.kept_claim_ids) != len(set(self.kept_claim_ids)):
+            raise ValueError("kept_claim_ids 不能重复")
+        if len(self.removed_claim_ids) != len(set(self.removed_claim_ids)):
+            raise ValueError("removed_claim_ids 不能重复")
+        if set(self.kept_claim_ids) & set(self.removed_claim_ids):
+            raise ValueError("同一 Claim 不能同时保留和移除")
+        if self.original_claim_count != len(self.kept_claim_ids) + len(self.removed_claim_ids):
+            raise ValueError("original_claim_count 与保留/移除 Claim 数不一致")
+        if set(self.removal_reasons) != set(self.removed_claim_ids):
+            raise ValueError("removal_reasons 必须且只能覆盖 removed_claim_ids")
+        if any(
+            not reasons or len(reasons) != len(set(reasons))
+            for reasons in self.removal_reasons.values()
+        ):
+            raise ValueError("每个移除 Claim 必须有不重复的 removal_reasons")
+        if self.status == "not_needed":
+            if self.removed_claim_ids:
+                raise ValueError("not_needed 不能包含 removed_claim_ids")
+        elif self.status == "repaired":
+            if not self.kept_claim_ids or not self.removed_claim_ids:
+                raise ValueError("repaired 必须同时包含保留和移除 Claim")
+        elif self.kept_claim_ids or not self.removed_claim_ids:
+            raise ValueError("failed 必须移除全部候选 Claim")
         return self
 
 
@@ -230,6 +275,7 @@ class EvidenceQAAnswer(BaseDomainModel):
     unanswered_aspects: list[str] = Field(default_factory=list)
     verification: ClaimCitationVerification
     support_verification: ClaimSupportResult
+    repair_report: ClaimRepairReport
 
     @model_validator(mode="after")
     def validate_answer(self) -> EvidenceQAAnswer:
@@ -258,10 +304,20 @@ class EvidenceQAAnswer(BaseDomainModel):
                 raise ValueError("support_verification 必须覆盖全部 Claim")
             if not self.support_verification.valid:
                 raise ValueError("非拒答结果必须通过 Claim 语义支持校验")
+            if self.repair_report.kept_claim_ids != [claim.claim_id for claim in self.claims]:
+                raise ValueError("repair_report 必须按顺序记录最终保留的 Claim")
+            if self.repair_report.status == "failed":
+                raise ValueError("非拒答结果不能使用 failed repair_report")
+            if self.repair_report.status == "repaired" and self.status != "partially_answered":
+                raise ValueError("修复后的回答必须标记为 partially_answered")
         if self.status == "refused" and self.citations:
             raise ValueError("refused 不返回未被 Claim 使用的引用")
         if self.status == "refused" and self.support_verification.judgements:
             raise ValueError("refused 不返回 Claim 语义判定")
+        if self.status == "refused" and self.repair_report.kept_claim_ids:
+            raise ValueError("refused 的 repair_report 不能保留 Claim")
+        if self.status == "refused" and self.repair_report.status == "repaired":
+            raise ValueError("refused 不能使用 repaired repair_report")
         return self
 
     @property

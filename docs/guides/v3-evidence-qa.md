@@ -200,9 +200,43 @@ Content-Type: application/json
 - 逐个检查 Claim 是否能由引用原文直接支持；
 - 不能扩大 Claim 原先声明的 citation IDs；
 - 不能引用未知证据；
-- 任一 Claim 不受支持时整体 fail closed。
+- 验证器异常、漏判 Claim 或扩大引用范围时整体 fail closed。
 
-## 6. 三种结果
+## 6. 有限自动修复
+
+双重校验后执行确定性的 `bounded_filter_v1`：
+
+- 只移除没有引用、引用未知 ID 或语义不受支持的 Claim；
+- 不改写 Claim 文本，不补造 Citation，不触发第二次生成；
+- 至少保留一条可信 Claim 时，状态降级为 `partially_answered`；
+- 如果全部 Claim 被移除，仍然安全拒答；
+- 验证器异常或协议不完整时，不尝试修复，直接拒答。
+
+响应中的修复报告示例：
+
+```json
+{
+  "repair_report": {
+    "status": "repaired",
+    "original_claim_count": 3,
+    "kept_claim_ids": ["C1"],
+    "removed_claim_ids": ["C2", "C3"],
+    "removal_reasons": {
+      "C2": ["uncited"],
+      "C3": ["unsupported"]
+    },
+    "method": "bounded_filter_v1"
+  }
+}
+```
+
+`status` 含义：
+
+- `not_needed`：原始候选全部通过；
+- `repaired`：移除部分坏 Claim 后返回部分回答；
+- `failed`：全部候选被移除，最终拒答。
+
+## 7. 三种结果
 
 ### answered
 
@@ -210,7 +244,8 @@ Content-Type: application/json
 
 ### partially_answered
 
-只回答现有证据能够支持的部分，并返回：
+只回答现有证据能够支持的部分，包括生成器主动识别证据不足，以及服务端移除未通过
+校验的部分 Claim。响应会返回：
 
 ```json
 {
@@ -225,13 +260,13 @@ Content-Type: application/json
 - 当前 Scope 没有证据；
 - 索引原文和当前解析页不一致；
 - LLM 返回非法 JSON 或非法 schema；
-- Claim 没有引用或引用未知 ID；
-- 独立语义验证不支持 Claim；
+- 所有 Claim 都没有引用、引用未知 ID 或不受证据支持；
+- 独立语义验证器异常、漏判 Claim 或违反引用边界；
 - 模型服务异常。
 
 拒答结果不携带 Claim 或 Citation，避免把未经验证的中间结果暴露给用户。
 
-## 7. 安全边界
+## 8. 安全边界
 
 - API 不返回 Prompt、原始模型响应或思维链；
 - 用户文档只作为不可信证据进入 user message；

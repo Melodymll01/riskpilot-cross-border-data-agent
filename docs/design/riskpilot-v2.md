@@ -663,6 +663,7 @@ evaluations/
 | 跨 Workspace 泄漏 | 0 |
 | 跨 Case 泄漏 | 0 |
 | Claim-Citation 支撑率 | ≥ 95% |
+| 坏 Claim 过滤准确率 | 100% |
 | 关键事实召回率 | ≥ 95% |
 | 高风险规则召回率 | ≥ 95% |
 | 故障恢复成功率 | ≥ 99% |
@@ -738,7 +739,7 @@ evaluations/
 
 ## 18. 当前实施切片
 
-截至 2026-08-07，已完成：
+截至 2026-08-11，已完成：
 
 1. Workspace、成员角色和 Case 状态机；
 2. 案件级 Document、DocumentVersion、原始对象存储与 ProcessingJob；
@@ -761,6 +762,9 @@ evaluations/
 14. `evaluations/evidence_qa` 离线评测基线：覆盖结构引用、否定/数值蕴含、
     引用漂移、伪造引用、跨 Workspace/Case 越权和安全拒答；Oracle 仅用于协议自检，
     正式候选必须提供独立预测文件。
+15. `bounded_filter_v1` 结果层有限修复：只删除无引用、未知引用或语义不受支持的
+    Claim；至少保留一条可信 Claim 时降级为部分回答，全部失败或验证器协议异常时
+    仍然安全拒答，不改写 Claim、不补造 Citation、不增加模型调用。
 
 当前 Case Assessment Graph 已落地的确定性骨架：
 
@@ -783,7 +787,7 @@ pickle fallback。
 尚未完成：
 
 1. LLM 事实抽取、冲突解决和 Assessment 引用修复节点；
-2. 基于 Claim-Citation 评测基线的生产模型实测与有限自动修复；
+2. 基于 Claim-Citation 评测基线的生产模型实测；
 3. Deep Research Graph；
 4. V3 案件工作台前端；
 5. 评测中心、故障注入指标、安全红队和报告导出。

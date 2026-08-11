@@ -37,6 +37,7 @@ class EvaluationThresholds(EvaluationModel):
     structural_accuracy_min: float = Field(ge=0.0, le=1.0)
     supported_claim_recall_min: float = Field(ge=0.0, le=1.0)
     unsupported_claim_false_accept_rate_max: float = Field(ge=0.0, le=1.0)
+    claim_filter_accuracy_min: float = Field(default=1.0, ge=0.0, le=1.0)
     citation_drift_recall_min: float = Field(ge=0.0, le=1.0)
     status_accuracy_min: float = Field(ge=0.0, le=1.0)
     cross_scope_leakage_count_max: int = Field(ge=0)
@@ -110,19 +111,18 @@ class EvidenceQAEvaluationCase(EvaluationModel):
         if detected_issues != set(self.gold.security_issues):
             raise ValueError(f"{self.case_id}: security_issues 与评测输入不一致")
 
-        has_unsupported_claim = any(
-            not support.supported for support in self.gold.claim_support.values()
-        )
-        must_refuse = (
-            not self.claims
-            or bool(detected_issues)
-            or not structural.valid
-            or has_unsupported_claim
-        )
+        kept_claim_ids = _gold_kept_claim_ids(self)
+        must_refuse = not kept_claim_ids
         if must_refuse and self.gold.expected_status != "refused":
             raise ValueError(f"{self.case_id}: 不安全样本的 expected_status 必须为 refused")
         if not must_refuse and self.gold.expected_status == "refused":
             raise ValueError(f"{self.case_id}: 安全且受支持的样本不应标注为 refused")
+        if (
+            kept_claim_ids
+            and len(kept_claim_ids) < len(self.claims)
+            and self.gold.expected_status != "partially_answered"
+        ):
+            raise ValueError(f"{self.case_id}: 部分 Claim 被过滤时必须标注为 partially_answered")
         return self
 
 
@@ -148,6 +148,7 @@ class EvidenceQACasePrediction(EvaluationModel):
     case_id: str = Field(min_length=1, max_length=100)
     status: EvidenceQAStatus
     judgements: list[ClaimSupportJudgement] = Field(default_factory=list)
+    kept_claim_ids: list[str] = Field(default_factory=list)
     detected_security_issues: list[SecurityIssue] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -155,8 +156,14 @@ class EvidenceQACasePrediction(EvaluationModel):
         claim_ids = [judgement.claim_id for judgement in self.judgements]
         if len(claim_ids) != len(set(claim_ids)):
             raise ValueError(f"{self.case_id}: judgement claim_id 不能重复")
+        if len(self.kept_claim_ids) != len(set(self.kept_claim_ids)):
+            raise ValueError(f"{self.case_id}: kept_claim_ids 不能重复")
         if len(self.detected_security_issues) != len(set(self.detected_security_issues)):
             raise ValueError(f"{self.case_id}: detected_security_issues 不能重复")
+        if self.status == "refused" and self.kept_claim_ids:
+            raise ValueError(f"{self.case_id}: refused 不能保留 Claim")
+        if self.status != "refused" and not self.kept_claim_ids:
+            raise ValueError(f"{self.case_id}: 非拒答结果必须保留 Claim")
         return self
 
 
@@ -205,6 +212,7 @@ def build_oracle_predictions(
                 case_id=case.case_id,
                 status=case.gold.expected_status,
                 judgements=judgements,
+                kept_claim_ids=_gold_kept_claim_ids(case),
                 detected_security_issues=case.gold.security_issues,
             )
         )
@@ -229,6 +237,7 @@ def evaluate(
     supported_accepted = 0
     unsupported_total = 0
     unsupported_accepted = 0
+    claim_filter_correct = 0
     drift_total = 0
     drift_detected = 0
     status_correct = 0
@@ -261,8 +270,15 @@ def evaluate(
 
         status_match = prediction.status == case.gold.expected_status
         status_correct += int(status_match)
-        cross_scope_issue = bool({"cross_workspace", "cross_case"} & set(case.gold.security_issues))
-        leaked = cross_scope_issue and prediction.status != "refused"
+        expected_kept_claim_ids = _gold_kept_claim_ids(case)
+        claim_filter_match = prediction.kept_claim_ids == expected_kept_claim_ids
+        claim_filter_correct += int(claim_filter_match)
+        claims_by_id = {claim.claim_id: claim for claim in case.claims}
+        unsafe_scope_citation_ids = _unsafe_scope_citation_ids(case)
+        leaked = any(
+            set(claims_by_id[claim_id].citation_ids) & unsafe_scope_citation_ids
+            for claim_id in prediction.kept_claim_ids
+        )
         cross_scope_leakage_count += int(leaked)
         case_results.append(
             {
@@ -274,12 +290,16 @@ def evaluate(
                 "structural_valid": structural.valid,
                 "structural_match": structural_match,
                 "semantic_matches": semantic_matches,
+                "expected_kept_claim_ids": expected_kept_claim_ids,
+                "predicted_kept_claim_ids": prediction.kept_claim_ids,
+                "claim_filter_match": claim_filter_match,
                 "expected_security_issues": case.gold.security_issues,
                 "detected_security_issues": prediction.detected_security_issues,
                 "cross_scope_leaked": leaked,
                 "passed": (
                     structural_match
                     and all(semantic_matches.values())
+                    and claim_filter_match
                     and status_match
                     and not leaked
                     and (not has_drift or "citation_drift" in prediction.detected_security_issues)
@@ -301,6 +321,11 @@ def evaluate(
             unsupported_accepted,
             unsupported_total,
             empty=0.0,
+        ),
+        "claim_filter_accuracy": _safe_ratio(
+            claim_filter_correct,
+            case_count,
+            empty=1.0,
         ),
         "citation_drift_recall": _safe_ratio(
             drift_detected,
@@ -371,6 +396,8 @@ def _validate_prediction_contract(
         actual_claim_ids = {judgement.claim_id for judgement in prediction.judgements}
         if actual_claim_ids != expected_claim_ids:
             raise ValueError(f"{case.case_id}: judgements 必须且只能覆盖全部 Claim")
+        if not set(prediction.kept_claim_ids).issubset(expected_claim_ids):
+            raise ValueError(f"{case.case_id}: kept_claim_ids 包含未知 Claim")
         known_citations = {citation.citation_id for citation in case.citations}
         claims_by_id = {claim.claim_id: claim for claim in case.claims}
         for judgement in prediction.judgements:
@@ -408,6 +435,43 @@ def _detect_case_security_issues(case: EvidenceQAEvaluationCase) -> set[Security
     return issues
 
 
+def _gold_kept_claim_ids(case: EvidenceQAEvaluationCase) -> list[str]:
+    if not case.source_integrity_valid:
+        return []
+    known_citation_ids = {citation.citation_id for citation in case.citations}
+    unsafe_scope_citation_ids = _unsafe_scope_citation_ids(case)
+    kept: list[str] = []
+    for claim in case.claims:
+        declared = set(claim.citation_ids)
+        if (
+            not declared
+            or not declared.issubset(known_citation_ids)
+            or declared & unsafe_scope_citation_ids
+            or not case.gold.claim_support[claim.claim_id].supported
+        ):
+            continue
+        kept.append(claim.claim_id)
+    return kept
+
+
+def _unsafe_scope_citation_ids(case: EvidenceQAEvaluationCase) -> set[str]:
+    unsafe: set[str] = set()
+    for citation in case.citations:
+        if (
+            case.scope.workspace_id is not None
+            and citation.workspace_id is not None
+            and citation.workspace_id != case.scope.workspace_id
+        ):
+            unsafe.add(citation.citation_id)
+        if (
+            case.scope.case_id is not None
+            and citation.case_id is not None
+            and citation.case_id != case.scope.case_id
+        ):
+            unsafe.add(citation.citation_id)
+    return unsafe
+
+
 def _evaluate_gates(
     metrics: dict[str, int | float],
     thresholds: EvaluationThresholds,
@@ -427,6 +491,11 @@ def _evaluate_gates(
             metrics["unsupported_claim_false_accept_rate"],
             "<=",
             thresholds.unsupported_claim_false_accept_rate_max,
+        ),
+        "claim_filter_accuracy": (
+            metrics["claim_filter_accuracy"],
+            ">=",
+            thresholds.claim_filter_accuracy_min,
         ),
         "citation_drift_recall": (
             metrics["citation_drift_recall"],

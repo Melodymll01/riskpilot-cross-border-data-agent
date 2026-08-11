@@ -174,6 +174,14 @@ class TestV3EvidenceQA:
         assert body["verification"]["valid"] is True
         assert body["support_verification"]["method"] == "independent_llm_v1"
         assert body["support_verification"]["valid"] is True
+        assert body["repair_report"] == {
+            "status": "not_needed",
+            "original_claim_count": 1,
+            "kept_claim_ids": ["C1"],
+            "removed_claim_ids": [],
+            "removal_reasons": {},
+            "method": "bounded_filter_v1",
+        }
         citation = body["citations"][0]
         assert citation["document_id"] == uploaded["document"]["document_id"]
         assert citation["document_version_id"] == uploaded["version"]["version_id"]
@@ -314,6 +322,8 @@ class TestV3EvidenceQA:
         assert rejected.json()["status"] == "refused"
         assert rejected.json()["claims"] == []
         assert rejected.json()["citations"] == []
+        assert rejected.json()["repair_report"]["status"] == "failed"
+        assert rejected.json()["repair_report"]["removed_claim_ids"] == ["C1"]
 
     def test_unknown_citation_from_generator_fails_closed(
         self,
@@ -345,6 +355,48 @@ class TestV3EvidenceQA:
 
         assert response.status_code == 200
         assert response.json()["status"] == "refused"
+        assert response.json()["repair_report"]["removal_reasons"] == {"C1": ["unknown_citation"]}
+
+    def test_mixed_claims_return_partial_answer_and_repair_report(
+        self,
+        authed_client: tuple[TestClient, dict[str, Any]],
+    ) -> None:
+        client, _ = authed_client
+        _, case_id = _setup_case(client)
+        _upload_and_index(client, case_id)
+        container: AppContainer = client.app.state.container  # type: ignore[attr-defined]
+        container.evidence_qa._generator = FakeEvidenceQAGenerator(
+            EvidenceQADraft(
+                status="answered",
+                claims=[
+                    EvidenceQAClaim(
+                        claim_id="C1",
+                        text="可信结论。",
+                        citation_ids=["E1"],
+                    ),
+                    EvidenceQAClaim(
+                        claim_id="C2",
+                        text="无引用结论。",
+                        citation_ids=[],
+                    ),
+                ],
+            )
+        )
+
+        response = _answer(
+            client,
+            question="问题",
+            corpora=["case"],
+            case_id=case_id,
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["status"] == "partially_answered"
+        assert [claim["claim_id"] for claim in body["claims"]] == ["C1"]
+        assert body["repair_report"]["status"] == "repaired"
+        assert body["repair_report"]["removal_reasons"] == {"C2": ["uncited"]}
+        assert "C2" in body["unanswered_aspects"][0]
 
     def test_scope_validation_and_cross_case_isolation(
         self,

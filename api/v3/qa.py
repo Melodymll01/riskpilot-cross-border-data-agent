@@ -26,6 +26,7 @@ def _to_response(result: EvidenceQAAnswer) -> EvidenceQAResponse:
         unanswered_aspects=result.unanswered_aspects,
         verification=result.verification.model_dump(),
         support_verification=result.support_verification.model_dump(),
+        repair_report=result.repair_report.model_dump(),
     )
 
 

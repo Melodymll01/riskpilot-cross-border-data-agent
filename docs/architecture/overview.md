@@ -63,7 +63,8 @@ POST /api/v3/qa
 - Document Citation 必须带 `document_id`、`document_version_id`、页码和 SHA-256；
 - 回答前重新读取当前解析页，确认版本、SHA、CaseDocument 绑定和 quote 仍一致；
 - LLM 只生成原子 Claim 和 citation IDs，服务端不直接透出自由长答案；
-- 独立验证调用不能扩大 Claim 声明的引用范围；任一 Claim 不受支持即 fail closed；
+- 独立验证调用不能扩大 Claim 声明的引用范围；不受支持的 Claim 只能被结果层移除，
+  至少保留一条可信 Claim 时降级为部分回答，否则 fail closed；
 - API 不返回 Prompt、原始模型响应或思维链。
 
 ### Case Assessment

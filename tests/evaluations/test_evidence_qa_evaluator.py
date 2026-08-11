@@ -7,10 +7,12 @@ from pathlib import Path
 
 import pytest
 
-from domain.qa import ClaimSupportJudgement
+from domain.qa import ClaimSupportJudgement, EvidenceQAClaim
 from evaluations.evidence_qa.evaluator import (
     EvidenceQACasePrediction,
+    EvidenceQAEvaluationCase,
     EvidenceQAPredictions,
+    GoldClaimSupport,
     build_oracle_predictions,
     evaluate,
     load_dataset,
@@ -52,6 +54,7 @@ def test_oracle_self_check_passes_all_gates(dataset) -> None:
         "structural_accuracy": 1.0,
         "supported_claim_recall": 1.0,
         "unsupported_claim_false_accept_rate": 0.0,
+        "claim_filter_accuracy": 1.0,
         "citation_drift_recall": 1.0,
         "status_accuracy": 1.0,
         "cross_scope_leakage_count": 0,
@@ -80,11 +83,60 @@ def test_cross_workspace_answer_counts_as_leakage(dataset) -> None:
     predictions = build_oracle_predictions(dataset)
     target = next(prediction for prediction in predictions.cases if prediction.case_id == "EQA-009")
     target.status = "answered"
+    target.kept_claim_ids = ["C1"]
 
     report = evaluate(dataset, predictions)
 
     assert report["metrics"]["cross_scope_leakage_count"] == 1
     assert report["gates"]["cross_scope_leakage_count"]["passed"] is False
+    assert report["gates"]["claim_filter_accuracy"]["passed"] is False
+
+
+def test_supported_claim_removed_by_candidate_fails_filter_gate(dataset) -> None:
+    predictions = build_oracle_predictions(dataset)
+    target = next(prediction for prediction in predictions.cases if prediction.case_id == "EQA-001")
+    target.status = "refused"
+    target.kept_claim_ids = []
+
+    report = evaluate(dataset, predictions)
+
+    assert report["metrics"]["claim_filter_accuracy"] == pytest.approx(13 / 14)
+    assert report["gates"]["claim_filter_accuracy"]["passed"] is False
+
+
+def test_mixed_claim_case_keeps_only_safe_claim(dataset) -> None:
+    safe_case = dataset.cases[0]
+    mixed_case = EvidenceQAEvaluationCase.model_validate(
+        safe_case.model_copy(
+            update={
+                "case_id": "EQA-SYNTHETIC-MIXED",
+                "claims": [
+                    *safe_case.claims,
+                    EvidenceQAClaim(
+                        claim_id="C2",
+                        text="无引用结论。",
+                        citation_ids=[],
+                    ),
+                ],
+                "gold": safe_case.gold.model_copy(
+                    update={
+                        "expected_status": "partially_answered",
+                        "expected_structural_valid": False,
+                        "claim_support": {
+                            **safe_case.gold.claim_support,
+                            "C2": GoldClaimSupport(supported=False),
+                        },
+                    }
+                ),
+            }
+        ).model_dump()
+    )
+    synthetic_dataset = dataset.model_copy(update={"cases": [mixed_case]})
+
+    prediction = build_oracle_predictions(synthetic_dataset).cases[0]
+
+    assert prediction.status == "partially_answered"
+    assert prediction.kept_claim_ids == ["C1"]
 
 
 def test_prediction_must_cover_every_claim(dataset) -> None:
@@ -149,4 +201,5 @@ def test_prediction_schema_rejects_duplicate_judgements() -> None:
             case_id="case-1",
             status="answered",
             judgements=[judgement, judgement],
+            kept_claim_ids=["C1"],
         )

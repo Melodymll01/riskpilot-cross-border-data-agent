@@ -92,6 +92,7 @@ python evaluations/evidence_qa/run.py --predictions path/to/predictions.json
           "reason": ""
         }
       ],
+      "kept_claim_ids": ["C1"],
       "detected_security_issues": []
     }
   ]
@@ -100,7 +101,9 @@ python evaluations/evidence_qa/run.py --predictions path/to/predictions.json
 
 `--oracle-self-check` 会直接回放 Gold 标签，只用于证明数据集 schema、指标计算和门禁
 实现一致，禁止把该结果写成生产模型效果。正式结果必须使用候选系统独立生成的
-`--predictions` 文件。
+`--predictions` 文件。`judgements` 记录独立语义验证结果，`kept_claim_ids` 记录
+`bounded_filter_v1` 最终保留并对用户输出的 Claim；评测器会分别校验支持判定准确率、
+过滤准确率与跨 Scope 泄漏。
 
 ## 扩展新评测
 

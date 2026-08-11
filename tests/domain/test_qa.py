@@ -7,6 +7,7 @@ from pydantic import ValidationError
 
 from domain.qa import (
     ClaimCitationVerifier,
+    ClaimRepairReport,
     ClaimSupportJudgement,
     ClaimSupportResult,
     EvidenceQAAnswer,
@@ -147,6 +148,24 @@ def _support_result(
     )
 
 
+def _repair_report(
+    *,
+    status: str = "not_needed",
+    kept_claim_ids: list[str] | None = None,
+    removed_claim_ids: list[str] | None = None,
+    removal_reasons: dict[str, list[str]] | None = None,
+) -> ClaimRepairReport:
+    kept = ["C1"] if kept_claim_ids is None else kept_claim_ids
+    removed = [] if removed_claim_ids is None else removed_claim_ids
+    return ClaimRepairReport(
+        status=status,  # type: ignore[arg-type]
+        original_claim_count=len(kept) + len(removed),
+        kept_claim_ids=kept,
+        removed_claim_ids=removed,
+        removal_reasons=removal_reasons or {},  # type: ignore[arg-type]
+    )
+
+
 class TestClaimCitationVerifier:
     def test_full_coverage_is_valid(self) -> None:
         verification = ClaimCitationVerifier.verify([_claim()], [_case_citation()])
@@ -188,6 +207,49 @@ class TestClaimCitationVerifier:
         assert verification.coverage == 1.0
 
 
+class TestClaimRepairReport:
+    def test_repaired_requires_kept_and_removed_claims(self) -> None:
+        report = _repair_report(
+            status="repaired",
+            kept_claim_ids=["C1"],
+            removed_claim_ids=["C2"],
+            removal_reasons={"C2": ["unsupported"]},
+        )
+        assert report.method == "bounded_filter_v1"
+
+        with pytest.raises(ValidationError, match="同时包含"):
+            _repair_report(
+                status="repaired",
+                kept_claim_ids=[],
+                removed_claim_ids=["C1"],
+                removal_reasons={"C1": ["unsupported"]},
+            )
+
+    def test_failed_requires_all_claims_removed(self) -> None:
+        report = _repair_report(
+            status="failed",
+            kept_claim_ids=[],
+            removed_claim_ids=["C1"],
+            removal_reasons={"C1": ["verification_error"]},
+        )
+        assert report.kept_claim_ids == []
+
+        with pytest.raises(ValidationError, match="移除全部"):
+            _repair_report(
+                status="failed",
+                kept_claim_ids=["C1"],
+                removed_claim_ids=[],
+            )
+
+    def test_removal_reasons_must_cover_removed_claims(self) -> None:
+        with pytest.raises(ValidationError, match="removal_reasons"):
+            _repair_report(
+                status="failed",
+                kept_claim_ids=[],
+                removed_claim_ids=["C1"],
+            )
+
+
 class TestEvidenceQAAnswer:
     def test_answer_renders_only_verified_claims(self) -> None:
         claim = _claim()
@@ -204,6 +266,7 @@ class TestEvidenceQAAnswer:
             citations=[citation],
             verification=ClaimCitationVerifier.verify([claim], [citation]),
             support_verification=_support_result(),
+            repair_report=_repair_report(),
         )
         assert answer.answer == "1. 境外接收方应承担安全保护责任。[E1]"
         assert "document_version_id" in answer.model_dump()["citations"][0]
@@ -224,6 +287,7 @@ class TestEvidenceQAAnswer:
             unanswered_aspects=["未找到保存期限"],
             verification=ClaimCitationVerifier.verify([claim], [citation]),
             support_verification=_support_result(),
+            repair_report=_repair_report(),
         )
         assert answer.answer.startswith("⚠️")
         assert "未找到保存期限" in answer.answer
@@ -240,6 +304,7 @@ class TestEvidenceQAAnswer:
                 citations=[citation],
                 verification=ClaimCitationVerifier.verify([claim], [citation]),
                 support_verification=_support_result(),
+                repair_report=_repair_report(),
             )
 
     def test_refusal_has_no_citations_or_claims(self) -> None:
@@ -254,6 +319,10 @@ class TestEvidenceQAAnswer:
                 judgements=[],
                 unsupported_claim_ids=[],
                 valid=True,
+            ),
+            repair_report=ClaimRepairReport(
+                status="not_needed",
+                original_claim_count=0,
             ),
         )
         assert answer.answer == "根据当前检索范围未找到足够证据。"
@@ -272,6 +341,7 @@ class TestEvidenceQAAnswer:
                 citations=[citation],
                 verification=forged,
                 support_verification=_support_result(),
+                repair_report=_repair_report(),
             )
 
     def test_support_verification_must_cover_every_claim(self) -> None:
@@ -294,6 +364,7 @@ class TestEvidenceQAAnswer:
                     unsupported_claim_ids=[],
                     valid=True,
                 ),
+                repair_report=_repair_report(),
             )
 
     def test_unsupported_claim_blocks_answer(self) -> None:
@@ -312,4 +383,47 @@ class TestEvidenceQAAnswer:
                 citations=[citation],
                 verification=ClaimCitationVerifier.verify([claim], [citation]),
                 support_verification=_support_result(supported=False),
+                repair_report=_repair_report(),
+            )
+
+    def test_repaired_answer_must_be_partial_and_match_kept_claims(self) -> None:
+        claim = _claim()
+        citation = _case_citation()
+        report = _repair_report(
+            status="repaired",
+            kept_claim_ids=["C1"],
+            removed_claim_ids=["C2"],
+            removal_reasons={"C2": ["unsupported"]},
+        )
+        answer = EvidenceQAAnswer(
+            question="问题",
+            scope=EvidenceQAScope(
+                corpora=["case"],
+                workspace_id="ws_001",
+                case_id="case_001",
+            ),
+            status="partially_answered",
+            claims=[claim],
+            citations=[citation],
+            unanswered_aspects=["C2 未通过校验"],
+            verification=ClaimCitationVerifier.verify([claim], [citation]),
+            support_verification=_support_result(),
+            repair_report=report,
+        )
+        assert answer.repair_report.removed_claim_ids == ["C2"]
+
+        with pytest.raises(ValidationError, match="partially_answered"):
+            EvidenceQAAnswer(
+                question="问题",
+                scope=EvidenceQAScope(
+                    corpora=["case"],
+                    workspace_id="ws_001",
+                    case_id="case_001",
+                ),
+                status="answered",
+                claims=[claim],
+                citations=[citation],
+                verification=ClaimCitationVerifier.verify([claim], [citation]),
+                support_verification=_support_result(),
+                repair_report=report,
             )

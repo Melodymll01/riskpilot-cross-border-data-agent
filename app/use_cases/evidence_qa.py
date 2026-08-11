@@ -7,9 +7,14 @@ from typing import TYPE_CHECKING, cast
 
 from domain.qa import (
     ClaimCitationVerifier,
+    ClaimRemovalReason,
+    ClaimRepairReport,
+    ClaimSupportJudgement,
     ClaimSupportResult,
     EvidenceQAAnswer,
     EvidenceQACitation,
+    EvidenceQAClaim,
+    EvidenceQADraft,
     EvidenceQAScope,
     QACorpus,
 )
@@ -91,7 +96,7 @@ class EvidenceQAUseCase:
             scope=scope,
             top_k=top_k,
         )
-        citations = self._verify_source_citations(citations)
+        citations = self._verify_source_citations(citations, scope=scope)
         if not citations:
             return _refusal(question, scope, _REFUSAL_NO_EVIDENCE)
         try:
@@ -105,34 +110,128 @@ class EvidenceQAUseCase:
                     scope,
                     draft.refusal_reason,
                 )
-            structural = ClaimCitationVerifier.verify(draft.claims, citations)
-            if not structural.valid:
-                return _refusal(question, scope, _REFUSAL_UNSUPPORTED)
-            used_ids = {citation_id for claim in draft.claims for citation_id in claim.citation_ids}
-            used_citations = [
-                citation for citation in citations if citation.citation_id in used_ids
-            ]
-            support = self._support_verifier.verify(
-                draft.claims,
-                used_citations,
-            )
-            if not support.valid:
-                return _refusal(question, scope, _REFUSAL_UNSUPPORTED)
-            return EvidenceQAAnswer(
+            return self._validate_and_repair(
                 question=question,
                 scope=scope,
-                status=draft.status,
-                claims=draft.claims,
-                citations=used_citations,
-                unanswered_aspects=draft.unanswered_aspects,
-                verification=ClaimCitationVerifier.verify(
-                    draft.claims,
-                    used_citations,
-                ),
-                support_verification=support,
+                draft=draft,
+                citations=citations,
             )
         except (RuntimeError, ValueError):
             return _refusal(question, scope, _REFUSAL_GENERATION)
+
+    def _validate_and_repair(
+        self,
+        *,
+        question: str,
+        scope: EvidenceQAScope,
+        draft: EvidenceQADraft,
+        citations: list[EvidenceQACitation],
+    ) -> EvidenceQAAnswer:
+        known_citation_ids = {citation.citation_id for citation in citations}
+        removal_reasons: dict[str, list[ClaimRemovalReason]] = {}
+        structurally_valid_claims: list[EvidenceQAClaim] = []
+        for claim in draft.claims:
+            reasons: list[ClaimRemovalReason] = []
+            if not claim.citation_ids:
+                reasons.append("uncited")
+            if set(claim.citation_ids) - known_citation_ids:
+                reasons.append("unknown_citation")
+            if reasons:
+                removal_reasons[claim.claim_id] = reasons
+            else:
+                structurally_valid_claims.append(claim)
+
+        if not structurally_valid_claims:
+            return _refusal(
+                question,
+                scope,
+                _REFUSAL_UNSUPPORTED,
+                repair_report=_repair_report(draft.claims, [], removal_reasons),
+            )
+
+        candidate_citations = _citations_for_claims(
+            structurally_valid_claims,
+            citations,
+        )
+        try:
+            support = self._support_verifier.verify(
+                structurally_valid_claims,
+                candidate_citations,
+            )
+        except (RuntimeError, ValueError):
+            for claim in structurally_valid_claims:
+                removal_reasons[claim.claim_id] = ["verification_error"]
+            return _refusal(
+                question,
+                scope,
+                _REFUSAL_GENERATION,
+                repair_report=_repair_report(draft.claims, [], removal_reasons),
+            )
+        if not _support_contract_valid(
+            structurally_valid_claims,
+            candidate_citations,
+            support,
+        ):
+            for claim in structurally_valid_claims:
+                removal_reasons[claim.claim_id] = ["verification_error"]
+            return _refusal(
+                question,
+                scope,
+                _REFUSAL_GENERATION,
+                repair_report=_repair_report(draft.claims, [], removal_reasons),
+            )
+
+        judgements_by_id = {judgement.claim_id: judgement for judgement in support.judgements}
+        kept_claims: list[EvidenceQAClaim] = []
+        kept_judgements: list[ClaimSupportJudgement] = []
+        for claim in structurally_valid_claims:
+            judgement = judgements_by_id[claim.claim_id]
+            if not judgement.supported:
+                removal_reasons[claim.claim_id] = ["unsupported"]
+                continue
+            kept_claims.append(claim)
+            kept_judgements.append(judgement)
+
+        if not kept_claims:
+            return _refusal(
+                question,
+                scope,
+                _REFUSAL_UNSUPPORTED,
+                repair_report=_repair_report(draft.claims, [], removal_reasons),
+            )
+
+        repair_report = _repair_report(
+            draft.claims,
+            kept_claims,
+            removal_reasons,
+        )
+        repaired = repair_report.status == "repaired"
+        unanswered_aspects = list(draft.unanswered_aspects)
+        if repaired:
+            unanswered_aspects.append(
+                "部分候选结论未通过引用完整性或语义支持校验，已安全移除："
+                + "、".join(repair_report.removed_claim_ids)
+            )
+        final_citations = _citations_for_claims(kept_claims, candidate_citations)
+        final_support = ClaimSupportResult(
+            judgements=kept_judgements,
+            unsupported_claim_ids=[],
+            valid=True,
+        )
+        return EvidenceQAAnswer(
+            question=question,
+            scope=scope,
+            status="partially_answered" if repaired else draft.status,
+            claims=kept_claims,
+            citations=final_citations,
+            unanswered_aspects=unanswered_aspects,
+            verification=ClaimCitationVerifier.verify(
+                kept_claims,
+                final_citations,
+            ),
+            support_verification=final_support,
+            repair_report=repair_report,
+        )
 
     def _authorize_scope(
         self,
@@ -259,11 +358,17 @@ class EvidenceQAUseCase:
     def _verify_source_citations(
         self,
         citations: list[EvidenceQACitation],
+        *,
+        scope: EvidenceQAScope,
     ) -> list[EvidenceQACitation]:
         verified: list[EvidenceQACitation] = []
         for citation in citations:
             if citation.corpus not in {"workspace", "case"}:
                 verified.append(citation)
+                continue
+            if citation.workspace_id != scope.workspace_id:
+                continue
+            if citation.corpus == "case" and citation.case_id != scope.case_id:
                 continue
             if citation.document_version_id is None or citation.page_number is None:
                 continue
@@ -447,10 +552,65 @@ def _severity_score(severity: str) -> float:
     }.get(severity, 0.0)
 
 
+def _citations_for_claims(
+    claims: list[EvidenceQAClaim],
+    citations: list[EvidenceQACitation],
+) -> list[EvidenceQACitation]:
+    used_ids = {citation_id for claim in claims for citation_id in claim.citation_ids}
+    return [citation for citation in citations if citation.citation_id in used_ids]
+
+
+def _support_contract_valid(
+    claims: list[EvidenceQAClaim],
+    citations: list[EvidenceQACitation],
+    support: ClaimSupportResult,
+) -> bool:
+    claims_by_id = {claim.claim_id: claim for claim in claims}
+    expected_claim_ids = set(claims_by_id)
+    actual_claim_ids = {judgement.claim_id for judgement in support.judgements}
+    if actual_claim_ids != expected_claim_ids:
+        return False
+    known_citation_ids = {citation.citation_id for citation in citations}
+    for judgement in support.judgements:
+        used_ids = set(judgement.citation_ids)
+        if not used_ids.issubset(known_citation_ids):
+            return False
+        if judgement.supported and not used_ids.issubset(
+            claims_by_id[judgement.claim_id].citation_ids
+        ):
+            return False
+    return True
+
+
+def _repair_report(
+    original_claims: list[EvidenceQAClaim],
+    kept_claims: list[EvidenceQAClaim],
+    removal_reasons: dict[str, list[ClaimRemovalReason]],
+) -> ClaimRepairReport:
+    kept_ids = [claim.claim_id for claim in kept_claims]
+    kept_id_set = set(kept_ids)
+    removed_ids = [claim.claim_id for claim in original_claims if claim.claim_id not in kept_id_set]
+    if not removed_ids:
+        status = "not_needed"
+    elif kept_ids:
+        status = "repaired"
+    else:
+        status = "failed"
+    return ClaimRepairReport(
+        status=status,
+        original_claim_count=len(original_claims),
+        kept_claim_ids=kept_ids,
+        removed_claim_ids=removed_ids,
+        removal_reasons={claim_id: removal_reasons[claim_id] for claim_id in removed_ids},
+    )
+
+
 def _refusal(
     question: str,
     scope: EvidenceQAScope,
     reason: str,
+    *,
+    repair_report: ClaimRepairReport | None = None,
 ) -> EvidenceQAAnswer:
     return EvidenceQAAnswer(
         question=question,
@@ -462,5 +622,10 @@ def _refusal(
             judgements=[],
             unsupported_claim_ids=[],
             valid=True,
+        ),
+        repair_report=repair_report
+        or ClaimRepairReport(
+            status="not_needed",
+            original_claim_count=0,
         ),
     )

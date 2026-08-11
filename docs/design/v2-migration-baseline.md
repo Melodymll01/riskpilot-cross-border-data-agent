@@ -87,7 +87,7 @@ tests/api/test_copilot.py::TestChatMode::test_explicit_research_mode_persisted
 - 不在功能提交中顺手清理无关遗留问题；
 - 领域层不得依赖 FastAPI、LangGraph 和具体数据库。
 
-## 2026-08-07 进度检查点
+## 2026-08-11 进度检查点
 
 - `/api/v2` 仍可用，`/api/v3` 已覆盖 Workspace、Case、Document、Evidence、Fact、
   Policy、Assessment 和 Assessment Run；
@@ -99,5 +99,5 @@ tests/api/test_copilot.py::TestChatMode::test_explicit_research_mode_persisted
   进程重建后继续；
 - 已实现 `/api/v3/qa`，支持公共法规、Workspace Knowledge、Case Evidence 和
   Assessment 四类授权范围，并执行结构覆盖与独立语义支持双校验；
-- 最新离线回归为 `1213 passed, 1 skipped, 1 deselected`；显式 deselect 的仍是
+- 最新离线回归为 `1226 passed, 1 skipped, 1 deselected`；显式 deselect 的仍是
   本文件记录的存量真实 embeddings 401 用例。
