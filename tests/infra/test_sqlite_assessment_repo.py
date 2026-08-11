@@ -11,6 +11,7 @@ from domain import (
     ActionItem,
     Assessment,
     AssessmentBundle,
+    AssessmentEvidenceCitation,
     AssessmentRepoPort,
     Case,
     Finding,
@@ -99,8 +100,23 @@ def _bundle(
         finding_type="rule_trigger",
         severity="high",
         title="规则触发",
+        fact_ids=["fact_001"],
+        evidence_ids=[f"assessment_evidence_{version}"],
         rule_ids=["rule_001"],
         clause_ids=["clause_001"],
+    )
+    citation = AssessmentEvidenceCitation(
+        citation_id=f"assessment_evidence_{version}",
+        assessment_id=assessment_id,
+        source_evidence_id="evidence_001",
+        fact_id="fact_001",
+        fact_version=1,
+        document_id="doc_001",
+        document_version_id="ver_001",
+        page_number=1,
+        quote="涉及重要数据",
+        source_sha256="a" * 64,
+        created_at=created_at,
     )
     action = ActionItem(
         action_id=f"action_{version}",
@@ -113,6 +129,7 @@ def _bundle(
         assessment=assessment,
         findings=[finding],
         action_items=[action],
+        evidence_citations=[citation],
     )
 
 

@@ -243,6 +243,18 @@ status=waiting_for_review
 current_stage=human_review
 ```
 
+生成后的 `rule_trigger` Finding 同时返回：
+
+- `fact_ids`：规则实际消费的 confirmed Fact；
+- `evidence_ids`：document Fact 在本次 Assessment 中冻结的证据快照；
+- `clause_ids`：PolicyEvaluation 对应的规则条款快照；
+- `evidence_citations`：原 evidence ID、Fact/version、Document/version、页码、quote、
+  offset 和 source SHA。
+
+生成和 Reviewer 批准前都会重新读取当前 Fact 与文档原文。Fact 版本、当前
+DocumentVersion、SHA、quote 或 offset 发生漂移时，Assessment 不能生成或批准。
+user 来源 Fact 不伪造文档引用，仍通过 `fact_ids + fact_versions` 审计。
+
 ## 8. 查询 Run 与事件
 
 ```http
@@ -323,6 +335,7 @@ Assessment。
 - 规则计算只消费 confirmed facts；
 - Fact 提议模型只生成候选，不得确认事实或直接推进 Run；
 - Reviewer/Admin 才能批准正式 Assessment；
+- Finding 的 Fact / Evidence / Clause 引用必须形成可验证闭包，漂移时 fail closed；
 - 同一 Case 同一工作流只允许一个活动 Run；
 - 产品 Run 使用 revision 乐观锁，LangGraph 使用独立 SQLite checkpointer；
 - 恢复时重新读取 Document、Fact、Policy Repository，不相信客户端提交的业务状态。

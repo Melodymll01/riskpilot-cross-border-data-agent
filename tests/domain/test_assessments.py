@@ -9,6 +9,7 @@ from domain import (
     ActionItem,
     Assessment,
     AssessmentBundle,
+    AssessmentEvidenceCitation,
     Finding,
     InvalidAssessmentTransition,
     PolicyEvaluation,
@@ -55,6 +56,24 @@ def _finding(**overrides: object) -> Finding:
     }
     values.update(overrides)
     return Finding(**values)  # type: ignore[arg-type]
+
+
+def _evidence_citation(**overrides: object) -> AssessmentEvidenceCitation:
+    values: dict[str, object] = {
+        "citation_id": "assessment_evidence_001",
+        "assessment_id": "assessment_001",
+        "source_evidence_id": "evidence_001",
+        "fact_id": "fact_001",
+        "fact_version": 1,
+        "document_id": "doc_001",
+        "document_version_id": "ver_001",
+        "page_number": 1,
+        "quote": "涉及重要数据",
+        "source_sha256": "a" * 64,
+        "created_at": 100.0,
+    }
+    values.update(overrides)
+    return AssessmentEvidenceCitation(**values)  # type: ignore[arg-type]
 
 
 class TestAssessment:
@@ -158,4 +177,41 @@ class TestFindingAndAction:
                         related_finding_ids=["missing"],
                     )
                 ],
+            )
+
+    def test_finding_evidence_must_exist_and_belong_to_fact(self) -> None:
+        citation = _evidence_citation()
+        bundle = AssessmentBundle(
+            assessment=_assessment(),
+            findings=[
+                _finding(
+                    fact_ids=["fact_001"],
+                    evidence_ids=[citation.citation_id],
+                )
+            ],
+            evidence_citations=[citation],
+        )
+        assert bundle.evidence_citations == [citation]
+
+        with pytest.raises(ValidationError, match="不存在"):
+            AssessmentBundle(
+                assessment=_assessment(),
+                findings=[
+                    _finding(
+                        fact_ids=["fact_001"],
+                        evidence_ids=["missing"],
+                    )
+                ],
+            )
+
+        with pytest.raises(ValidationError, match="fact_ids"):
+            AssessmentBundle(
+                assessment=_assessment(),
+                findings=[
+                    _finding(
+                        fact_ids=["fact_other"],
+                        evidence_ids=[citation.citation_id],
+                    )
+                ],
+                evidence_citations=[citation],
             )

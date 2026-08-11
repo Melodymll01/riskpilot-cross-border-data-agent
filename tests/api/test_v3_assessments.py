@@ -7,6 +7,8 @@ from typing import Any
 from fastapi.testclient import TestClient
 
 from app.container import AppContainer
+from domain import FactProposal, FactProposalEvidence
+from tests.fakes import FakeFactProposalGenerator
 
 
 def _switch_actor(client: TestClient, actor_id: str) -> None:
@@ -104,6 +106,55 @@ def _create_confirmed_fact(client: TestClient, case_id: str) -> str:
     return fact_id
 
 
+def _create_confirmed_document_fact(client: TestClient, case_id: str) -> str:
+    uploaded = client.post(
+        f"/api/v3/cases/{case_id}/documents",
+        files={
+            "file": (
+                "evidence.txt",
+                "材料明确说明涉及重要数据。".encode(),
+                "text/plain",
+            )
+        },
+    )
+    assert uploaded.status_code == 202
+    body = uploaded.json()
+    job_id = body["job"]["job_id"]
+    assert client.post(f"/api/v3/processing-jobs/{job_id}/parse").status_code == 200
+    assert client.post(f"/api/v3/processing-jobs/{job_id}/index").status_code == 200
+    container: AppContainer = client.app.state.container  # type: ignore[attr-defined]
+    container.fact_management._proposal_generator = FakeFactProposalGenerator(
+        [
+            FactProposal(
+                field_name="important_data_involved",
+                value=True,
+                confidence=0.95,
+                evidence=[
+                    FactProposalEvidence(
+                        document_id=body["document"]["document_id"],
+                        document_version_id=body["version"]["version_id"],
+                        page_number=1,
+                        quote="涉及重要数据",
+                        confidence=0.95,
+                    )
+                ],
+            )
+        ]
+    )
+    proposed = client.post(
+        f"/api/v3/cases/{case_id}/fact-proposals",
+        json={"field_names": ["important_data_involved"]},
+    )
+    assert proposed.status_code == 201, proposed.text
+    fact_id = proposed.json()["facts"][0]["fact"]["fact_id"]
+    confirmed = client.post(
+        f"/api/v3/facts/{fact_id}/transitions",
+        json={"target": "confirmed"},
+    )
+    assert confirmed.status_code == 200
+    return fact_id
+
+
 def _generate(client: TestClient, case_id: str) -> dict[str, Any]:
     response = client.post(
         f"/api/v3/cases/{case_id}/assessments",
@@ -164,6 +215,31 @@ class TestAssessmentApi:
         completed_case = client.get(f"/api/v3/cases/{case_id}")
         assert completed_case.status_code == 200
         assert completed_case.json()["status"] == "completed"
+
+    def test_document_fact_assessment_returns_evidence_snapshot(
+        self,
+        authed_client: tuple[TestClient, dict[str, Any]],
+    ) -> None:
+        client, _ = authed_client
+        workspace_id, case_id = _setup_case(client)
+        fact_id = _create_confirmed_document_fact(client, case_id)
+        _create_published_rule(
+            client,
+            workspace_id,
+            required_fact_fields=["important_data_involved"],
+        )
+
+        generated = _generate(client, case_id)
+
+        finding = generated["findings"][0]
+        citation = generated["evidence_citations"][0]
+        assert finding["fact_ids"] == [fact_id]
+        assert finding["evidence_ids"] == [citation["citation_id"]]
+        assert citation["fact_id"] == fact_id
+        assert citation["fact_version"] == 1
+        assert citation["quote"] == "涉及重要数据"
+        assert len(citation["source_sha256"]) == 64
+        assert generated["findings"][0]["clause_ids"] == ["synthetic-clause"]
 
     def test_reject_requires_comment_and_allows_new_version(
         self,

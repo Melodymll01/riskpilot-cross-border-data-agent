@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from datetime import date
 
 import pytest
@@ -12,12 +13,27 @@ from app.use_cases import (
     PolicyManagementUseCase,
     WorkspaceManagementUseCase,
 )
-from domain import CaseFact, PolicyRule
-from domain.errors import AssessmentNotActive, WorkspaceAccessDenied
+from domain import (
+    CaseDocument,
+    CaseFact,
+    CaseFactEvidence,
+    Document,
+    DocumentParseSnapshot,
+    DocumentVersion,
+    ParsedPage,
+    PolicyRule,
+    ProcessingJob,
+)
+from domain.errors import (
+    AssessmentNotActive,
+    InvalidDocumentContent,
+    WorkspaceAccessDenied,
+)
 from tests.fakes import (
     InMemoryAssessmentRepo,
     InMemoryCaseFactRepo,
     InMemoryCaseRepo,
+    InMemoryDocumentRepo,
     InMemoryPolicyRuleRepo,
     InMemoryWorkspaceRepo,
 )
@@ -27,6 +43,7 @@ def _setup():
     workspace_repo = InMemoryWorkspaceRepo()
     case_repo = InMemoryCaseRepo()
     fact_repo = InMemoryCaseFactRepo()
+    document_repo = InMemoryDocumentRepo()
     rule_repo = InMemoryPolicyRuleRepo()
     assessment_repo = InMemoryAssessmentRepo(case_repo)
     workspace_uc = WorkspaceManagementUseCase(workspace_repo)
@@ -43,6 +60,7 @@ def _setup():
     assessment_uc = AssessmentManagementUseCase(
         assessment_repo=assessment_repo,
         fact_repo=fact_repo,
+        document_repo=document_repo,
         case_management=case_uc,
         workspace_management=workspace_uc,
         policy_management=policy_uc,
@@ -94,6 +112,97 @@ def _confirmed_fact(case_id: str, field_name: str, value: object) -> CaseFact:
         created_at=100.0,
         updated_at=101.0,
     )
+
+
+def _confirmed_document_fact(
+    assessment_uc: AssessmentManagementUseCase,
+    fact_repo: InMemoryCaseFactRepo,
+    case_id: str,
+    *,
+    field_name: str = "flag",
+    value: object = True,
+) -> tuple[CaseFact, CaseFactEvidence]:
+    document_repo = assessment_uc._documents
+    text = "材料明确说明 flag 为 true。"
+    sha256 = hashlib.sha256(text.encode()).hexdigest()
+    document_id = f"doc_{field_name}"
+    version_id = f"ver_{field_name}"
+    document_repo.create_upload(
+        Document(
+            document_id=document_id,
+            workspace_id=assessment_uc._case_management.get_case(
+                case_id, "github:editor"
+            ).workspace_id,
+            logical_name=f"{field_name}.txt",
+            document_type="case_material",
+            status="ready",
+            created_by="github:editor",
+            current_version_id=version_id,
+            created_at=100.0,
+            updated_at=101.0,
+        ),
+        DocumentVersion(
+            version_id=version_id,
+            document_id=document_id,
+            version_number=1,
+            object_key=f"objects/{field_name}.txt",
+            sha256=sha256,
+            mime_type="text/plain",
+            size_bytes=len(text.encode()),
+            parser_version="test",
+            page_count=1,
+            created_at=100.0,
+        ),
+        CaseDocument(
+            case_id=case_id,
+            document_id=document_id,
+            added_by="github:editor",
+            added_at=100.0,
+        ),
+        ProcessingJob(
+            job_id=f"job_{field_name}",
+            document_version_id=version_id,
+            status="completed",
+            current_stage="ready",
+            progress=1.0,
+            created_at=100.0,
+            updated_at=101.0,
+            started_at=100.0,
+            completed_at=101.0,
+        ),
+    )
+    document_repo._snapshots[version_id] = DocumentParseSnapshot(
+        snapshot_id=f"snapshot_{field_name}",
+        document_version_id=version_id,
+        parser_name="test",
+        parser_version="test",
+        source_sha256=sha256,
+        pages=[
+            ParsedPage(
+                page_number=1,
+                text=text,
+                extraction_method="native",
+            )
+        ],
+        parsed_at=101.0,
+    )
+    fact = _confirmed_fact(case_id, field_name, value).model_copy(
+        update={"source_type": "document"}
+    )
+    evidence = CaseFactEvidence(
+        evidence_id=f"evidence_{field_name}",
+        case_id=case_id,
+        fact_id=fact.fact_id,
+        fact_version=fact.version,
+        document_id=document_id,
+        document_version_id=version_id,
+        page_number=1,
+        quote="flag 为 true",
+        confidence=0.95,
+        created_at=101.0,
+    )
+    fact_repo.create(fact, [evidence])
+    return fact, evidence
 
 
 def _rule(
@@ -183,6 +292,86 @@ class TestAssessmentGeneration:
         active_case = case_repo.get(case_id)
         assert active_case is not None
         assert active_case.status == "review_required"
+
+    def test_document_fact_finding_freezes_verified_evidence(self) -> None:
+        (
+            assessment_uc,
+            policy_uc,
+            fact_repo,
+            _,
+            _,
+            workspace_id,
+            case_id,
+        ) = _setup()
+        fact, evidence = _confirmed_document_fact(
+            assessment_uc,
+            fact_repo,
+            case_id,
+        )
+        _publish_rule(
+            policy_uc,
+            workspace_id,
+            _rule(
+                workspace_id,
+                required_fact_fields=["flag"],
+                condition={"field": "flag", "operator": "eq", "value": True},
+                result={"risk_level": "high"},
+            ),
+        )
+
+        bundle = assessment_uc.generate(
+            case_id,
+            "github:editor",
+            ruleset_version="synthetic-v1",
+        )
+
+        assert bundle.findings[0].fact_ids == [fact.fact_id]
+        assert len(bundle.findings[0].evidence_ids) == 1
+        citation = bundle.evidence_citations[0]
+        assert bundle.findings[0].evidence_ids == [citation.citation_id]
+        assert citation.source_evidence_id == evidence.evidence_id
+        assert citation.fact_version == fact.version
+        assert citation.quote == evidence.quote
+        assert len(citation.source_sha256) == 64
+
+    def test_document_fact_drift_blocks_assessment_generation(self) -> None:
+        (
+            assessment_uc,
+            policy_uc,
+            fact_repo,
+            _,
+            _,
+            workspace_id,
+            case_id,
+        ) = _setup()
+        fact, _ = _confirmed_document_fact(
+            assessment_uc,
+            fact_repo,
+            case_id,
+        )
+        _publish_rule(
+            policy_uc,
+            workspace_id,
+            _rule(
+                workspace_id,
+                required_fact_fields=["flag"],
+                condition={"field": "flag", "operator": "eq", "value": True},
+                result={"risk_level": "high"},
+            ),
+        )
+        document = assessment_uc._documents.get("doc_flag")
+        assert document is not None
+        assessment_uc._documents.update_document(
+            document.model_copy(update={"current_version_id": "ver_new"})
+        )
+
+        with pytest.raises(InvalidDocumentContent, match="失效"):
+            assessment_uc.generate(
+                case_id,
+                "github:editor",
+                ruleset_version="synthetic-v1",
+            )
+        assert fact.status == "confirmed"
 
     def test_missing_fact_generates_gap_finding_and_action(self) -> None:
         (
@@ -400,6 +589,98 @@ class TestAssessmentReview:
         case = case_repo.get(case_id)
         assert case is not None
         assert case.status == "completed"
+
+    def test_document_evidence_drift_blocks_approval(self) -> None:
+        (
+            assessment_uc,
+            policy_uc,
+            fact_repo,
+            case_repo,
+            _,
+            workspace_id,
+            case_id,
+        ) = _setup()
+        _confirmed_document_fact(assessment_uc, fact_repo, case_id)
+        _publish_rule(
+            policy_uc,
+            workspace_id,
+            _rule(
+                workspace_id,
+                required_fact_fields=["flag"],
+                condition={"field": "flag", "operator": "eq", "value": True},
+                result={"risk_level": "high"},
+            ),
+        )
+        generated = assessment_uc.generate(
+            case_id,
+            "github:editor",
+            ruleset_version="synthetic-v1",
+        )
+        document = assessment_uc._documents.get("doc_flag")
+        assert document is not None
+        assessment_uc._documents.update_document(
+            document.model_copy(update={"current_version_id": "ver_new"})
+        )
+
+        with pytest.raises(InvalidDocumentContent, match="失效"):
+            assessment_uc.review(
+                generated.assessment.assessment_id,
+                "github:reviewer",
+                decision="approved",
+                comment="尝试批准漂移引用",
+            )
+
+        case = case_repo.get(case_id)
+        assert case is not None
+        assert case.status == "review_required"
+        current = assessment_uc.get(
+            generated.assessment.assessment_id,
+            "github:reviewer",
+        )
+        assert current.assessment.status == "review_required"
+
+    def test_clause_snapshot_mismatch_blocks_approval(self) -> None:
+        (
+            assessment_uc,
+            policy_uc,
+            fact_repo,
+            _,
+            assessment_repo,
+            workspace_id,
+            case_id,
+        ) = _setup()
+        fact_repo.create(_confirmed_fact(case_id, "flag", True), [])
+        _publish_rule(
+            policy_uc,
+            workspace_id,
+            _rule(
+                workspace_id,
+                required_fact_fields=["flag"],
+                condition={"field": "flag", "operator": "eq", "value": True},
+                result={"risk_level": "high"},
+            ),
+        )
+        generated = assessment_uc.generate(
+            case_id,
+            "github:editor",
+            ruleset_version="synthetic-v1",
+        )
+        tampered = generated.model_copy(
+            update={
+                "findings": [
+                    generated.findings[0].model_copy(update={"clause_ids": ["clause_tampered"]})
+                ]
+            }
+        )
+        assessment_repo._bundles[generated.assessment.assessment_id] = tampered
+
+        with pytest.raises(InvalidDocumentContent, match="clause_ids"):
+            assessment_uc.review(
+                generated.assessment.assessment_id,
+                "github:reviewer",
+                decision="approved",
+                comment="错误法条引用",
+            )
 
     def test_rejection_returns_case_to_ready_for_assessment(self) -> None:
         (

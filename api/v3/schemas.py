@@ -432,6 +432,21 @@ class FindingOut(BaseModel):
     status: FindingStatusValue
 
 
+class AssessmentEvidenceCitationOut(BaseModel):
+    citation_id: str
+    source_evidence_id: str
+    fact_id: str
+    fact_version: int
+    document_id: str
+    document_version_id: str
+    page_number: int
+    quote: str
+    start_offset: int | None
+    end_offset: int | None
+    source_sha256: str
+    created_at: float
+
+
 class ActionItemOut(BaseModel):
     action_id: str
     assessment_id: str
@@ -448,6 +463,7 @@ class AssessmentBundleResponse(BaseModel):
     assessment: AssessmentOut
     findings: list[FindingOut]
     action_items: list[ActionItemOut]
+    evidence_citations: list[AssessmentEvidenceCitationOut]
 
 
 class AssessmentListResponse(BaseModel):

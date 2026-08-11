@@ -404,6 +404,18 @@ Assessment
 Assessment 是不可变快照。事实、法规或规则变化后创建新版本，旧版本标记为
 `superseded`，不得覆盖。
 
+Assessment 引用完整性：
+
+- `rule_trigger` Finding 的 `fact_ids` 来自 PolicyEvaluation 实际消费的 confirmed facts；
+- document Fact 的当前版本 `CaseFactEvidence` 会冻结为
+  `AssessmentEvidenceCitation`，保存原 evidence ID、Fact/version、Document/version、
+  页码、quote、offset 与 source SHA；
+- Finding 的 `evidence_ids` 必须完整引用其 document facts 的快照，不能引用其他 Fact；
+- Finding 的 `rule_ids` / `clause_ids` 必须与 Assessment 内 PolicyEvaluation 快照一致；
+- 生成 Assessment 和 Reviewer 批准前都会重新读取当前 Fact、DocumentVersion 与解析页；
+- Fact 版本、文档当前版本、SHA、页码、quote 或 offset 任一漂移都会阻止生成/批准；
+- user 来源 Fact 可通过 `fact_ids + fact_versions` 追溯，不伪造文档证据引用。
+
 ### 8.8 Run
 
 ```text
@@ -784,6 +796,9 @@ evaluations/
 17. 文档 Fact 提议：字段白名单驱动的结构化 LLM 输出、当前版本原文二次核验、
     同字段值冲突检测、批量原子写入；所有候选强制为 critical，必须由 Reviewer/Admin
     确认后才能进入规则计算。
+18. Assessment 引用快照：规则 Finding 自动关联 consumed Fact、Fact Evidence 和
+    Policy Clause；保存不可变 EvidenceCitation，并在生成与批准前重新验证 Fact /
+    DocumentVersion / SHA / quote / offset 漂移。
 
 当前 Case Assessment Graph 已落地的确定性骨架：
 
@@ -805,7 +820,7 @@ pickle fallback。
 
 尚未完成：
 
-1. Assessment 引用修复节点，以及 Fact 提议与 `fact_confirmation` 中断的前端联动；
+1. Fact 提议与 `fact_confirmation` 中断的前端联动；
 2. 基于 Claim-Citation 评测基线的完整生成器 + 验证器端到端生产实测；
 3. Deep Research Graph；
 4. V3 案件工作台前端；

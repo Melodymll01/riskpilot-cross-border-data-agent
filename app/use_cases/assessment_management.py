@@ -10,6 +10,7 @@ from domain.assessments import (
     ActionItem,
     Assessment,
     AssessmentBundle,
+    AssessmentEvidenceCitation,
     AssessmentStatus,
     Finding,
     FindingSeverity,
@@ -20,6 +21,7 @@ from domain.errors import (
     AssessmentNotActive,
     AssessmentNotFound,
     CaseNotFound,
+    InvalidDocumentContent,
     WorkspaceAccessDenied,
 )
 from domain.workspaces import WorkspaceRole
@@ -28,9 +30,9 @@ if TYPE_CHECKING:
     from app.use_cases.case_management import CaseManagementUseCase
     from app.use_cases.policy_management import PolicyManagementUseCase
     from app.use_cases.workspace_management import WorkspaceManagementUseCase
-    from domain.facts import CaseFact
+    from domain.facts import CaseFact, CaseFactEvidence
     from domain.policies import PolicyEvaluation
-    from domain.ports import AssessmentRepoPort, CaseFactRepoPort
+    from domain.ports import AssessmentRepoPort, CaseFactRepoPort, DocumentRepoPort
 
 _WRITE_ROLES: set[WorkspaceRole] = {"editor", "reviewer", "admin"}
 _REVIEW_ROLES: set[WorkspaceRole] = {"reviewer", "admin"}
@@ -53,12 +55,14 @@ class AssessmentManagementUseCase:
         *,
         assessment_repo: AssessmentRepoPort,
         fact_repo: CaseFactRepoPort,
+        document_repo: DocumentRepoPort,
         case_management: CaseManagementUseCase,
         workspace_management: WorkspaceManagementUseCase,
         policy_management: PolicyManagementUseCase,
     ) -> None:
         self._assessments = assessment_repo
         self._facts = fact_repo
+        self._documents = document_repo
         self._case_management = case_management
         self._workspace_management = workspace_management
         self._policies = policy_management
@@ -116,10 +120,23 @@ class AssessmentManagementUseCase:
         fact_versions = _fact_versions(confirmed_facts)
         now = time.time()
         assessment_id = _new_id("assessment")
+        finding_fact_fields = {
+            field
+            for evaluation in report.evaluations
+            if evaluation.status == "triggered"
+            for field in evaluation.consumed_fact_versions
+        }
+        finding_facts = [fact for fact in confirmed_facts if fact.field_name in finding_fact_fields]
+        evidence_citations, evidence_ids_by_fact = self._snapshot_fact_evidence(
+            assessment_id,
+            finding_facts,
+            created_at=now,
+        )
         findings, actions = _build_findings_and_actions(
             assessment_id,
             report.evaluations,
             confirmed_facts,
+            evidence_ids_by_fact,
         )
         assessment = Assessment(
             assessment_id=assessment_id,
@@ -141,6 +158,7 @@ class AssessmentManagementUseCase:
             assessment=assessment,
             findings=findings,
             action_items=actions,
+            evidence_citations=evidence_citations,
         )
 
         previous_bundle = self._assessments.get_active(case.case_id)
@@ -165,7 +183,7 @@ class AssessmentManagementUseCase:
         return bundle
 
     def get(self, assessment_id: str, actor_id: str) -> AssessmentBundle:
-        bundle = self._assessments.get(assessment_id)
+        bundle: AssessmentBundle | None = self._assessments.get(assessment_id)
         if bundle is None:
             raise AssessmentNotFound(assessment_id)
         try:
@@ -176,11 +194,13 @@ class AssessmentManagementUseCase:
 
     def get_active(self, case_id: str, actor_id: str) -> AssessmentBundle | None:
         self._case_management.get_case(case_id, actor_id)
-        return self._assessments.get_active(case_id)
+        bundle: AssessmentBundle | None = self._assessments.get_active(case_id)
+        return bundle
 
     def list_versions(self, case_id: str, actor_id: str) -> list[Assessment]:
         self._case_management.get_case(case_id, actor_id)
-        return self._assessments.list_for_case(case_id)
+        assessments: list[Assessment] = self._assessments.list_for_case(case_id)
+        return assessments
 
     def review(
         self,
@@ -195,7 +215,7 @@ class AssessmentManagementUseCase:
         if decision == "rejected" and not comment.strip():
             raise ValueError("拒绝 Assessment 时必须填写 review_comment")
 
-        bundle = self._assessments.get(assessment_id)
+        bundle: AssessmentBundle | None = self._assessments.get(assessment_id)
         if bundle is None:
             raise AssessmentNotFound(assessment_id)
         try:
@@ -229,6 +249,8 @@ class AssessmentManagementUseCase:
             for evaluation in bundle.assessment.policy_evaluations
         ):
             raise ValueError("Assessment 仍存在缺失事实，不能批准")
+        if decision == "approved":
+            self._validate_assessment_references(bundle)
 
         updated_assessment = bundle.assessment.transition_to(
             decision,
@@ -249,7 +271,197 @@ class AssessmentManagementUseCase:
             assessment=updated_assessment,
             findings=bundle.findings,
             action_items=bundle.action_items,
+            evidence_citations=bundle.evidence_citations,
         )
+
+    def _snapshot_fact_evidence(
+        self,
+        assessment_id: str,
+        facts: list[CaseFact],
+        *,
+        created_at: float,
+    ) -> tuple[list[AssessmentEvidenceCitation], dict[str, list[str]]]:
+        citations: list[AssessmentEvidenceCitation] = []
+        evidence_ids_by_fact: dict[str, list[str]] = {}
+        for fact in facts:
+            fact_evidence = self._facts.list_evidence(
+                fact.fact_id,
+                fact_version=fact.version,
+            )
+            if fact.source_type == "document" and not fact_evidence:
+                raise InvalidDocumentContent(f"document 事实 {fact.fact_id} 缺少当前版本证据")
+            for evidence in fact_evidence:
+                self._validate_fact_evidence(fact, evidence)
+                version = self._documents.get_version(evidence.document_version_id)
+                assert version is not None
+                citation = AssessmentEvidenceCitation(
+                    citation_id=_new_id("assessment_evidence"),
+                    assessment_id=assessment_id,
+                    source_evidence_id=evidence.evidence_id,
+                    fact_id=fact.fact_id,
+                    fact_version=fact.version,
+                    document_id=evidence.document_id,
+                    document_version_id=evidence.document_version_id,
+                    page_number=evidence.page_number,
+                    quote=evidence.quote,
+                    start_offset=evidence.start_offset,
+                    end_offset=evidence.end_offset,
+                    source_sha256=version.sha256,
+                    created_at=created_at,
+                )
+                citations.append(citation)
+                evidence_ids_by_fact.setdefault(fact.fact_id, []).append(citation.citation_id)
+        return citations, evidence_ids_by_fact
+
+    def _validate_assessment_references(self, bundle: AssessmentBundle) -> None:
+        evaluations_by_rule = {
+            evaluation.rule_id: evaluation for evaluation in bundle.assessment.policy_evaluations
+        }
+        citations_by_fact: dict[str, set[str]] = {}
+        for citation in bundle.evidence_citations:
+            citations_by_fact.setdefault(citation.fact_id, set()).add(citation.citation_id)
+        for finding in bundle.findings:
+            if finding.finding_type == "rule_trigger":
+                if len(finding.rule_ids) != 1:
+                    raise InvalidDocumentContent("rule_trigger Finding 必须且只能引用一个规则")
+                evaluation = evaluations_by_rule.get(finding.rule_ids[0])
+                if evaluation is None or evaluation.status != "triggered":
+                    raise InvalidDocumentContent(
+                        "rule_trigger Finding 引用了不存在或未触发的规则快照"
+                    )
+                if set(finding.clause_ids) != set(evaluation.source_clause_ids):
+                    raise InvalidDocumentContent(
+                        "Finding clause_ids 与 PolicyEvaluation 快照不一致"
+                    )
+            for fact_id in finding.fact_ids:
+                fact = self._facts.get(fact_id)
+                if fact is None or fact.status != "confirmed":
+                    raise InvalidDocumentContent(
+                        f"Finding 引用的 Fact {fact_id} 已不存在或不再 confirmed"
+                    )
+                if bundle.assessment.fact_versions.get(fact.field_name) != fact.version:
+                    raise InvalidDocumentContent(f"Finding 引用的 Fact {fact_id} 版本已漂移")
+                expected_evidence_ids = citations_by_fact.get(fact_id, set())
+                if fact.source_type == "document" and not expected_evidence_ids:
+                    raise InvalidDocumentContent(
+                        f"Finding 引用的 document Fact {fact_id} 缺少证据快照"
+                    )
+                if not expected_evidence_ids.issubset(finding.evidence_ids):
+                    raise InvalidDocumentContent(f"Finding 未完整引用 Fact {fact_id} 的证据快照")
+        for citation in bundle.evidence_citations:
+            fact = self._facts.get(citation.fact_id)
+            if fact is None or fact.status != "confirmed" or fact.version != citation.fact_version:
+                raise InvalidDocumentContent(
+                    f"Assessment Evidence {citation.citation_id} 的 Fact 版本已漂移"
+                )
+            source_evidence = next(
+                (
+                    evidence
+                    for evidence in self._facts.list_evidence(
+                        citation.fact_id,
+                        fact_version=citation.fact_version,
+                    )
+                    if evidence.evidence_id == citation.source_evidence_id
+                ),
+                None,
+            )
+            if source_evidence is None or (
+                source_evidence.document_id,
+                source_evidence.document_version_id,
+                source_evidence.page_number,
+                source_evidence.quote,
+                source_evidence.start_offset,
+                source_evidence.end_offset,
+            ) != (
+                citation.document_id,
+                citation.document_version_id,
+                citation.page_number,
+                citation.quote,
+                citation.start_offset,
+                citation.end_offset,
+            ):
+                raise InvalidDocumentContent(
+                    f"Assessment Evidence {citation.citation_id} 与原 Fact Evidence 不一致"
+                )
+            self._validate_citation_source(citation, case_id=fact.case_id)
+
+    def _validate_fact_evidence(
+        self,
+        fact: CaseFact,
+        evidence: CaseFactEvidence,
+    ) -> None:
+        if (
+            evidence.fact_id != fact.fact_id
+            or evidence.fact_version != fact.version
+            or evidence.case_id != fact.case_id
+        ):
+            raise InvalidDocumentContent("Fact Evidence 与当前 confirmed Fact 版本不一致")
+        self._validate_document_quote(
+            case_id=fact.case_id,
+            document_id=evidence.document_id,
+            document_version_id=evidence.document_version_id,
+            page_number=evidence.page_number,
+            quote=evidence.quote,
+            start_offset=evidence.start_offset,
+            end_offset=evidence.end_offset,
+            expected_sha256=None,
+        )
+
+    def _validate_citation_source(
+        self,
+        citation: AssessmentEvidenceCitation,
+        *,
+        case_id: str,
+    ) -> None:
+        self._validate_document_quote(
+            case_id=case_id,
+            document_id=citation.document_id,
+            document_version_id=citation.document_version_id,
+            page_number=citation.page_number,
+            quote=citation.quote,
+            start_offset=citation.start_offset,
+            end_offset=citation.end_offset,
+            expected_sha256=citation.source_sha256,
+        )
+
+    def _validate_document_quote(
+        self,
+        *,
+        case_id: str,
+        document_id: str,
+        document_version_id: str,
+        page_number: int,
+        quote: str,
+        start_offset: int | None,
+        end_offset: int | None,
+        expected_sha256: str | None,
+    ) -> None:
+        binding = self._documents.get_binding(case_id, document_id)
+        document = self._documents.get(document_id)
+        version = self._documents.get_version(document_version_id)
+        snapshot = self._documents.get_parse_snapshot(document_version_id)
+        if (
+            binding is None
+            or document is None
+            or version is None
+            or snapshot is None
+            or version.document_id != document_id
+            or document.status != "ready"
+            or document.current_version_id != document_version_id
+            or version.sha256 != snapshot.source_sha256
+            or (expected_sha256 is not None and version.sha256 != expected_sha256)
+            or page_number > snapshot.page_count
+        ):
+            raise InvalidDocumentContent("Assessment Evidence 引用的文档版本已失效")
+        page = snapshot.pages[page_number - 1]
+        parts = [page.text]
+        parts.extend(table.markdown for table in page.tables)
+        page_body = "\n\n".join(part for part in parts if part)
+        if start_offset is not None and end_offset is not None:
+            if page_body[start_offset:end_offset] != quote:
+                raise InvalidDocumentContent("Assessment Evidence offset 与原文不一致")
+        elif quote not in page_body:
+            raise InvalidDocumentContent("Assessment Evidence quote 未在当前原文页中找到")
 
 
 def _fact_versions(facts: list[CaseFact]) -> dict[str, int]:
@@ -266,6 +478,7 @@ def _build_findings_and_actions(
     assessment_id: str,
     evaluations: list[PolicyEvaluation],
     facts: list[CaseFact],
+    evidence_ids_by_fact: dict[str, list[str]],
 ) -> tuple[list[Finding], list[ActionItem]]:
     facts_by_field = {fact.field_name: fact for fact in facts}
     findings: list[Finding] = []
@@ -284,6 +497,15 @@ def _build_findings_and_actions(
                     facts_by_field[field].fact_id
                     for field in evaluation.consumed_fact_versions
                     if field in facts_by_field
+                ],
+                evidence_ids=[
+                    evidence_id
+                    for field in evaluation.consumed_fact_versions
+                    if field in facts_by_field
+                    for evidence_id in evidence_ids_by_fact.get(
+                        facts_by_field[field].fact_id,
+                        [],
+                    )
                 ],
                 clause_ids=list(evaluation.source_clause_ids),
                 rule_ids=[evaluation.rule_id],

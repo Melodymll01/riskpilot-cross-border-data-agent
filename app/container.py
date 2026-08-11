@@ -354,6 +354,7 @@ class AppContainer:
         self.assessment_management = AssessmentManagementUseCase(
             assessment_repo=self.assessment_repo,
             fact_repo=self.case_fact_repo,
+            document_repo=self.document_repo,
             case_management=self.case_management,
             workspace_management=self.workspace_management,
             policy_management=self.policy_management,

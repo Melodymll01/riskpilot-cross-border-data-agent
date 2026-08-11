@@ -12,6 +12,7 @@ from domain.assessments import (
     ActionStatus,
     Assessment,
     AssessmentBundle,
+    AssessmentEvidenceCitation,
     AssessmentStatus,
     Finding,
     FindingSeverity,
@@ -65,6 +66,16 @@ class SqliteAssessmentRepo:
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 _assessment_values(assessment),
+            )
+            conn.executemany(
+                """
+                INSERT INTO assessment_evidence_citations
+                    (citation_id, assessment_id, source_evidence_id, fact_id,
+                     fact_version, document_id, document_version_id, page_number,
+                     quote, start_offset, end_offset, source_sha256, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [_evidence_citation_values(citation) for citation in bundle.evidence_citations],
             )
             conn.executemany(
                 """
@@ -137,6 +148,17 @@ class SqliteAssessmentRepo:
                     SELECT * FROM assessment_actions
                     WHERE assessment_id = ?
                     ORDER BY action_id
+                    """,
+                    (assessment_id,),
+                ).fetchall()
+            ],
+            evidence_citations=[
+                _row_to_evidence_citation(item)
+                for item in conn.execute(
+                    """
+                    SELECT * FROM assessment_evidence_citations
+                    WHERE assessment_id = ?
+                    ORDER BY citation_id
                     """,
                     (assessment_id,),
                 ).fetchall()
@@ -277,6 +299,26 @@ def _finding_values(finding: Finding) -> tuple[object, ...]:
     )
 
 
+def _evidence_citation_values(
+    citation: AssessmentEvidenceCitation,
+) -> tuple[object, ...]:
+    return (
+        citation.citation_id,
+        citation.assessment_id,
+        citation.source_evidence_id,
+        citation.fact_id,
+        citation.fact_version,
+        citation.document_id,
+        citation.document_version_id,
+        citation.page_number,
+        citation.quote,
+        citation.start_offset,
+        citation.end_offset,
+        citation.source_sha256,
+        citation.created_at,
+    )
+
+
 def _action_values(action: ActionItem) -> tuple[object, ...]:
     return (
         action.action_id,
@@ -348,6 +390,24 @@ def _row_to_finding(row: Any) -> Finding:
         clause_ids=json.loads(row["clause_ids_json"]),
         rule_ids=json.loads(row["rule_ids_json"]),
         status=_validate_finding_status(row["status"]),
+    )
+
+
+def _row_to_evidence_citation(row: Any) -> AssessmentEvidenceCitation:
+    return AssessmentEvidenceCitation(
+        citation_id=row["citation_id"],
+        assessment_id=row["assessment_id"],
+        source_evidence_id=row["source_evidence_id"],
+        fact_id=row["fact_id"],
+        fact_version=row["fact_version"],
+        document_id=row["document_id"],
+        document_version_id=row["document_version_id"],
+        page_number=row["page_number"],
+        quote=row["quote"],
+        start_offset=row["start_offset"],
+        end_offset=row["end_offset"],
+        source_sha256=row["source_sha256"],
+        created_at=row["created_at"],
     )
 
 

@@ -72,6 +72,7 @@ class _Setup:
         self.assessment_uc = AssessmentManagementUseCase(
             assessment_repo=self.assessment_repo,
             fact_repo=self.fact_repo,
+            document_repo=self.document_repo,
             case_management=self.case_uc,
             workspace_management=self.workspace_uc,
             policy_management=self.policy_uc,

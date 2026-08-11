@@ -34,6 +34,42 @@ ActionPriority = Literal["low", "medium", "high", "urgent"]
 ActionStatus = Literal["todo", "in_progress", "done", "cancelled"]
 
 
+class AssessmentEvidenceCitation(BaseDomainModel):
+    """Assessment 生成时冻结的 Fact 原文引用。"""
+
+    citation_id: str = Field(min_length=1)
+    assessment_id: str = Field(min_length=1)
+    source_evidence_id: str = Field(min_length=1)
+    fact_id: str = Field(min_length=1)
+    fact_version: int = Field(ge=1)
+    document_id: str = Field(min_length=1)
+    document_version_id: str = Field(min_length=1)
+    page_number: int = Field(ge=1)
+    quote: str = Field(min_length=1, max_length=4000)
+    start_offset: int | None = Field(default=None, ge=0)
+    end_offset: int | None = Field(default=None, ge=0)
+    source_sha256: str = Field(min_length=64, max_length=64)
+    created_at: float
+
+    @model_validator(mode="after")
+    def validate_citation(self) -> AssessmentEvidenceCitation:
+        if not self.quote.strip():
+            raise ValueError("Assessment Evidence quote 不能为空白字符串")
+        if (self.start_offset is None) != (self.end_offset is None):
+            raise ValueError("start_offset 和 end_offset 必须同时为空或同时存在")
+        if (
+            self.start_offset is not None
+            and self.end_offset is not None
+            and self.end_offset <= self.start_offset
+        ):
+            raise ValueError("end_offset 必须大于 start_offset")
+        if len(self.source_sha256) != 64 or any(
+            char not in "0123456789abcdef" for char in self.source_sha256
+        ):
+            raise ValueError("source_sha256 必须是 64 位小写十六进制")
+        return self
+
+
 class Finding(BaseDomainModel):
     finding_id: str = Field(min_length=1)
     assessment_id: str = Field(min_length=1)
@@ -166,6 +202,7 @@ class AssessmentBundle(BaseDomainModel):
     assessment: Assessment
     findings: list[Finding] = Field(default_factory=list)
     action_items: list[ActionItem] = Field(default_factory=list)
+    evidence_citations: list[AssessmentEvidenceCitation] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_bundle(self) -> AssessmentBundle:
@@ -174,6 +211,28 @@ class AssessmentBundle(BaseDomainModel):
             raise ValueError("Finding 必须属于当前 Assessment")
         if any(action.assessment_id != assessment_id for action in self.action_items):
             raise ValueError("ActionItem 必须属于当前 Assessment")
+        if any(citation.assessment_id != assessment_id for citation in self.evidence_citations):
+            raise ValueError("EvidenceCitation 必须属于当前 Assessment")
+        citation_ids = [citation.citation_id for citation in self.evidence_citations]
+        if len(citation_ids) != len(set(citation_ids)):
+            raise ValueError("EvidenceCitation citation_id 不能重复")
+        source_evidence_ids = [citation.source_evidence_id for citation in self.evidence_citations]
+        if len(source_evidence_ids) != len(set(source_evidence_ids)):
+            raise ValueError("EvidenceCitation source_evidence_id 不能重复")
+        citations_by_id = {citation.citation_id: citation for citation in self.evidence_citations}
+        referenced_citation_ids: set[str] = set()
+        for finding in self.findings:
+            missing = set(finding.evidence_ids) - set(citations_by_id)
+            if missing:
+                raise ValueError("Finding 引用了不存在的 EvidenceCitation")
+            referenced_citation_ids.update(finding.evidence_ids)
+            if any(
+                citations_by_id[evidence_id].fact_id not in finding.fact_ids
+                for evidence_id in finding.evidence_ids
+            ):
+                raise ValueError("Finding EvidenceCitation 必须属于其 fact_ids")
+        if set(citations_by_id) != referenced_citation_ids:
+            raise ValueError("EvidenceCitation 必须且只能由 Finding 引用")
         finding_ids = {finding.finding_id for finding in self.findings}
         for action in self.action_items:
             missing = set(action.related_finding_ids) - finding_ids

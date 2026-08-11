@@ -263,6 +263,27 @@ CREATE TABLE IF NOT EXISTS assessments (
 CREATE INDEX IF NOT EXISTS idx_assessments_case
     ON assessments(case_id, version DESC);
 
+CREATE TABLE IF NOT EXISTS assessment_evidence_citations (
+    citation_id         TEXT PRIMARY KEY,
+    assessment_id       TEXT NOT NULL,
+    source_evidence_id  TEXT NOT NULL,
+    fact_id             TEXT NOT NULL,
+    fact_version        INTEGER NOT NULL,
+    document_id         TEXT NOT NULL,
+    document_version_id TEXT NOT NULL,
+    page_number         INTEGER NOT NULL,
+    quote               TEXT NOT NULL,
+    start_offset        INTEGER,
+    end_offset          INTEGER,
+    source_sha256       TEXT NOT NULL,
+    created_at          REAL NOT NULL,
+    UNIQUE (assessment_id, source_evidence_id),
+    FOREIGN KEY (assessment_id) REFERENCES assessments(assessment_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_assessment_evidence_assessment
+    ON assessment_evidence_citations(assessment_id, fact_id);
+
 CREATE TABLE IF NOT EXISTS assessment_findings (
     finding_id          TEXT PRIMARY KEY,
     assessment_id       TEXT NOT NULL,

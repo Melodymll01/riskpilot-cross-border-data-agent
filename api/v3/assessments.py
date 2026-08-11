@@ -10,6 +10,7 @@ from api.v2.deps import make_require_owner
 from api.v3.schemas import (
     ActionItemOut,
     AssessmentBundleResponse,
+    AssessmentEvidenceCitationOut,
     AssessmentListResponse,
     AssessmentOut,
     FindingOut,
@@ -20,7 +21,13 @@ from api.v3.schemas import (
 
 if TYPE_CHECKING:
     from app.container import AppContainer
-    from domain.assessments import ActionItem, Assessment, AssessmentBundle, Finding
+    from domain.assessments import (
+        ActionItem,
+        Assessment,
+        AssessmentBundle,
+        AssessmentEvidenceCitation,
+        Finding,
+    )
 
 
 def _to_assessment_out(assessment: Assessment) -> AssessmentOut:
@@ -55,11 +62,18 @@ def _to_action_out(action: ActionItem) -> ActionItemOut:
     return ActionItemOut(**action.model_dump())
 
 
+def _to_evidence_citation_out(
+    citation: AssessmentEvidenceCitation,
+) -> AssessmentEvidenceCitationOut:
+    return AssessmentEvidenceCitationOut(**citation.model_dump(exclude={"assessment_id"}))
+
+
 def _to_bundle_out(bundle: AssessmentBundle) -> AssessmentBundleResponse:
     return AssessmentBundleResponse(
         assessment=_to_assessment_out(bundle.assessment),
         findings=[_to_finding_out(item) for item in bundle.findings],
         action_items=[_to_action_out(item) for item in bundle.action_items],
+        evidence_citations=[_to_evidence_citation_out(item) for item in bundle.evidence_citations],
     )
 
 
