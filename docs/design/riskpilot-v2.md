@@ -799,6 +799,9 @@ evaluations/
 18. Assessment 引用快照：规则 Finding 自动关联 consumed Fact、Fact Evidence 和
     Policy Clause；保存不可变 EvidenceCitation，并在生成与批准前重新验证 Fact /
     DocumentVersion / SHA / quote / offset 漂移。
+19. 原生 V3 案件工作台最小闭环：按 Case ID 加载案件、材料、Fact 和 Run；从
+    `fact_confirmation_required` 事件读取缺失字段，生成 Fact 候选、展示原文证据、
+    Reviewer 确认后继续 Run。
 
 当前 Case Assessment Graph 已落地的确定性骨架：
 
@@ -820,10 +823,10 @@ pickle fallback。
 
 尚未完成：
 
-1. Fact 提议与 `fact_confirmation` 中断的前端联动；
+1. 完整案件管理前端：Workspace / Case 列表与创建、材料上传、多 Case 导航、
+   Assessment 审批和引用详情；
 2. 基于 Claim-Citation 评测基线的完整生成器 + 验证器端到端生产实测；
 3. Deep Research Graph；
-4. V3 案件工作台前端；
-5. 评测中心、故障注入指标、安全红队和报告导出。
+4. 评测中心、故障注入指标、安全红队和报告导出。
 
 后续仍按“一个可验证步骤对应一个中文 commit”推进。

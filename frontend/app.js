@@ -20,21 +20,24 @@ import {
 import { refresh as refreshTasks, onSelect as onTaskSelect, setActive as setActiveTask } from "./tasks.js";
 import * as kb from "./kb.js";
 import * as adminAudit from "./admin-audit.js";
+import * as cases from "./cases.js";
 import * as settings from "./settings.js";
 import { health } from "./api.js";
 
 const $ = (sel) => document.querySelector(sel);
 
-// 当前主视图：chat | kb | audit
+// 当前主视图：chat | cases | kb | audit
 let _currentView = "chat";
 
 function switchView(view) {
-  if (view !== "chat" && view !== "kb" && view !== "audit") return;
+  if (!["chat", "cases", "kb", "audit"].includes(view)) return;
+  if (view === "cases" && getUser()?.provider === "anonymous") return;
   if (view === "kb" && !getUser()) return;  // 未登录不许进 KB
   if (view === "audit" && !getUser()?.is_admin) return;  // 只 admin 进 audit
   _currentView = view;
 
   $("#chat-pane").classList.toggle("hidden", view !== "chat");
+  $("#case-pane").classList.toggle("hidden", view !== "cases");
   $("#kb-pane").classList.toggle("hidden", view !== "kb");
   $("#audit-pane").classList.toggle("hidden", view !== "audit");
 
@@ -42,7 +45,9 @@ function switchView(view) {
     btn.classList.toggle("active", btn.dataset.view === view);
   });
 
-  if (view === "kb") {
+  if (view === "cases") {
+    cases.mount();
+  } else if (view === "kb") {
     kb.mount();
     kb.refresh();
   } else if (view === "audit") {
@@ -108,9 +113,21 @@ onUserChange((user) => {
 
   // KB 入口：任意登录用户可见（只读）；admin 额外看到 admin 标签 + 上传/删除 UI
   applyKbGate(!!user, !!user?.is_admin);
+  applyCaseGate(!!user && user.provider !== "anonymous");
   // 记忆与隐私：仅「真实登录」用户可用（匿名访客不显示）
   applyMemoryGate(!!user && user.provider !== "anonymous");
 });
+
+function applyCaseGate(isLoggedIn) {
+  const navCases = $("#nav-cases");
+  if (navCases) {
+    navCases.classList.toggle("hidden", !isLoggedIn);
+    navCases.hidden = !isLoggedIn;
+  }
+  if (!isLoggedIn && _currentView === "cases") {
+    switchView("chat");
+  }
+}
 
 // 控制「记忆与隐私」入口的可见性：匿名访客隐藏，真实登录用户显示
 function applyMemoryGate(isRealUser) {

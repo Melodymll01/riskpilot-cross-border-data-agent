@@ -8,6 +8,7 @@
  */
 
 const BASE = "/api/v2";
+const V3_BASE = "/api/v3";
 
 export class ApiError extends Error {
   constructor(status, errorCode, message) {
@@ -19,6 +20,14 @@ export class ApiError extends Error {
 }
 
 async function request(method, path, body) {
+  return requestAt(BASE, method, path, body);
+}
+
+async function requestV3(method, path, body) {
+  return requestAt(V3_BASE, method, path, body);
+}
+
+async function requestAt(base, method, path, body) {
   const opts = {
     method,
     credentials: "include",
@@ -28,7 +37,7 @@ async function request(method, path, body) {
     opts.headers["Content-Type"] = "application/json";
     opts.body = JSON.stringify(body);
   }
-  const resp = await fetch(`${BASE}${path}`, opts);
+  const resp = await fetch(`${base}${path}`, opts);
   const text = await resp.text();
   let data = null;
   if (text) {
@@ -145,6 +154,30 @@ export const documents = {
 export const health = {
   check: () => request("GET", "/health"),
   ready: () => request("GET", "/health/ready"),
+};
+
+/* ─────────── V3 案件工作台 ─────────── */
+export const casesV3 = {
+  get: (caseId) =>
+    requestV3("GET", `/cases/${encodeURIComponent(caseId)}`),
+  documents: (caseId) =>
+    requestV3("GET", `/cases/${encodeURIComponent(caseId)}/documents`),
+  facts: (caseId) =>
+    requestV3("GET", `/cases/${encodeURIComponent(caseId)}/facts`),
+  fact: (factId) =>
+    requestV3("GET", `/facts/${encodeURIComponent(factId)}`),
+  runs: (caseId) =>
+    requestV3("GET", `/cases/${encodeURIComponent(caseId)}/assessment-runs`),
+  run: (runId) =>
+    requestV3("GET", `/runs/${encodeURIComponent(runId)}`),
+  events: (runId) =>
+    requestV3("GET", `/runs/${encodeURIComponent(runId)}/events?after_sequence=0`),
+  proposeFacts: (caseId, body) =>
+    requestV3("POST", `/cases/${encodeURIComponent(caseId)}/fact-proposals`, body),
+  transitionFact: (factId, target) =>
+    requestV3("POST", `/facts/${encodeURIComponent(factId)}/transitions`, { target }),
+  continueRun: (runId) =>
+    requestV3("POST", `/runs/${encodeURIComponent(runId)}/continue`),
 };
 
 /* ─────────── audit (admin-only) ─────────── */

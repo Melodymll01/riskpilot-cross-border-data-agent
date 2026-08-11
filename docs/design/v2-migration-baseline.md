@@ -45,7 +45,7 @@ ADMIN_USER_IDS='' \
 ## 基线结果
 
 ```text
-1256 passed
+1260 passed
 1 skipped
 ```
 
@@ -103,7 +103,9 @@ ADMIN_USER_IDS='' \
   和 Reviewer/Admin 唯一确认；
 - 已实现 Assessment 引用闭包：Finding 关联 Fact / Evidence / Clause 快照，生成和批准前
   重新验证 Fact 版本、DocumentVersion、SHA、quote 和 offset；
-- 最新离线回归为 `1256 passed, 1 skipped`，无具体用例 deselect，research 模式已由
+- 已实现原生 V3 案件工作台最小闭环：按 Case ID 加载 Run 中断、生成 Fact 候选、
+  展示证据、Reviewer 确认并继续运行；
+- 最新离线回归为 `1260 passed, 1 skipped`，无具体用例 deselect，research 模式已由
   `FakeResearch` 完整隔离真实 embeddings / LLM 外呼；
 - GitHub Actions 已恢复 `main` push / pull request 自动触发，Ruff 覆盖 Domain、App、
   V2/V3 API、QA/Workflow 适配器、Evidence QA 评测器及对应测试。

@@ -33,6 +33,10 @@ LangGraph checkpoint 默认保存在：
 LANGGRAPH_CHECKPOINT_DB_PATH=./data/langgraph-checkpoints.sqlite3
 ```
 
+浏览器打开首页后，左侧选择 `案件工作台`，输入 `case_id` 即可查看当前 Case、材料、
+Fact 和 Assessment Run。工作台在 Run 停于 `detect_missing_facts` 时会读取最新
+`fact_confirmation_required` 事件，自动列出缺失字段。
+
 ## 2. 创建 Workspace 与成员
 
 ```http
@@ -174,6 +178,15 @@ current_stage=detect_missing_facts
 
 当前 Graph 不会在节点内直接调用模型或写入 Fact。`fact_confirmation` 中断后，由前端或
 调用方显式请求 `fact-proposals`、展示证据和冲突，再由 Reviewer 确认，最后继续 Run。
+
+案件工作台对应操作：
+
+1. 点击“从文档生成候选”；
+2. 检查每个候选的状态、值和页级 quote；
+3. Reviewer/Admin 点击“Reviewer 确认”；
+4. 点击“继续 Run”，等待状态进入下一中断或 `waiting_for_review`。
+
+Editor 可以生成候选，但确认按钮会收到 403 并提示切换 Reviewer/Admin。
 
 ## 6. 创建并发布规则
 

@@ -27,6 +27,10 @@
         <button class="side-nav-item active" data-view="chat" id="nav-chat">
           <span class="ico">💬</span><span>对话</span>
         </button>
+        <button class="side-nav-item hidden" data-view="cases" id="nav-cases" hidden>
+          <span class="ico">🗂️</span><span>案件工作台</span>
+          <span class="side-nav-tag">V3</span>
+        </button>
         <button class="side-nav-item hidden" data-view="kb" id="nav-kb" hidden>
           <span class="ico">📚</span><span>知识库</span>
           <span class="side-nav-tag" id="nav-kb-tag" hidden>admin</span>
@@ -135,6 +139,81 @@
           答案基于法规检索 + 工具调用，可能仍有误，请以官方文本为准。
         </div>
       </footer>
+    </main>
+
+    <!-- ─────────── 右侧主区：V3 案件工作台 ─────────── -->
+    <main class="case-pane hidden" id="case-pane" aria-labelledby="case-pane-title">
+      <header class="case-header">
+        <div>
+          <h1 class="case-heading" id="case-pane-title">🗂️ V3 案件工作台</h1>
+          <p class="case-subtitle">处理 Assessment Run 的 Fact Confirmation 中断：生成候选、人工确认、继续运行。</p>
+        </div>
+        <button class="btn btn-ghost" id="case-btn-refresh" type="button">↻ 刷新</button>
+      </header>
+
+      <form class="case-load" id="case-load-form" autocomplete="off">
+        <input class="case-input" id="case-id-input" required
+               placeholder="输入 Case ID，例如 case_..." maxlength="100" />
+        <button class="btn btn-primary" id="case-load-submit" type="submit">加载案件</button>
+      </form>
+
+      <div class="case-status" id="case-status" data-state="idle">请输入 Case ID</div>
+
+      <section class="case-empty" id="case-empty">
+        <h2>从一个 Case 开始</h2>
+        <p>Case ID 可从 V3 Case API 或 Assessment Run 演示流程中获得。</p>
+      </section>
+
+      <div class="case-content hidden" id="case-content">
+        <section class="case-summary">
+          <div>
+            <div class="case-title-line">
+              <h2 id="case-title"></h2>
+              <span class="case-badge" id="case-status-badge"></span>
+            </div>
+            <p class="case-muted">Workspace：<span id="case-workspace"></span></p>
+            <p class="case-muted">Reviewer：<span id="case-reviewer"></span></p>
+          </div>
+        </section>
+
+        <div class="case-grid">
+          <section class="case-card">
+            <header class="case-card-header">
+              <h3>Assessment Run</h3>
+              <button class="btn btn-primary" id="case-btn-continue" type="button">继续 Run</button>
+            </header>
+            <div id="case-run"></div>
+          </section>
+
+          <section class="case-card">
+            <header class="case-card-header">
+              <h3>案件材料</h3>
+            </header>
+            <div class="case-list" id="case-documents"></div>
+          </section>
+        </div>
+
+        <section class="case-card">
+          <header class="case-card-header">
+            <div>
+              <h3>缺失事实</h3>
+              <p class="case-muted">字段来自最新 fact_confirmation_required 事件。</p>
+            </div>
+            <button class="btn btn-primary" id="case-btn-propose" type="button">从文档生成候选</button>
+          </header>
+          <div class="case-check-list" id="case-missing-fields"></div>
+        </section>
+
+        <section class="case-card">
+          <header class="case-card-header">
+            <div>
+              <h3>Fact 候选与确认状态</h3>
+              <p class="case-muted">模型候选统一为 critical；确认操作需要 Reviewer/Admin。</p>
+            </div>
+          </header>
+          <div class="case-facts" id="case-facts"></div>
+        </section>
+      </div>
     </main>
 
     <!-- ─────────── 右侧主区：知识库（所有登录用户可读，admin 可写） ─────────── -->
