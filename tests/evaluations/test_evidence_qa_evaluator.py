@@ -7,18 +7,24 @@ from pathlib import Path
 
 import pytest
 
-from domain.qa import ClaimSupportJudgement, EvidenceQAClaim
+from domain.qa import (
+    ClaimSupportJudgement,
+    ClaimSupportResult,
+    EvidenceQAClaim,
+)
 from evaluations.evidence_qa.evaluator import (
     EvidenceQACasePrediction,
     EvidenceQAEvaluationCase,
     EvidenceQAPredictions,
     GoldClaimSupport,
     build_oracle_predictions,
+    build_verifier_predictions,
     evaluate,
     load_dataset,
     write_report,
 )
 from evaluations.evidence_qa.run import DEFAULT_DATASET, main
+from evaluations.evidence_qa.run_verifier import main as verifier_main
 
 
 @pytest.fixture
@@ -58,6 +64,7 @@ def test_oracle_self_check_passes_all_gates(dataset) -> None:
         "citation_drift_recall": 1.0,
         "status_accuracy": 1.0,
         "cross_scope_leakage_count": 0,
+        "verifier_error_count": 0,
     }
 
 
@@ -139,6 +146,96 @@ def test_mixed_claim_case_keeps_only_safe_claim(dataset) -> None:
     assert prediction.kept_claim_ids == ["C1"]
 
 
+def test_live_verifier_predictions_use_only_claims_and_citations(dataset) -> None:
+    safe_case = dataset.cases[0]
+    mixed_case = EvidenceQAEvaluationCase.model_validate(
+        safe_case.model_copy(
+            update={
+                "case_id": "EQA-SYNTHETIC-LIVE",
+                "claims": [
+                    *safe_case.claims,
+                    EvidenceQAClaim(
+                        claim_id="C2",
+                        text="原文不支持的结论。",
+                        citation_ids=["E1"],
+                    ),
+                ],
+                "gold": safe_case.gold.model_copy(
+                    update={
+                        "expected_status": "partially_answered",
+                        "claim_support": {
+                            **safe_case.gold.claim_support,
+                            "C2": GoldClaimSupport(supported=False),
+                        },
+                    }
+                ),
+            }
+        ).model_dump()
+    )
+    synthetic_dataset = dataset.model_copy(update={"cases": [mixed_case]})
+
+    class RecordingVerifier:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        def verify(self, claims, citations):  # type: ignore[no-untyped-def]
+            self.calls.append({"claims": claims, "citations": citations})
+            return ClaimSupportResult(
+                judgements=[
+                    ClaimSupportJudgement(
+                        claim_id="C1",
+                        supported=True,
+                        citation_ids=["E1"],
+                    ),
+                    ClaimSupportJudgement(
+                        claim_id="C2",
+                        supported=False,
+                        citation_ids=[],
+                        reason="原文不支持",
+                    ),
+                ],
+                unsupported_claim_ids=["C2"],
+                valid=False,
+            )
+
+    verifier = RecordingVerifier()
+    predictions = build_verifier_predictions(
+        synthetic_dataset,
+        verifier,
+        system="independent_llm_v1:test-model",
+    )
+
+    assert predictions.mode == "production_verifier"
+    assert predictions.cases[0].status == "partially_answered"
+    assert predictions.cases[0].kept_claim_ids == ["C1"]
+    assert list(verifier.calls[0]) == ["claims", "citations"]
+    report = evaluate(synthetic_dataset, predictions)
+    assert report["passed"] is True
+    assert report["candidate"]["evaluated_component"] == "independent_llm_v1"
+    assert report["gates"]["status_accuracy"]["applicable"] is False
+
+
+def test_live_verifier_error_is_recorded_and_fails_gate(dataset) -> None:
+    class IncompleteVerifier:
+        def verify(self, claims, citations):  # type: ignore[no-untyped-def]
+            raise RuntimeError("provider unavailable " + "x" * 2000)
+
+    synthetic_dataset = dataset.model_copy(update={"cases": [dataset.cases[0]]})
+    predictions = build_verifier_predictions(
+        synthetic_dataset,
+        IncompleteVerifier(),
+        system="broken",
+    )
+
+    assert predictions.cases[0].status == "refused"
+    assert predictions.cases[0].error is not None
+    assert len(predictions.cases[0].error) == 1000
+    report = evaluate(synthetic_dataset, predictions)
+    assert report["metrics"]["verifier_error_count"] == 1
+    assert report["gates"]["verifier_error_count"]["passed"] is False
+    assert report["passed"] is False
+
+
 def test_prediction_must_cover_every_claim(dataset) -> None:
     predictions = build_oracle_predictions(dataset)
     predictions.cases[0].judgements = []
@@ -177,6 +274,11 @@ def test_cli_oracle_self_check_without_writing() -> None:
 def test_cli_requires_exactly_one_candidate_mode() -> None:
     with pytest.raises(SystemExit):
         main(["--no-write"])
+
+
+def test_live_verifier_cli_requires_explicit_live_flag() -> None:
+    with pytest.raises(SystemExit):
+        verifier_main([])
 
 
 def test_prediction_schema_rejects_duplicate_cases(dataset) -> None:

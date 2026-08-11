@@ -45,7 +45,7 @@ ADMIN_USER_IDS='' \
 ## 基线结果
 
 ```text
-1227 passed
+1230 passed
 1 skipped
 ```
 
@@ -99,7 +99,7 @@ ADMIN_USER_IDS='' \
   进程重建后继续；
 - 已实现 `/api/v3/qa`，支持公共法规、Workspace Knowledge、Case Evidence 和
   Assessment 四类授权范围，并执行结构覆盖与独立语义支持双校验；
-- 最新离线回归为 `1227 passed, 1 skipped`，无具体用例 deselect，research 模式已由
+- 最新离线回归为 `1230 passed, 1 skipped`，无具体用例 deselect，research 模式已由
   `FakeResearch` 完整隔离真实 embeddings / LLM 外呼；
 - GitHub Actions 已恢复 `main` push / pull request 自动触发，Ruff 覆盖 Domain、App、
   V2/V3 API、QA/Workflow 适配器、Evidence QA 评测器及对应测试。

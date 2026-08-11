@@ -3,6 +3,7 @@ name: CI
 # CI 策略：
 # - test job：完整离线 pytest（仅排除真实 LLM 评测与重 IO smoke），强制必须绿；
 # - lint job：覆盖 DDD 核心层、V3 API、QA/Workflow 适配器和 Evidence QA 评测器；
+# - `run_verifier.py --live` 会产生模型费用，只允许人工按需执行，不进入 PR CI；
 # - 遗留 retrieval / processing / ingestion 暂不纳入 Ruff 强门禁。
 on:
   push:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -17,6 +17,9 @@ from domain.qa import (
     EvidenceQAScope,
     EvidenceQAStatus,
 )
+
+if TYPE_CHECKING:
+    from domain.ports import ClaimSupportVerifierPort
 
 SecurityIssue = Literal[
     "citation_drift",
@@ -41,6 +44,7 @@ class EvaluationThresholds(EvaluationModel):
     citation_drift_recall_min: float = Field(ge=0.0, le=1.0)
     status_accuracy_min: float = Field(ge=0.0, le=1.0)
     cross_scope_leakage_count_max: int = Field(ge=0)
+    verifier_error_count_max: int = Field(default=0, ge=0)
 
 
 class GoldClaimSupport(EvaluationModel):
@@ -150,6 +154,7 @@ class EvidenceQACasePrediction(EvaluationModel):
     judgements: list[ClaimSupportJudgement] = Field(default_factory=list)
     kept_claim_ids: list[str] = Field(default_factory=list)
     detected_security_issues: list[SecurityIssue] = Field(default_factory=list)
+    error: str | None = Field(default=None, max_length=1000)
 
     @model_validator(mode="after")
     def validate_prediction(self) -> EvidenceQACasePrediction:
@@ -171,7 +176,11 @@ class EvidenceQAPredictions(EvaluationModel):
     dataset_name: str = Field(min_length=1, max_length=200)
     dataset_version: str = Field(min_length=1, max_length=50)
     system: str = Field(min_length=1, max_length=200)
-    mode: Literal["production", "oracle_self_check"] = "production"
+    mode: Literal[
+        "production",
+        "production_verifier",
+        "oracle_self_check",
+    ] = "production"
     cases: list[EvidenceQACasePrediction] = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -225,6 +234,67 @@ def build_oracle_predictions(
     )
 
 
+def build_verifier_predictions(
+    dataset: EvidenceQAEvaluationDataset,
+    verifier: ClaimSupportVerifierPort,
+    *,
+    system: str,
+) -> EvidenceQAPredictions:
+    """真实调用 independent_llm_v1；模型输入不包含 Gold、状态或安全标签。"""
+    predictions: list[EvidenceQACasePrediction] = []
+    for case in dataset.cases:
+        error: str | None = None
+        try:
+            support = verifier.verify(case.claims, case.citations)
+            _validate_live_judgements(case, support.judgements)
+            judgements = support.judgements
+        except Exception as exc:
+            error = f"{type(exc).__name__}: {exc}"[:1000]
+            judgements = [
+                ClaimSupportJudgement(
+                    claim_id=claim.claim_id,
+                    supported=False,
+                    citation_ids=[],
+                    reason="verifier_error: 本 Case 未产生可信语义判定",
+                )
+                for claim in case.claims
+            ]
+        kept_claim_ids = _predicted_kept_claim_ids(case, judgements)
+        if not kept_claim_ids:
+            status: EvidenceQAStatus = "refused"
+        elif len(kept_claim_ids) < len(case.claims):
+            status = "partially_answered"
+        else:
+            status = "answered"
+        detected_issues = _detect_case_security_issues(case)
+        predictions.append(
+            EvidenceQACasePrediction(
+                case_id=case.case_id,
+                status=status,
+                judgements=judgements,
+                kept_claim_ids=kept_claim_ids,
+                detected_security_issues=[
+                    issue
+                    for issue in (
+                        "citation_drift",
+                        "forged_citation",
+                        "cross_workspace",
+                        "cross_case",
+                    )
+                    if issue in detected_issues
+                ],
+                error=error,
+            )
+        )
+    return EvidenceQAPredictions(
+        dataset_name=dataset.name,
+        dataset_version=dataset.version,
+        system=system,
+        mode="production_verifier",
+        cases=predictions,
+    )
+
+
 def evaluate(
     dataset: EvidenceQAEvaluationDataset,
     predictions: EvidenceQAPredictions,
@@ -242,6 +312,7 @@ def evaluate(
     drift_detected = 0
     status_correct = 0
     cross_scope_leakage_count = 0
+    verifier_error_count = 0
     case_results: list[dict[str, object]] = []
 
     for case in dataset.cases:
@@ -270,6 +341,7 @@ def evaluate(
 
         status_match = prediction.status == case.gold.expected_status
         status_correct += int(status_match)
+        verifier_error_count += int(prediction.error is not None)
         expected_kept_claim_ids = _gold_kept_claim_ids(case)
         claim_filter_match = prediction.kept_claim_ids == expected_kept_claim_ids
         claim_filter_correct += int(claim_filter_match)
@@ -295,12 +367,14 @@ def evaluate(
                 "claim_filter_match": claim_filter_match,
                 "expected_security_issues": case.gold.security_issues,
                 "detected_security_issues": prediction.detected_security_issues,
+                "error": prediction.error,
                 "cross_scope_leaked": leaked,
                 "passed": (
                     structural_match
                     and all(semantic_matches.values())
                     and claim_filter_match
-                    and status_match
+                    and (status_match or predictions.mode == "production_verifier")
+                    and prediction.error is None
                     and not leaked
                     and (not has_drift or "citation_drift" in prediction.detected_security_issues)
                 ),
@@ -334,8 +408,13 @@ def evaluate(
         ),
         "status_accuracy": _safe_ratio(status_correct, case_count, empty=1.0),
         "cross_scope_leakage_count": cross_scope_leakage_count,
+        "verifier_error_count": verifier_error_count,
     }
-    gates = _evaluate_gates(metrics, dataset.thresholds)
+    gates = _evaluate_gates(
+        metrics,
+        dataset.thresholds,
+        mode=predictions.mode,
+    )
     return {
         "schema_version": "1.0",
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -347,7 +426,12 @@ def evaluate(
         "candidate": {
             "system": predictions.system,
             "mode": predictions.mode,
-            "production_evidence": predictions.mode == "production",
+            "production_evidence": predictions.mode in {"production", "production_verifier"},
+            "evaluated_component": (
+                "independent_llm_v1"
+                if predictions.mode == "production_verifier"
+                else "evidence_qa_pipeline"
+            ),
         },
         "metrics": metrics,
         "thresholds": dataset.thresholds.model_dump(),
@@ -435,6 +519,49 @@ def _detect_case_security_issues(case: EvidenceQAEvaluationCase) -> set[Security
     return issues
 
 
+def _validate_live_judgements(
+    case: EvidenceQAEvaluationCase,
+    judgements: list[ClaimSupportJudgement],
+) -> None:
+    expected_claim_ids = {claim.claim_id for claim in case.claims}
+    actual_claim_ids = {judgement.claim_id for judgement in judgements}
+    if actual_claim_ids != expected_claim_ids or len(judgements) != len(actual_claim_ids):
+        raise ValueError(f"{case.case_id}: live verifier 必须且只能覆盖全部 Claim")
+    known_citation_ids = {citation.citation_id for citation in case.citations}
+    claims_by_id = {claim.claim_id: claim for claim in case.claims}
+    for judgement in judgements:
+        used_ids = set(judgement.citation_ids)
+        if not used_ids.issubset(known_citation_ids):
+            raise ValueError(f"{case.case_id}: live verifier 引用了未知 Citation")
+        if judgement.supported and not used_ids.issubset(
+            claims_by_id[judgement.claim_id].citation_ids
+        ):
+            raise ValueError(f"{case.case_id}: live verifier 扩大了 Claim 引用范围")
+
+
+def _predicted_kept_claim_ids(
+    case: EvidenceQAEvaluationCase,
+    judgements: list[ClaimSupportJudgement],
+) -> list[str]:
+    if not case.source_integrity_valid:
+        return []
+    known_citation_ids = {citation.citation_id for citation in case.citations}
+    unsafe_scope_citation_ids = _unsafe_scope_citation_ids(case)
+    judgements_by_id = {judgement.claim_id: judgement for judgement in judgements}
+    kept: list[str] = []
+    for claim in case.claims:
+        declared = set(claim.citation_ids)
+        if (
+            not declared
+            or not declared.issubset(known_citation_ids)
+            or declared & unsafe_scope_citation_ids
+            or not judgements_by_id[claim.claim_id].supported
+        ):
+            continue
+        kept.append(claim.claim_id)
+    return kept
+
+
 def _gold_kept_claim_ids(case: EvidenceQAEvaluationCase) -> list[str]:
     if not case.source_integrity_valid:
         return []
@@ -475,6 +602,8 @@ def _unsafe_scope_citation_ids(case: EvidenceQAEvaluationCase) -> set[str]:
 def _evaluate_gates(
     metrics: dict[str, int | float],
     thresholds: EvaluationThresholds,
+    *,
+    mode: str,
 ) -> dict[str, dict[str, object]]:
     definitions = {
         "structural_accuracy": (
@@ -512,15 +641,31 @@ def _evaluate_gates(
             "<=",
             thresholds.cross_scope_leakage_count_max,
         ),
+        "verifier_error_count": (
+            metrics["verifier_error_count"],
+            "<=",
+            thresholds.verifier_error_count_max,
+        ),
     }
     gates: dict[str, dict[str, object]] = {}
     for name, (actual, operator, threshold) in definitions.items():
+        applicable = not (
+            mode == "production_verifier"
+            and name
+            in {
+                "structural_accuracy",
+                "citation_drift_recall",
+                "status_accuracy",
+                "cross_scope_leakage_count",
+            }
+        )
         passed = actual >= threshold if operator == ">=" else actual <= threshold
         gates[name] = {
             "actual": actual,
             "operator": operator,
             "threshold": threshold,
-            "passed": passed,
+            "applicable": applicable,
+            "passed": passed if applicable else True,
         }
     return gates
 
@@ -540,6 +685,7 @@ def _render_markdown(report: dict[str, object]) -> str:
         f"- 数据集：`{dataset['name']}@{dataset['version']}`",
         f"- 候选系统：`{candidate['system']}`",
         f"- 运行模式：`{candidate['mode']}`",
+        f"- 评测组件：`{candidate['evaluated_component']}`",
         f"- 是否构成生产效果证据：`{str(candidate['production_evidence']).lower()}`",
         f"- 总门禁：**{'PASS' if report['passed'] else 'FAIL'}**",
         "",
@@ -568,7 +714,8 @@ def _render_markdown(report: dict[str, object]) -> str:
         threshold_text = f"{threshold:.4f}" if isinstance(threshold, float) else str(threshold)
         lines.append(
             f"| `{name}` | {actual_text} | {raw_gate['operator']} | "
-            f"{threshold_text} | {'PASS' if raw_gate['passed'] else 'FAIL'} |"
+            f"{threshold_text} | "
+            f"{'N/A' if not raw_gate['applicable'] else ('PASS' if raw_gate['passed'] else 'FAIL')} |"
         )
     if candidate["mode"] == "oracle_self_check":
         lines.extend(

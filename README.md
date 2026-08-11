@@ -1,7 +1,7 @@
 # RiskPilot · 数据出境合规案件智能体
 
 [![CI](https://github.com/Melodymll01/riskpilot-cross-border-data-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Melodymll01/riskpilot-cross-border-data-agent/actions/workflows/ci.yml)
-[![tests](https://img.shields.io/badge/offline_tests-1227%20passed-brightgreen)](https://github.com/Melodymll01/riskpilot-cross-border-data-agent/actions/workflows/ci.yml)
+[![tests](https://img.shields.io/badge/offline_tests-1230%20passed-brightgreen)](https://github.com/Melodymll01/riskpilot-cross-border-data-agent/actions/workflows/ci.yml)
 [![python](https://img.shields.io/badge/python-3.12-blue)](pyproject.toml)
 [![arch](https://img.shields.io/badge/arch-DDD%204--layer-9b5bff)](docs/architecture/overview.md)
 [![agent](https://img.shields.io/badge/agent-ReAct%20%C2%B7%204%20tools-ff7a59)](app/agent/copilot.py)
@@ -54,7 +54,7 @@
 
 | 维度 | 数值 |
 | --- | --- |
-| 离线回归 | **1227 passed · 1 skipped · 零具体用例排除** |
+| 离线回归 | **1230 passed · 1 skipped · 零具体用例排除** |
 | 架构规模 | **35 Port + 18 Use Case** · DDD 4 层 |
 | V3 资源接口 | **41 个路由** · Workspace → Evidence QA / Assessment Run |
 | Agent 工具 | **4 个领域工具** + 9 类流式 AgentEvent |
@@ -238,7 +238,7 @@ ADMIN_USER_IDS=github:your-github-login
 - **检索**：ChromaDB + jieba BM25 + RRF 融合 + bge-reranker-base 重排
 - **记忆**：5 层分层记忆 + TTL + 语义事实去重 + 被遗忘权
 - **前端**：原生 HTML + ES module（无构建依赖）
-- **质量**：离线 pytest（1227 passed）+ Ruff + GitHub Actions CI
+- **质量**：离线 pytest（1230 passed）+ Ruff + GitHub Actions CI
 
 ## 文档
 

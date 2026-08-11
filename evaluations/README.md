@@ -25,7 +25,8 @@ evaluations/
 │   │   └── claim_citation_eval_v1.json
 │   ├── reports/
 │   ├── evaluator.py
-│   └── run.py
+│   ├── run.py
+│   └── run_verifier.py            # 显式 --live 实测生产 independent_llm_v1
 │
 └── README.md                     # 本文件
 ```
@@ -66,6 +67,9 @@ python evaluations/evidence_qa/run.py --oracle-self-check
 
 # V3 Evidence QA 正式候选评测
 python evaluations/evidence_qa/run.py --predictions path/to/predictions.json
+
+# 实测当前生产 independent_llm_v1（会调用真实模型并产生费用）
+python evaluations/evidence_qa/run_verifier.py --live
 ```
 
 报告会自动写到 `evaluations/<name>/reports/`。
@@ -104,6 +108,34 @@ python evaluations/evidence_qa/run.py --predictions path/to/predictions.json
 `--predictions` 文件。`judgements` 记录独立语义验证结果，`kept_claim_ids` 记录
 `bounded_filter_v1` 最终保留并对用户输出的 Claim；评测器会分别校验支持判定准确率、
 过滤准确率与跨 Scope 泄漏。
+
+### 生产验证器实测
+
+`run_verifier.py --live` 固定使用评测集中的 Claim 与 Citation，只调用当前生产
+`StructuredClaimSupportVerifier + OpenAIChatAdapter`。模型请求中不会包含：
+
+- `gold.claim_support`；
+- `expected_status`；
+- `difficulty` / `category`；
+- `security_issues`。
+
+运行后会同时保留：
+
+- `evidence_qa_predictions_<timestamp>.json`：逐 Case 原始 judgement、最终保留 Claim
+  和验证器错误；
+- `evidence_qa_eval_<timestamp>.json`：指标与门禁；
+- `evidence_qa_eval_latest.md`：可展示报告。
+
+该模式标记为 `production_verifier`，只把下列指标作为硬门禁：
+
+- `supported_claim_recall`；
+- `unsupported_claim_false_accept_rate`；
+- `claim_filter_accuracy`；
+- `verifier_error_count`。
+
+生成状态、引用漂移和跨 Scope 隔离不属于本次模型调用的职责，报告仍展示这些指标，
+但门禁标记为 `N/A`。完整 Evidence QA 端到端生产实测仍应通过独立 predictions 文件
+使用 `run.py --predictions ...` 评分。
 
 ## 扩展新评测
 

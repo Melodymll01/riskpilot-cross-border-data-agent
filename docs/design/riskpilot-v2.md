@@ -765,6 +765,9 @@ evaluations/
 15. `bounded_filter_v1` 结果层有限修复：只删除无引用、未知引用或语义不受支持的
     Claim；至少保留一条可信 Claim 时降级为部分回答，全部失败或验证器协议异常时
     仍然安全拒答，不改写 Claim、不补造 Citation、不增加模型调用。
+16. `production_verifier` 实测入口：固定 Claim/Citation，仅调用当前生产
+    `independent_llm_v1`，模型输入隔离 Gold 标签；保存逐 Case predictions、错误和
+    评测报告，以支持模型升级前后的可复现对比。
 
 当前 Case Assessment Graph 已落地的确定性骨架：
 
@@ -787,7 +790,7 @@ pickle fallback。
 尚未完成：
 
 1. LLM 事实抽取、冲突解决和 Assessment 引用修复节点；
-2. 基于 Claim-Citation 评测基线的生产模型实测；
+2. 基于 Claim-Citation 评测基线的完整生成器 + 验证器端到端生产实测；
 3. Deep Research Graph；
 4. V3 案件工作台前端；
 5. 评测中心、故障注入指标、安全红队和报告导出。
