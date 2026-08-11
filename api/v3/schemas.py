@@ -250,6 +250,13 @@ class TransitionFactRequest(BaseModel):
     target: FactStatusValue
 
 
+class ProposeFactsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    field_names: list[str] = Field(min_length=1, max_length=100)
+    document_ids: list[str] | None = Field(default=None, min_length=1, max_length=100)
+
+
 class FactEvidenceOut(BaseModel):
     evidence_id: str
     fact_version: int
@@ -287,6 +294,13 @@ class FactDetailResponse(BaseModel):
 
 class FactListResponse(BaseModel):
     facts: list[CaseFactOut]
+
+
+class FactProposalBatchResponse(BaseModel):
+    facts: list[FactDetailResponse]
+    requested_field_names: list[str]
+    source_document_ids: list[str]
+    conflict_field_names: list[str]
 
 
 PolicyRuleStatusValue = Literal["draft", "published", "retired"]

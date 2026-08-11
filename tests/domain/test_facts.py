@@ -5,7 +5,13 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from domain import CaseFact, CaseFactEvidence, InvalidCaseFactTransition
+from domain import (
+    CaseFact,
+    CaseFactEvidence,
+    FactProposalDocument,
+    FactProposalPage,
+    InvalidCaseFactTransition,
+)
 
 
 def _fact(**overrides: object) -> CaseFact:
@@ -72,6 +78,31 @@ class TestCaseFactEvidence:
                 start_offset=5,
                 end_offset=5,
                 created_at=100.0,
+            )
+
+
+class TestFactProposalDocument:
+    def test_source_sha256_must_be_lowercase_hex(self) -> None:
+        with pytest.raises(ValidationError, match="source_sha256"):
+            FactProposalDocument(
+                document_id="doc_001",
+                document_version_id="ver_001",
+                source_name="source.txt",
+                source_sha256="G" * 64,
+                pages=[FactProposalPage(page_number=1, content="正文")],
+            )
+
+    def test_page_numbers_cannot_repeat(self) -> None:
+        with pytest.raises(ValidationError, match="page_number"):
+            FactProposalDocument(
+                document_id="doc_001",
+                document_version_id="ver_001",
+                source_name="source.txt",
+                source_sha256="a" * 64,
+                pages=[
+                    FactProposalPage(page_number=1, content="正文一"),
+                    FactProposalPage(page_number=1, content="正文二"),
+                ],
             )
 
 

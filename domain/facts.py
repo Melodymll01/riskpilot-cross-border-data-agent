@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 from typing import Any, ClassVar, Literal, cast
 
@@ -13,6 +14,80 @@ from domain.models import BaseDomainModel
 CaseFactStatus = Literal["proposed", "confirmed", "rejected", "conflicting", "unknown"]
 CaseFactSource = Literal["user", "document", "system", "import"]
 FactCriticality = Literal["normal", "critical"]
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+class FactProposalPage(BaseDomainModel):
+    """提供给 Fact 提议模型的稳定页级文本。"""
+
+    page_number: int = Field(ge=1)
+    content: str = Field(min_length=1, max_length=100_000)
+
+    @model_validator(mode="after")
+    def validate_page(self) -> FactProposalPage:
+        if not self.content.strip():
+            raise ValueError("FactProposalPage content 不能为空白字符串")
+        return self
+
+
+class FactProposalDocument(BaseDomainModel):
+    """显式选中的当前 DocumentVersion；不包含 Workspace/Case 之外的文档。"""
+
+    document_id: str = Field(min_length=1)
+    document_version_id: str = Field(min_length=1)
+    source_name: str = Field(min_length=1, max_length=500)
+    source_sha256: str = Field(min_length=64, max_length=64)
+    pages: list[FactProposalPage] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_document(self) -> FactProposalDocument:
+        if not _SHA256_RE.fullmatch(self.source_sha256):
+            raise ValueError("source_sha256 必须是 64 位小写十六进制")
+        page_numbers = [page.page_number for page in self.pages]
+        if len(page_numbers) != len(set(page_numbers)):
+            raise ValueError("FactProposalDocument page_number 不能重复")
+        return self
+
+
+class FactProposalEvidence(BaseDomainModel):
+    """模型返回的候选证据定位；应用层必须重新读取原文核验。"""
+
+    document_id: str = Field(min_length=1)
+    document_version_id: str = Field(min_length=1)
+    page_number: int = Field(ge=1)
+    quote: str = Field(min_length=1, max_length=4000)
+    start_offset: int | None = Field(default=None, ge=0)
+    end_offset: int | None = Field(default=None, ge=0)
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def validate_evidence(self) -> FactProposalEvidence:
+        if not self.quote.strip():
+            raise ValueError("FactProposalEvidence quote 不能为空白字符串")
+        if (self.start_offset is None) != (self.end_offset is None):
+            raise ValueError("start_offset 和 end_offset 必须同时为空或同时存在")
+        if (
+            self.start_offset is not None
+            and self.end_offset is not None
+            and self.end_offset <= self.start_offset
+        ):
+            raise ValueError("end_offset 必须大于 start_offset")
+        return self
+
+
+class FactProposal(BaseDomainModel):
+    """模型只能在调用方字段白名单内返回待人工确认的 Fact 候选。"""
+
+    field_name: str = Field(min_length=1, max_length=200)
+    value: bool | int | float | str | list[Any] | dict[str, Any] | None = None
+    confidence: float = Field(ge=0.0, le=1.0)
+    evidence: list[FactProposalEvidence] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_proposal(self) -> FactProposal:
+        if not self.field_name.strip():
+            raise ValueError("FactProposal field_name 不能为空白字符串")
+        return self
 
 
 class CaseFactEvidence(BaseDomainModel):

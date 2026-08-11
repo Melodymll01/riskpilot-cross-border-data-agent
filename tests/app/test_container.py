@@ -31,6 +31,7 @@ from domain.ports import (
     EvidenceIndexPort,
     EvidencePort,
     EvidenceQAGeneratorPort,
+    FactProposalGeneratorPort,
     KbDocumentRepoPort,
     ObjectStorePort,
     PolicyRuleRepoPort,
@@ -55,6 +56,7 @@ from tests.fakes import (
     FakeEvidenceChunker,
     FakeEvidenceIndex,
     FakeEvidenceQAGenerator,
+    FakeFactProposalGenerator,
     FakeKbRepo,
     FakeObjectStore,
     FakeRetrieve,
@@ -95,6 +97,7 @@ def _full_fake_container() -> AppContainer:
         chat=FakeChat(),
         evidence_qa_generator=FakeEvidenceQAGenerator(),
         claim_support_verifier=FakeClaimSupportVerifier(),
+        fact_proposal_generator=FakeFactProposalGenerator(),
         retriever=FakeRetrieve(),
         web_search=FakeWebSearch(),
         evidence=FakeEvidence(),
@@ -126,6 +129,7 @@ class TestPortConformance:
         assert isinstance(c.chat, ChatPort)
         assert isinstance(c.evidence_qa_generator, EvidenceQAGeneratorPort)
         assert isinstance(c.claim_support_verifier, ClaimSupportVerifierPort)
+        assert isinstance(c.fact_proposal_generator, FactProposalGeneratorPort)
         assert isinstance(c.retriever, RetrievePort)
         assert isinstance(c.web_search, WebSearchPort)
         assert isinstance(c.workflow_runtime, WorkflowRuntimePort)

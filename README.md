@@ -1,7 +1,7 @@
 # RiskPilot · 数据出境合规案件智能体
 
 [![CI](https://github.com/Melodymll01/riskpilot-cross-border-data-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Melodymll01/riskpilot-cross-border-data-agent/actions/workflows/ci.yml)
-[![tests](https://img.shields.io/badge/offline_tests-1230%20passed-brightgreen)](https://github.com/Melodymll01/riskpilot-cross-border-data-agent/actions/workflows/ci.yml)
+[![tests](https://img.shields.io/badge/offline_tests-1250%20passed-brightgreen)](https://github.com/Melodymll01/riskpilot-cross-border-data-agent/actions/workflows/ci.yml)
 [![python](https://img.shields.io/badge/python-3.12-blue)](pyproject.toml)
 [![arch](https://img.shields.io/badge/arch-DDD%204--layer-9b5bff)](docs/architecture/overview.md)
 [![agent](https://img.shields.io/badge/agent-ReAct%20%C2%B7%204%20tools-ff7a59)](app/agent/copilot.py)
@@ -47,6 +47,7 @@
 | **答案可溯源** | 每条回答携带引用 chunk + 原文链接 | [retrieval/generation/](retrieval/generation/) |
 | **案件级证据** | Workspace/Case/Document 隔离，原件、版本、页码、Chunk、事实引用可追溯 | [domain/documents.py](domain/documents.py) |
 | **确定性合规评估** | 只消费 confirmed facts 的版本化规则引擎，生成 Finding、ActionItem 和不可变 Assessment | [domain/policy_engine.py](domain/policy_engine.py) |
+| **文档 Fact 提议** | 字段白名单、当前版本原文复核、冲突检测、Reviewer 确认后才进入规则计算 | [fact_management.py](app/use_cases/fact_management.py) |
 | **可恢复案件工作流** | LangGraph + SQLite checkpointer，支持 interrupt/resume、失败重试、取消和人工审批 | [assessment_runs.py](app/use_cases/assessment_runs.py) |
 | **V3 Evidence QA** | 四类授权检索；结构/语义双校验；有限 Claim 过滤修复，全部失败仍安全拒答 | [evidence_qa.py](app/use_cases/evidence_qa.py) |
 
@@ -54,9 +55,9 @@
 
 | 维度 | 数值 |
 | --- | --- |
-| 离线回归 | **1230 passed · 1 skipped · 零具体用例排除** |
-| 架构规模 | **35 Port + 18 Use Case** · DDD 4 层 |
-| V3 资源接口 | **41 个路由** · Workspace → Evidence QA / Assessment Run |
+| 离线回归 | **1250 passed · 1 skipped · 零具体用例排除** |
+| 架构规模 | **36 Port + 18 Use Case** · DDD 4 层 |
+| V3 资源接口 | **42 个路由** · Workspace → Fact Proposal / Evidence QA / Assessment Run |
 | Agent 工具 | **4 个领域工具** + 9 类流式 AgentEvent |
 | 记忆系统 | **4 层**（L1 最近消息 → L4 语义事实） |
 | Top-K=2 检索命中率 | **93.3%**（chunk_size=300, overlap=60） |
@@ -72,7 +73,7 @@
 flowchart TB
     API[api/v2 + api/v3 · 入口层<br/>QA / Case / Evidence / Assessment Run]
     APP[app · 用例编排层<br/>AppContainer + 18 Use Case]
-    DOMAIN[domain · 纯模型 + 35 Port Protocol]
+    DOMAIN[domain · 纯模型 + 36 Port Protocol]
     INFRA[infra · 适配器<br/>storage / retrieval / LLM / memory / LangGraph]
 
     API --> APP --> DOMAIN
@@ -118,7 +119,7 @@ flowchart LR
 
 ## 工程亮点
 
-- **DDD 4 层架构** + 35 Port Protocol + Container 依赖注入，domain 不依赖 FastAPI、
+- **DDD 4 层架构** + 36 Port Protocol + Container 依赖注入，domain 不依赖 FastAPI、
   LangGraph 或具体数据库
 - **分层 AI 运行时**：V3 简单 QA 使用普通应用服务，V2 兼容问答保留自研 ReAct，
   Case Assessment 使用 `WorkflowRuntimePort + LangGraph`
@@ -230,7 +231,7 @@ ADMIN_USER_IDS=github:your-github-login
 ## 技术栈
 
 - **后端**：FastAPI + Pydantic v2
-- **架构**：DDD 4 层 + 35 Port + Container DI + WorkflowRuntimePort
+- **架构**：DDD 4 层 + 36 Port + Container DI + WorkflowRuntimePort
 - **工作流**：LangGraph 1.x + SQLite checkpointer + interrupt/resume
 - **存储**：SQLite（业务对象 / Run / Event）+ 独立 LangGraph checkpoint SQLite + ChromaDB
 - **鉴权**：GitHub OAuth + JWT（HS256）+ admin 白名单
@@ -238,7 +239,7 @@ ADMIN_USER_IDS=github:your-github-login
 - **检索**：ChromaDB + jieba BM25 + RRF 融合 + bge-reranker-base 重排
 - **记忆**：5 层分层记忆 + TTL + 语义事实去重 + 被遗忘权
 - **前端**：原生 HTML + ES module（无构建依赖）
-- **质量**：离线 pytest（1230 passed）+ Ruff + GitHub Actions CI
+- **质量**：离线 pytest（1250 passed）+ Ruff + GitHub Actions CI
 
 ## 文档
 

@@ -293,9 +293,29 @@ class InMemoryCaseFactRepo:
         fact: CaseFact,
         evidence: list[CaseFactEvidence],
     ) -> None:
-        self._facts[fact.fact_id] = fact
-        self._versions[(fact.fact_id, fact.version)] = fact
-        self._evidence.update({item.evidence_id: item for item in evidence})
+        self.create_many([(fact, evidence)])
+
+    def create_many(
+        self,
+        items: list[tuple[CaseFact, list[CaseFactEvidence]]],
+    ) -> None:
+        fact_ids = [fact.fact_id for fact, _ in items]
+        if len(fact_ids) != len(set(fact_ids)):
+            raise ValueError("批量创建 Fact ID 不能重复")
+        if any(fact_id in self._facts for fact_id in fact_ids):
+            raise ValueError("Fact 已存在")
+        for fact, evidence in items:
+            if any(
+                item.fact_id != fact.fact_id
+                or item.case_id != fact.case_id
+                or item.fact_version != fact.version
+                for item in evidence
+            ):
+                raise ValueError("证据必须属于当前事实及其版本")
+        for fact, evidence in items:
+            self._facts[fact.fact_id] = fact
+            self._versions[(fact.fact_id, fact.version)] = fact
+            self._evidence.update({item.evidence_id: item for item in evidence})
 
     def get(self, fact_id: str) -> CaseFact | None:
         return self._facts.get(fact_id)
@@ -336,11 +356,40 @@ class InMemoryCaseFactRepo:
         fact: CaseFact,
         evidence: list[CaseFactEvidence],
     ) -> None:
-        self.create(fact, evidence)
-
-    def update_status(self, fact: CaseFact) -> None:
+        current = self._facts.get(fact.fact_id)
+        if current is None:
+            raise ValueError("待修订事实不存在")
+        if fact.case_id != current.case_id:
+            raise ValueError("事实修订不能跨 Case")
+        if fact.version != current.version + 1:
+            raise ValueError("事实版本必须单调递增 1")
+        if any(
+            item.fact_id != fact.fact_id
+            or item.case_id != fact.case_id
+            or item.fact_version != fact.version
+            for item in evidence
+        ):
+            raise ValueError("证据必须属于当前事实及其版本")
         self._facts[fact.fact_id] = fact
         self._versions[(fact.fact_id, fact.version)] = fact
+        self._evidence.update({item.evidence_id: item for item in evidence})
+
+    def update_status(self, fact: CaseFact) -> None:
+        self.update_statuses([fact])
+
+    def update_statuses(self, facts: list[CaseFact]) -> None:
+        fact_ids = [fact.fact_id for fact in facts]
+        if len(fact_ids) != len(set(fact_ids)):
+            raise ValueError("批量状态更新 Fact ID 不能重复")
+        if any(fact_id not in self._facts for fact_id in fact_ids):
+            raise ValueError("待更新事实不存在")
+        if any(
+            fact.version != self._facts[fact.fact_id].version for fact in facts
+        ):
+            raise ValueError("状态更新不能改变事实版本")
+        for fact in facts:
+            self._facts[fact.fact_id] = fact
+            self._versions[(fact.fact_id, fact.version)] = fact
 
 
 class InMemoryPolicyRuleRepo:

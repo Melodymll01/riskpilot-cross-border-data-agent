@@ -31,6 +31,7 @@ from domain.ports import (
     EvidenceIndexPort,
     EvidencePort,
     EvidenceQAGeneratorPort,
+    FactProposalGeneratorPort,
     FactStorePort,
     FeedbackRepoPort,
     KbDocumentRepoPort,
@@ -63,7 +64,11 @@ from infra.memory import (
     ThreadPoolMemoryScheduler,
 )
 from infra.object_store import LocalObjectStore
-from infra.qa import StructuredClaimSupportVerifier, StructuredEvidenceQAGenerator
+from infra.qa import (
+    StructuredClaimSupportVerifier,
+    StructuredEvidenceQAGenerator,
+    StructuredFactProposalGenerator,
+)
 from infra.research import AgenticResearchAdapter
 from infra.risk_profile import StubRiskProfileService
 from infra.search import EmbedderAdapter, HybridRetrieverAdapter
@@ -212,6 +217,14 @@ def build_claim_support_verifier(
     chat: ChatPort,
 ) -> ClaimSupportVerifierPort:
     return StructuredClaimSupportVerifier(chat)
+
+
+def build_fact_proposal_generator(
+    _settings: Settings,
+    *,
+    chat: ChatPort,
+) -> FactProposalGeneratorPort:
+    return StructuredFactProposalGenerator(chat)
 
 
 def build_retriever(_settings: Settings) -> RetrievePort:

@@ -24,13 +24,21 @@ class SqliteCaseFactRepo:
         fact: CaseFact,
         evidence: list[CaseFactEvidence],
     ) -> None:
-        _validate_evidence(fact, evidence)
+        self.create_many([(fact, evidence)])
+
+    def create_many(
+        self,
+        items: list[tuple[CaseFact, list[CaseFactEvidence]]],
+    ) -> None:
+        for fact, evidence in items:
+            _validate_evidence(fact, evidence)
         conn = self._pool.get()
         with conn:
-            _validate_persisted_evidence_scope(conn, evidence)
-            _insert_fact(conn, fact)
-            _insert_version(conn, fact)
-            _insert_evidence(conn, evidence)
+            for fact, evidence in items:
+                _validate_persisted_evidence_scope(conn, evidence)
+                _insert_fact(conn, fact)
+                _insert_version(conn, fact)
+                _insert_evidence(conn, evidence)
 
     def get(self, fact_id: str) -> CaseFact | None:
         row = (
@@ -135,21 +143,32 @@ class SqliteCaseFactRepo:
             _insert_evidence(conn, evidence)
 
     def update_status(self, fact: CaseFact) -> None:
-        current = self.get(fact.fact_id)
-        if current is None:
-            raise ValueError("待更新事实不存在")
-        if fact.version != current.version:
-            raise ValueError("状态更新不能改变事实版本")
+        self.update_statuses([fact])
+
+    def update_statuses(self, facts: list[CaseFact]) -> None:
+        if not facts:
+            return
+        fact_ids = [fact.fact_id for fact in facts]
+        if len(fact_ids) != len(set(fact_ids)):
+            raise ValueError("批量状态更新 Fact ID 不能重复")
+        currents = {fact_id: self.get(fact_id) for fact_id in fact_ids}
+        for fact in facts:
+            current = currents[fact.fact_id]
+            if current is None:
+                raise ValueError("待更新事实不存在")
+            if fact.version != current.version:
+                raise ValueError("状态更新不能改变事实版本")
         conn = self._pool.get()
         with conn:
-            _update_fact(conn, fact)
-            conn.execute(
-                """
-                UPDATE case_fact_versions SET payload_json = ?
-                WHERE fact_id = ? AND version = ?
-                """,
-                (fact.model_dump_json(), fact.fact_id, fact.version),
-            )
+            for fact in facts:
+                _update_fact(conn, fact)
+                conn.execute(
+                    """
+                    UPDATE case_fact_versions SET payload_json = ?
+                    WHERE fact_id = ? AND version = ?
+                    """,
+                    (fact.model_dump_json(), fact.fact_id, fact.version),
+                )
 
 
 def _validate_evidence(

@@ -16,6 +16,7 @@ from app.use_cases.fact_management import (
     FactDetail,
     FactEvidenceInput,
     FactManagementUseCase,
+    FactProposalBatch,
 )
 from app.use_cases.ingest import IngestionUseCase
 from app.use_cases.kb_management import KbIngestResult, KbManagementUseCase
@@ -38,6 +39,7 @@ __all__ = [
     "FactDetail",
     "FactEvidenceInput",
     "FactManagementUseCase",
+    "FactProposalBatch",
     "IngestionUseCase",
     "KbIngestResult",
     "KbManagementUseCase",

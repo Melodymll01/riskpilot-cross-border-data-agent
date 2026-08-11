@@ -21,7 +21,12 @@ from domain.cases import Case
 from domain.document_content import DocumentParseSnapshot
 from domain.documents import CaseDocument, Document, DocumentVersion, ProcessingJob
 from domain.evidence import EvidenceChunk, EvidenceSearchHit
-from domain.facts import CaseFact, CaseFactEvidence
+from domain.facts import (
+    CaseFact,
+    CaseFactEvidence,
+    FactProposal,
+    FactProposalDocument,
+)
 from domain.models import (
     Artifact,
     AuditEntry,
@@ -300,6 +305,13 @@ class CaseFactRepoPort(Protocol):
         evidence: list[CaseFactEvidence],
     ) -> None: ...
 
+    def create_many(
+        self,
+        items: list[tuple[CaseFact, list[CaseFactEvidence]]],
+    ) -> None:
+        """原子创建一批 Fact 及其证据；任一失败不得留下部分结果。"""
+        ...
+
     def get(self, fact_id: str) -> CaseFact | None: ...
 
     def get_version(self, fact_id: str, version: int) -> CaseFact | None: ...
@@ -325,6 +337,10 @@ class CaseFactRepoPort(Protocol):
     ) -> None: ...
 
     def update_status(self, fact: CaseFact) -> None: ...
+
+    def update_statuses(self, facts: list[CaseFact]) -> None:
+        """原子更新一批 Fact 状态，用于唯一确认同字段事实。"""
+        ...
 
 
 @runtime_checkable
@@ -517,6 +533,18 @@ class ChatPort(Protocol):
         max_tokens: int | None = None,
         json_mode: bool = False,
     ) -> str: ...
+
+
+@runtime_checkable
+class FactProposalGeneratorPort(Protocol):
+    """基于显式字段白名单和案件文档生成待人工确认的 Fact 候选。"""
+
+    def propose(
+        self,
+        *,
+        field_names: list[str],
+        documents: list[FactProposalDocument],
+    ) -> list[FactProposal]: ...
 
 
 @runtime_checkable

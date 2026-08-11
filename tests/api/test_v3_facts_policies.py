@@ -7,6 +7,8 @@ from typing import Any
 from fastapi.testclient import TestClient
 
 from app.container import AppContainer
+from domain import FactProposal, FactProposalEvidence
+from tests.fakes import FakeFactProposalGenerator
 
 
 def _switch_actor(client: TestClient, actor_id: str) -> None:
@@ -45,7 +47,9 @@ def _upload_and_parse(client: TestClient, case_id: str) -> tuple[str, str]:
             )
         },
     ).json()
-    client.post(f"/api/v3/processing-jobs/{uploaded['job']['job_id']}/parse")
+    job_id = uploaded["job"]["job_id"]
+    client.post(f"/api/v3/processing-jobs/{job_id}/parse")
+    client.post(f"/api/v3/processing-jobs/{job_id}/index")
     return uploaded["document"]["document_id"], uploaded["version"]["version_id"]
 
 
@@ -67,6 +71,131 @@ def _rule_payload() -> dict[str, object]:
 
 
 class TestFactApi:
+    def test_document_fact_proposal_requires_reviewer_confirmation(
+        self, authed_client: tuple[TestClient, dict[str, Any]]
+    ) -> None:
+        client, _ = authed_client
+        workspace_id, case_id = _create_case(client)
+        client.put(
+            f"/api/v3/workspaces/{workspace_id}/members/github:editor",
+            json={"role": "editor"},
+        )
+        client.put(
+            f"/api/v3/workspaces/{workspace_id}/members/github:reviewer",
+            json={"role": "reviewer"},
+        )
+        _switch_actor(client, "github:editor")
+        document_id, version_id = _upload_and_parse(client, case_id)
+        container: AppContainer = client.app.state.container  # type: ignore[attr-defined]
+        generator = FakeFactProposalGenerator(
+            [
+                FactProposal(
+                    field_name="important_data_involved",
+                    value=True,
+                    confidence=0.95,
+                    evidence=[
+                        FactProposalEvidence(
+                            document_id=document_id,
+                            document_version_id=version_id,
+                            page_number=1,
+                            quote="涉及重要数据",
+                            confidence=0.95,
+                        )
+                    ],
+                )
+            ]
+        )
+        container.fact_management._proposal_generator = generator
+
+        response = client.post(
+            f"/api/v3/cases/{case_id}/fact-proposals",
+            json={
+                "field_names": ["important_data_involved"],
+                "document_ids": [document_id],
+            },
+        )
+
+        assert response.status_code == 201, response.text
+        body = response.json()
+        fact = body["facts"][0]["fact"]
+        assert fact["status"] == "proposed"
+        assert fact["criticality"] == "critical"
+        assert body["conflict_field_names"] == []
+        assert body["source_document_ids"] == [document_id]
+        assert generator.calls[0]["field_names"] == ["important_data_involved"]
+
+        denied = client.post(
+            f"/api/v3/facts/{fact['fact_id']}/transitions",
+            json={"target": "confirmed"},
+        )
+        assert denied.status_code == 403
+        _switch_actor(client, "github:reviewer")
+        confirmed = client.post(
+            f"/api/v3/facts/{fact['fact_id']}/transitions",
+            json={"target": "confirmed"},
+        )
+        assert confirmed.status_code == 200
+        assert confirmed.json()["confirmed_by"] == "github:reviewer"
+
+    def test_document_fact_proposal_marks_value_conflict(
+        self, authed_client: tuple[TestClient, dict[str, Any]]
+    ) -> None:
+        client, _ = authed_client
+        workspace_id, case_id = _create_case(client)
+        document_id, version_id = _upload_and_parse(client, case_id)
+        existing = client.post(
+            f"/api/v3/cases/{case_id}/facts",
+            json={
+                "field_name": "important_data_involved",
+                "value": False,
+                "source_type": "user",
+                "confidence": 1.0,
+            },
+        )
+        assert existing.status_code == 201
+        container: AppContainer = client.app.state.container  # type: ignore[attr-defined]
+        container.fact_management._proposal_generator = FakeFactProposalGenerator(
+            [
+                FactProposal(
+                    field_name="important_data_involved",
+                    value=True,
+                    confidence=0.95,
+                    evidence=[
+                        FactProposalEvidence(
+                            document_id=document_id,
+                            document_version_id=version_id,
+                            page_number=1,
+                            quote="涉及重要数据",
+                        )
+                    ],
+                )
+            ]
+        )
+
+        response = client.post(
+            f"/api/v3/cases/{case_id}/fact-proposals",
+            json={"field_names": ["important_data_involved"]},
+        )
+
+        assert response.status_code == 201, response.text
+        candidate = response.json()["facts"][0]["fact"]
+        assert candidate["status"] == "conflicting"
+        assert response.json()["conflict_field_names"] == ["important_data_involved"]
+        client.put(
+            f"/api/v3/workspaces/{workspace_id}/members/github:reviewer",
+            json={"role": "reviewer"},
+        )
+        _switch_actor(client, "github:reviewer")
+        confirmed = client.post(
+            f"/api/v3/facts/{candidate['fact_id']}/transitions",
+            json={"target": "confirmed"},
+        )
+        assert confirmed.status_code == 200
+        facts = client.get(f"/api/v3/cases/{case_id}/facts").json()["facts"]
+        same_field = [fact for fact in facts if fact["field_name"] == "important_data_involved"]
+        assert [fact["status"] for fact in same_field].count("confirmed") == 1
+        assert [fact["status"] for fact in same_field].count("rejected") == 1
+
     def test_document_fact_create_revise_confirm_and_list(
         self, authed_client: tuple[TestClient, dict[str, Any]]
     ) -> None:

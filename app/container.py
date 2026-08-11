@@ -40,6 +40,7 @@ from app.factories import (
     build_evidence_chunker,
     build_evidence_index,
     build_evidence_qa_generator,
+    build_fact_proposal_generator,
     build_fact_store,
     build_feedback_repo,
     build_kb_repo,
@@ -101,6 +102,7 @@ if TYPE_CHECKING:
         EvidenceIndexPort,
         EvidencePort,
         EvidenceQAGeneratorPort,
+        FactProposalGeneratorPort,
         FactStorePort,
         KbDocumentRepoPort,
         MemoryJobSchedulerPort,
@@ -139,6 +141,7 @@ class AppContainer:
         chat: ChatPort | None = None,
         evidence_qa_generator: EvidenceQAGeneratorPort | None = None,
         claim_support_verifier: ClaimSupportVerifierPort | None = None,
+        fact_proposal_generator: FactProposalGeneratorPort | None = None,
         retriever: RetrievePort | None = None,
         web_search: WebSearchPort | None = None,
         evidence: EvidencePort | None = None,
@@ -222,6 +225,10 @@ class AppContainer:
         self.claim_support_verifier: ClaimSupportVerifierPort = (
             claim_support_verifier
             or build_claim_support_verifier(settings, chat=self.chat)
+        )
+        self.fact_proposal_generator: FactProposalGeneratorPort = (
+            fact_proposal_generator
+            or build_fact_proposal_generator(settings, chat=self.chat)
         )
         self.retriever: RetrievePort = retriever or build_retriever(settings)
         self.web_search: WebSearchPort = web_search or build_web_search(settings)
@@ -334,6 +341,7 @@ class AppContainer:
         self.fact_management = FactManagementUseCase(
             fact_repo=self.case_fact_repo,
             document_repo=self.document_repo,
+            proposal_generator=self.fact_proposal_generator,
             case_management=self.case_management,
             workspace_management=self.workspace_management,
         )

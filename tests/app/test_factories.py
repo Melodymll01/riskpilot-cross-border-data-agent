@@ -23,6 +23,7 @@ from app.factories import (
     build_embedder,
     build_evidence,
     build_evidence_qa_generator,
+    build_fact_proposal_generator,
     build_object_store,
     build_policy_rule_repo,
     build_retriever,
@@ -48,6 +49,7 @@ from domain.ports import (
     EmbedPort,
     EvidencePort,
     EvidenceQAGeneratorPort,
+    FactProposalGeneratorPort,
     ObjectStorePort,
     PolicyRuleRepoPort,
     RetrievePort,
@@ -147,6 +149,10 @@ class TestExternalFactories:
         assert isinstance(
             build_evidence_qa_generator(settings, chat=chat),
             EvidenceQAGeneratorPort,
+        )
+        assert isinstance(
+            build_fact_proposal_generator(settings, chat=chat),
+            FactProposalGeneratorPort,
         )
         assert isinstance(
             build_claim_support_verifier(settings, chat=chat),

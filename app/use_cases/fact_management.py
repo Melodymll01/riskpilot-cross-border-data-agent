@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import time
 import uuid
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from domain.errors import CaseFactNotFound, InvalidDocumentContent
 from domain.facts import (
@@ -14,16 +15,25 @@ from domain.facts import (
     CaseFactSource,
     CaseFactStatus,
     FactCriticality,
+    FactProposalDocument,
+    FactProposalPage,
 )
 from domain.workspaces import WorkspaceRole
 
 if TYPE_CHECKING:
     from app.use_cases.case_management import CaseManagementUseCase
     from app.use_cases.workspace_management import WorkspaceManagementUseCase
-    from domain.ports import CaseFactRepoPort, DocumentRepoPort
+    from domain.ports import (
+        CaseFactRepoPort,
+        DocumentRepoPort,
+        FactProposalGeneratorPort,
+    )
 
 _WRITE_ROLES: set[WorkspaceRole] = {"editor", "reviewer", "admin"}
 _REVIEW_ROLES: set[WorkspaceRole] = {"reviewer", "admin"}
+_MAX_PROPOSAL_FIELDS = 20
+_MAX_PROPOSAL_DOCUMENTS = 20
+_MAX_PROPOSAL_CHARS = 200_000
 
 
 @dataclass(frozen=True)
@@ -43,6 +53,14 @@ class FactDetail:
     evidence: list[CaseFactEvidence]
 
 
+@dataclass(frozen=True)
+class FactProposalBatch:
+    facts: list[FactDetail]
+    requested_field_names: list[str]
+    source_document_ids: list[str]
+    conflict_field_names: list[str]
+
+
 def _new_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:16]}"
 
@@ -53,11 +71,13 @@ class FactManagementUseCase:
         *,
         fact_repo: CaseFactRepoPort,
         document_repo: DocumentRepoPort,
+        proposal_generator: FactProposalGeneratorPort | None = None,
         case_management: CaseManagementUseCase,
         workspace_management: WorkspaceManagementUseCase,
     ) -> None:
         self._facts = fact_repo
         self._documents = document_repo
+        self._proposal_generator = proposal_generator
         self._case_management = case_management
         self._workspace_management = workspace_management
 
@@ -140,9 +160,20 @@ class FactManagementUseCase:
         if current is None:
             raise CaseFactNotFound(fact_id)
         case = self._case_management.get_case(current.case_id, actor_id)
+        active_peers = (
+            [
+                fact
+                for fact in self._facts.list_for_case(current.case_id)
+                if fact.fact_id != current.fact_id
+                and fact.field_name == current.field_name
+                and fact.status not in {"rejected", "unknown"}
+            ]
+            if target == "confirmed"
+            else []
+        )
         allowed_roles = (
             _REVIEW_ROLES
-            if target == "confirmed" and current.criticality == "critical"
+            if target == "confirmed" and (current.criticality == "critical" or active_peers)
             else _WRITE_ROLES
         )
         self._workspace_management.require_role(
@@ -152,9 +183,15 @@ class FactManagementUseCase:
             action=f"将案件事实状态更新为 {target}",
         )
         updated = current.transition_to(target, actor_id=actor_id)
-        if updated is not current:
+        if target == "confirmed":
+            rejected_peers = [
+                fact.transition_to("rejected", actor_id=actor_id) for fact in active_peers
+            ]
+            if updated is not current or rejected_peers:
+                self._facts.update_statuses([updated, *rejected_peers])
+        elif updated is not current:
             self._facts.update_status(updated)
-        return cast("CaseFact", updated)
+        return updated
 
     def list_facts(
         self,
@@ -164,10 +201,11 @@ class FactManagementUseCase:
         statuses: set[str] | None = None,
     ) -> list[CaseFact]:
         self._case_management.get_case(case_id, actor_id)
-        return cast(
-            "list[CaseFact]",
-            self._facts.list_for_case(case_id, statuses=statuses),
+        facts: list[CaseFact] = self._facts.list_for_case(
+            case_id,
+            statuses=statuses,
         )
+        return facts
 
     def get_detail(self, fact_id: str, actor_id: str) -> FactDetail:
         fact = self._facts.get(fact_id)
@@ -180,6 +218,114 @@ class FactManagementUseCase:
                 fact.fact_id,
                 fact_version=fact.version,
             ),
+        )
+
+    def propose_from_documents(
+        self,
+        actor_id: str,
+        *,
+        case_id: str,
+        field_names: list[str],
+        document_ids: list[str] | None = None,
+    ) -> FactProposalBatch:
+        if self._proposal_generator is None:
+            raise RuntimeError("Fact proposal generator 未装配")
+        normalized_fields = _normalized_unique(field_names, field_name="field_names")
+        if len(normalized_fields) > _MAX_PROPOSAL_FIELDS:
+            raise ValueError(f"field_names 不能超过 {_MAX_PROPOSAL_FIELDS} 个")
+        case = self._case_management.get_case(case_id, actor_id)
+        self._workspace_management.require_role(
+            case.workspace_id,
+            actor_id,
+            _WRITE_ROLES,
+            action="从案件文档提议事实",
+        )
+        documents = self._proposal_documents(
+            case_id=case.case_id,
+            workspace_id=case.workspace_id,
+            document_ids=document_ids,
+        )
+        proposals = self._proposal_generator.propose(
+            field_names=normalized_fields,
+            documents=documents,
+        )
+        proposal_fields = [proposal.field_name for proposal in proposals]
+        if any(field_name not in set(normalized_fields) for field_name in proposal_fields):
+            raise ValueError("Fact proposal generator 返回了白名单外字段")
+        if len(proposal_fields) != len(set(proposal_fields)):
+            raise ValueError("Fact proposal generator 同一字段只能返回一个候选")
+        allowed_sources = {
+            (document.document_id, document.document_version_id) for document in documents
+        }
+        now = time.time()
+        existing_by_field = _facts_by_field(self._facts.list_for_case(case.case_id))
+        details: list[FactDetail] = []
+        conflicts: list[str] = []
+        for proposal in proposals:
+            fact_id = _new_id("fact")
+            evidence_inputs = [
+                FactEvidenceInput(
+                    document_id=item.document_id,
+                    document_version_id=item.document_version_id,
+                    page_number=item.page_number,
+                    quote=item.quote,
+                    start_offset=item.start_offset,
+                    end_offset=item.end_offset,
+                    confidence=item.confidence,
+                )
+                for item in proposal.evidence
+            ]
+            if any(
+                (item.document_id, item.document_version_id) not in allowed_sources
+                for item in proposal.evidence
+            ):
+                raise InvalidDocumentContent(
+                    "Fact proposal generator 引用了本次选定范围外的文档版本"
+                )
+            for item in proposal.evidence:
+                current_document = self._documents.get(item.document_id)
+                if (
+                    current_document is None
+                    or current_document.status != "ready"
+                    or current_document.current_version_id != item.document_version_id
+                ):
+                    raise InvalidDocumentContent(
+                        "Fact proposal generator 引用的文档版本已不是当前就绪版本"
+                    )
+            fact = CaseFact(
+                fact_id=fact_id,
+                case_id=case.case_id,
+                field_name=proposal.field_name,
+                value=proposal.value,
+                status=(
+                    "conflicting"
+                    if _has_value_conflict(
+                        existing_by_field.get(proposal.field_name, []), proposal.value
+                    )
+                    else "proposed"
+                ),
+                source_type="document",
+                confidence=proposal.confidence,
+                criticality="critical",
+                created_by=actor_id,
+                created_at=now,
+                updated_at=now,
+            )
+            evidence_models = self._build_evidence(
+                fact,
+                evidence_inputs,
+                created_at=now,
+            )
+            self._require_source_evidence(fact, evidence_models)
+            if fact.status == "conflicting":
+                conflicts.append(fact.field_name)
+            details.append(FactDetail(fact=fact, evidence=evidence_models))
+        self._facts.create_many([(detail.fact, detail.evidence) for detail in details])
+        return FactProposalBatch(
+            facts=details,
+            requested_field_names=normalized_fields,
+            source_document_ids=[document.document_id for document in documents],
+            conflict_field_names=conflicts,
         )
 
     def _get_authorized_fact(
@@ -201,6 +347,77 @@ class FactManagementUseCase:
             action=action,
         )
         return fact, case.workspace_id
+
+    def _proposal_documents(
+        self,
+        *,
+        case_id: str,
+        workspace_id: str,
+        document_ids: list[str] | None,
+    ) -> list[FactProposalDocument]:
+        selected_ids = (
+            None
+            if document_ids is None
+            else set(_normalized_unique(document_ids, field_name="document_ids"))
+        )
+        case_documents = self._documents.list_for_case(case_id)
+        if selected_ids is not None:
+            available_ids = {document.document_id for document in case_documents}
+            unknown = sorted(selected_ids - available_ids)
+            if unknown:
+                raise InvalidDocumentContent("请求的文档不属于当前案件: " + ", ".join(unknown))
+            case_documents = [
+                document for document in case_documents if document.document_id in selected_ids
+            ]
+        proposal_documents: list[FactProposalDocument] = []
+        for document in case_documents:
+            if (
+                document.workspace_id != workspace_id
+                or document.status != "ready"
+                or document.current_version_id is None
+            ):
+                continue
+            version = self._documents.get_version(document.current_version_id)
+            snapshot = self._documents.get_parse_snapshot(document.current_version_id)
+            if (
+                version is None
+                or snapshot is None
+                or version.document_id != document.document_id
+                or version.sha256 != snapshot.source_sha256
+            ):
+                continue
+            pages: list[FactProposalPage] = []
+            for page in snapshot.pages:
+                parts = [page.text]
+                parts.extend(table.markdown for table in page.tables)
+                content = "\n\n".join(part for part in parts if part)
+                if content.strip():
+                    pages.append(
+                        FactProposalPage(
+                            page_number=page.page_number,
+                            content=content,
+                        )
+                    )
+            if pages:
+                proposal_documents.append(
+                    FactProposalDocument(
+                        document_id=document.document_id,
+                        document_version_id=version.version_id,
+                        source_name=document.logical_name,
+                        source_sha256=version.sha256,
+                        pages=pages,
+                    )
+                )
+        if not proposal_documents:
+            raise InvalidDocumentContent("当前案件没有可用于事实提议的已解析就绪文档")
+        if len(proposal_documents) > _MAX_PROPOSAL_DOCUMENTS:
+            raise ValueError(f"一次事实提议最多使用 {_MAX_PROPOSAL_DOCUMENTS} 个文档")
+        total_chars = sum(
+            len(page.content) for document in proposal_documents for page in document.pages
+        )
+        if total_chars > _MAX_PROPOSAL_CHARS:
+            raise ValueError(f"事实提议文档正文不能超过 {_MAX_PROPOSAL_CHARS} 个字符")
+        return proposal_documents
 
     def _build_evidence(
         self,
@@ -263,3 +480,35 @@ class FactManagementUseCase:
     ) -> None:
         if fact.source_type == "document" and not evidence:
             raise InvalidDocumentContent("document 来源的事实必须包含原文证据")
+
+
+def _normalized_unique(values: list[str], *, field_name: str) -> list[str]:
+    normalized = [value.strip() for value in values if value.strip()]
+    if not normalized or len(normalized) != len(values):
+        raise ValueError(f"{field_name} 必须是非空字符串数组")
+    if len(normalized) != len(set(normalized)):
+        raise ValueError(f"{field_name} 不能重复")
+    return normalized
+
+
+def _facts_by_field(facts: list[CaseFact]) -> dict[str, list[CaseFact]]:
+    grouped: dict[str, list[CaseFact]] = {}
+    for fact in facts:
+        if fact.status == "rejected":
+            continue
+        grouped.setdefault(fact.field_name, []).append(fact)
+    return grouped
+
+
+def _has_value_conflict(facts: list[CaseFact], proposed_value: object) -> bool:
+    proposed = _canonical_fact_value(proposed_value)
+    return any(_canonical_fact_value(fact.value) != proposed for fact in facts)
+
+
+def _canonical_fact_value(value: object) -> str:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )

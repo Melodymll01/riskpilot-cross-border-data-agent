@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -197,6 +198,42 @@ class TestCaseFactRepo:
         assert fact_repo.get_version(fact.fact_id, 1) == confirmed
         assert fact_repo.get_version(fact.fact_id, 2) is None
 
+    def test_update_statuses_updates_peers_atomically(
+        self,
+        pool: SqliteConnectionPool,
+        fact_repo: SqliteCaseFactRepo,
+    ) -> None:
+        _seed_case_and_document(pool)
+        original = _fact(fact_id="fact_original")
+        candidate = _fact(
+            fact_id="fact_candidate",
+            value=False,
+            status="conflicting",
+        )
+        fact_repo.create_many(
+            [
+                (original, [_evidence(original, "evidence_original")]),
+                (candidate, [_evidence(candidate, "evidence_candidate")]),
+            ]
+        )
+        confirmed = candidate.transition_to(
+            "confirmed",
+            actor_id="github:reviewer",
+            at=101.0,
+        )
+        rejected = original.transition_to(
+            "rejected",
+            actor_id="github:reviewer",
+            at=101.0,
+        )
+
+        fact_repo.update_statuses([confirmed, rejected])
+
+        assert fact_repo.get(candidate.fact_id) == confirmed
+        assert fact_repo.get(original.fact_id) == rejected
+        assert fact_repo.get_version(candidate.fact_id, 1) == confirmed
+        assert fact_repo.get_version(original.fact_id, 1) == rejected
+
     def test_evidence_version_mismatch_rejected(
         self,
         pool: SqliteConnectionPool,
@@ -222,3 +259,44 @@ class TestCaseFactRepo:
         pool.get().commit()
         with pytest.raises(ValueError, match="未绑定"):
             fact_repo.create(fact, [_evidence(fact)])
+
+    def test_create_many_is_atomic(
+        self,
+        pool: SqliteConnectionPool,
+        fact_repo: SqliteCaseFactRepo,
+    ) -> None:
+        _seed_case_and_document(pool)
+        first = _fact(fact_id="fact_first")
+        second = _fact(fact_id="fact_second", field_name="destination_country", value="DE")
+        invalid_evidence = _evidence(second, "evidence_second").model_copy(
+            update={"fact_version": 2}
+        )
+
+        with pytest.raises(ValueError, match="版本"):
+            fact_repo.create_many(
+                [
+                    (first, [_evidence(first, "evidence_first")]),
+                    (second, [invalid_evidence]),
+                ]
+            )
+
+        assert fact_repo.list_for_case("case_001") == []
+
+    def test_create_many_rolls_back_after_database_error(
+        self,
+        pool: SqliteConnectionPool,
+        fact_repo: SqliteCaseFactRepo,
+    ) -> None:
+        _seed_case_and_document(pool)
+        first = _fact(fact_id="fact_first")
+        second = _fact(fact_id="fact_first", field_name="destination_country", value="DE")
+
+        with pytest.raises(sqlite3.IntegrityError):
+            fact_repo.create_many(
+                [
+                    (first, [_evidence(first, "evidence_first")]),
+                    (second, [_evidence(second, "evidence_second")]),
+                ]
+            )
+
+        assert fact_repo.list_for_case("case_001") == []

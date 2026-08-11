@@ -9,6 +9,7 @@ from tests.fakes.fake_embed import FakeEmbed
 from tests.fakes.fake_evidence import FakeEvidence
 from tests.fakes.fake_evidence_chunker import FakeEvidenceChunker
 from tests.fakes.fake_evidence_index import FakeEvidenceIndex
+from tests.fakes.fake_fact_proposals import FakeFactProposalGenerator
 from tests.fakes.fake_kb_repo import FakeKbRepo
 from tests.fakes.fake_object_store import FakeObjectStore
 from tests.fakes.fake_qa import FakeClaimSupportVerifier, FakeEvidenceQAGenerator
@@ -36,6 +37,7 @@ __all__ = [
     "FakeEvidenceChunker",
     "FakeEvidenceIndex",
     "FakeEvidence",
+    "FakeFactProposalGenerator",
     "FakeKbRepo",
     "FakeObjectStore",
     "FakeClaimSupportVerifier",

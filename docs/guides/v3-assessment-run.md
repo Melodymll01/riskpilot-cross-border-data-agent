@@ -111,6 +111,36 @@ POST /api/v3/runs/{run_id}/continue
 
 ## 5. 创建并确认 Fact
 
+可以先让服务端基于当前案件的 `ready` 文档生成候选：
+
+```http
+POST /api/v3/cases/{case_id}/fact-proposals
+Content-Type: application/json
+
+{
+  "field_names":[
+    "important_data_involved",
+    "destination_country"
+  ],
+  "document_ids":["{document_id}"]
+}
+```
+
+约束：
+
+- `field_names` 是强制白名单，模型不能返回其他字段；
+- 单次最多 20 个字段、20 个文档、20 万字符正文，防止 Prompt 成本失控；
+- 只读取当前 Case 已完成索引的当前 DocumentVersion；
+- 每个候选必须带页码和逐字 quote，服务端会重新读取解析快照核验；
+- 候选统一写成 `critical`，状态只能是 `proposed` 或 `conflicting`；
+- 同字段已有未拒绝事实且值不同，新候选会返回 `conflicting`；
+- Reviewer/Admin 确认其中一个值时，同字段其他 active facts 会在同一事务中转为
+  `rejected`，确保规则引擎只看到一个 confirmed 值；
+- 一批候选原子写入，任一证据非法时整批不落库；
+- 模型不负责确认，所有候选都不能直接进入规则引擎。
+
+也可以人工创建 Fact：
+
 ```http
 POST /api/v3/cases/{case_id}/facts
 Content-Type: application/json
@@ -124,7 +154,7 @@ Content-Type: application/json
 }
 ```
 
-关键事实只能由 `reviewer` 或 `admin` 确认：
+关键事实和模型生成的全部候选只能由 `reviewer` 或 `admin` 确认：
 
 ```http
 POST /api/v3/facts/{fact_id}/transitions
@@ -141,6 +171,9 @@ current_stage=detect_missing_facts
 ```
 
 补齐并确认事实后再次调用 `POST /api/v3/runs/{run_id}/continue`。
+
+当前 Graph 不会在节点内直接调用模型或写入 Fact。`fact_confirmation` 中断后，由前端或
+调用方显式请求 `fact-proposals`、展示证据和冲突，再由 Reviewer 确认，最后继续 Run。
 
 ## 6. 创建并发布规则
 
@@ -288,6 +321,7 @@ Assessment。
 - 简单问答仍不使用 LangGraph；
 - Graph 不直接持久化最终 Assessment；
 - 规则计算只消费 confirmed facts；
+- Fact 提议模型只生成候选，不得确认事实或直接推进 Run；
 - Reviewer/Admin 才能批准正式 Assessment；
 - 同一 Case 同一工作流只允许一个活动 Run；
 - 产品 Run 使用 revision 乐观锁，LangGraph 使用独立 SQLite checkpointer；

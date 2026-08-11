@@ -90,8 +90,10 @@ AssessmentRunUseCase
 
 ### 当前边界
 
-已实现的是 Evidence QA 与 Case Assessment 的工程骨架和确定性闭环。LLM 事实抽取、
-证据冲突解决、Assessment 引用修复、Deep Research Graph 和 V3 前端仍待后续切片。
+已实现 Evidence QA、显式文档 Fact 提议与 Case Assessment 的工程骨架和确定性闭环。
+Fact 提议具备字段白名单、当前版本原文复核、冲突检测和 Reviewer 唯一确认，但尚未
+内联到 LangGraph `fact_confirmation` 节点。Assessment 引用修复、Deep Research Graph
+和 V3 前端仍待后续切片。
 
 完整产品和技术设计见：
 

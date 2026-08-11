@@ -307,6 +307,19 @@ conflicting
 unknown
 ```
 
+LLM Fact 提议边界：
+
+- 调用方显式传入允许抽取的 `field_names`，模型不能创建白名单外字段；
+- 只读取当前 Case 已绑定、已解析、已完成索引且处于 `ready` 的当前
+  DocumentVersion；
+- 模型输出必须包含页码和逐字 quote，应用层重新读取解析快照核验；
+- 模型候选统一以 `critical + proposed` 写入，不能直接变成 `confirmed`；
+- 同字段已有未拒绝事实且值不一致时，新候选标记为 `conflicting`；
+- Reviewer/Admin 确认一个候选时，同字段其他 active facts 在同一事务中转为
+  `rejected`，保证最多一个 confirmed 值；
+- 一批候选在全部字段、证据和冲突校验通过后原子写入，任一失败不留部分结果；
+- `confirmed` 仍只由 Reviewer/Admin 人工转换，规则引擎仍只消费 confirmed facts。
+
 ```text
 EvidenceSpan
 - evidence_id
@@ -768,6 +781,9 @@ evaluations/
 16. `production_verifier` 实测入口：固定 Claim/Citation，仅调用当前生产
     `independent_llm_v1`，模型输入隔离 Gold 标签；保存逐 Case predictions、错误和
     评测报告，以支持模型升级前后的可复现对比。
+17. 文档 Fact 提议：字段白名单驱动的结构化 LLM 输出、当前版本原文二次核验、
+    同字段值冲突检测、批量原子写入；所有候选强制为 critical，必须由 Reviewer/Admin
+    确认后才能进入规则计算。
 
 当前 Case Assessment Graph 已落地的确定性骨架：
 
@@ -789,7 +805,7 @@ pickle fallback。
 
 尚未完成：
 
-1. LLM 事实抽取、冲突解决和 Assessment 引用修复节点；
+1. Assessment 引用修复节点，以及 Fact 提议与 `fact_confirmation` 中断的前端联动；
 2. 基于 Claim-Citation 评测基线的完整生成器 + 验证器端到端生产实测；
 3. Deep Research Graph；
 4. V3 案件工作台前端；

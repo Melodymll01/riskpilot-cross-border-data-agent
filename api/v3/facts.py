@@ -13,6 +13,8 @@ from api.v3.schemas import (
     FactDetailResponse,
     FactEvidenceOut,
     FactListResponse,
+    FactProposalBatchResponse,
+    ProposeFactsRequest,
     ReviseFactRequest,
     TransitionFactRequest,
 )
@@ -73,6 +75,30 @@ def _evidence_inputs(body: CreateFactRequest | ReviseFactRequest) -> list[FactEv
 def build_fact_routes(container: AppContainer) -> APIRouter:
     router = APIRouter(tags=["v3-facts"])
     require_owner = make_require_owner(container)
+
+    @router.post(
+        "/cases/{case_id}/fact-proposals",
+        response_model=FactProposalBatchResponse,
+        status_code=status.HTTP_201_CREATED,
+        summary="从当前案件文档生成待 Reviewer 确认的 Fact 候选",
+    )
+    def propose_facts(
+        case_id: str,
+        body: ProposeFactsRequest,
+        actor_id: str = Depends(require_owner),
+    ) -> FactProposalBatchResponse:
+        batch = container.fact_management.propose_from_documents(
+            actor_id,
+            case_id=case_id,
+            field_names=body.field_names,
+            document_ids=body.document_ids,
+        )
+        return FactProposalBatchResponse(
+            facts=[_to_detail_out(detail) for detail in batch.facts],
+            requested_field_names=batch.requested_field_names,
+            source_document_ids=batch.source_document_ids,
+            conflict_field_names=batch.conflict_field_names,
+        )
 
     @router.post(
         "/cases/{case_id}/facts",
