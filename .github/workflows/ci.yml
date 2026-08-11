@@ -1,16 +1,14 @@
 name: CI
 
-# CI 策略（Step 020 复活）：
-# - test job：跑 483 个全量 pytest（排除 eval / 重 IO smoke），强制必须绿
-# - lint job：scoped ruff check + format —— 仅覆盖 DDD 重构后的核心层
-#   （domain / app / infra/{auth,kb,risk_profile} / api/v2 / config / main / 对应 tests），
-#   遗留代码（service.py / api/routes.py / retrieval / processing / ingestion）暂不强制
-# - mypy 暂未接入：domain/app/infra 等核心层基线 0 错；
-#   全仓存量 ~46 错与 Step 016d 基线持平，留待后续 Step 单独清理
-#
-# ⏸ 暂停自动触发（手动按需运行）：去掉 push / pull_request 触发，
-#   只保留 workflow_dispatch，需要时在 Actions 页手动 Run workflow。
+# CI 策略：
+# - test job：完整离线 pytest（仅排除真实 LLM 评测与重 IO smoke），强制必须绿；
+# - lint job：覆盖 DDD 核心层、V3 API、QA/Workflow 适配器和 Evidence QA 评测器；
+# - 遗留 retrieval / processing / ingestion 暂不纳入 Ruff 强门禁。
 on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -36,10 +34,11 @@ jobs:
         run: |
           ruff check \
             domain app \
-            infra/auth infra/kb infra/risk_profile infra/audit \
-            api/v2 \
+            infra/auth infra/kb infra/risk_profile infra/audit infra/qa infra/workflows \
+            api/v2 api/v3 \
+            evaluations/evidence_qa \
             config.py main.py \
-            tests/api tests/app tests/domain tests/infra tests/fakes
+            tests/api tests/app tests/domain tests/infra tests/fakes tests/evaluations
       # NOTE: ruff format --check 暂未启用 —— scoped 路径下仍有 33 个文件待
       # reformat，留待独立 Step 单独做一次性 cleanup commit，避免污染 CI 复活
       # 这一步的 diff（参考 ruff format --check . 输出）
@@ -50,9 +49,14 @@ jobs:
     env:
       # 关闭一切真实外呼，全部走 Fake / mock
       OPENAI_API_KEY: sk-test-fake
+      OPENAI_API_BASE: http://127.0.0.1:9/v1
+      CHAT_API_KEY: sk-test-fake
+      CHAT_API_BASE: http://127.0.0.1:9/v1
       LLM_PROVIDER: api
       RISK_EVIDENCE_PROVIDER: mock
       ENABLE_RERANKER: "false"
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
       # Auth：使用假的 OAuth 凭据让 AuthService 能装配，但不会真正调 GitHub
       AUTH_PROVIDERS_ENABLED: github,anonymous
       GITHUB_CLIENT_ID: fake_ci_client_id
@@ -71,7 +75,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
       - name: Run pytest
-        # eval_ood.py 需要 LLM 真实调用；smoke_bm25_rrf.py 是重 IO 烟雾脚本，本地手动跑
+        # eval_ood.py 需要真实 LLM；smoke_bm25_rrf.py 是重 IO 烟雾脚本，本地手动跑。
+        # 其余测试必须全 Fake、零外呼，不允许按具体测试名 deselect。
         run: |
           pytest -q \
             --ignore=tests/eval_ood.py \

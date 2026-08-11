@@ -49,6 +49,7 @@ from tests.fakes.fake_repos import (
     InMemoryUserRepo,
     InMemoryWorkspaceRepo,
 )
+from tests.fakes.fake_research import FakeResearch
 from tests.fakes.fake_retrieve import FakeRetrieve
 from tests.fakes.fake_websearch import FakeWebSearch
 
@@ -64,7 +65,15 @@ def admin_user_ids() -> list[str]:
 @pytest.fixture
 def test_settings(admin_user_ids: list[str]) -> Settings:
     """构造测试用 Settings；用 _env_file=None 防止读项目里的 .env。"""
-    return Settings(_env_file=None, admin_user_ids=admin_user_ids)  # type: ignore[call-arg]
+    return Settings(  # type: ignore[call-arg]
+        _env_file=None,
+        openai_api_key="sk-test-fake",
+        openai_api_base="http://127.0.0.1:9/v1",
+        chat_api_key="sk-test-fake",
+        chat_api_base="http://127.0.0.1:9/v1",
+        enable_reranker=False,
+        admin_user_ids=admin_user_ids,
+    )
 
 
 @pytest.fixture
@@ -111,6 +120,7 @@ def container(
         retriever=FakeRetrieve(),
         web_search=FakeWebSearch(),
         evidence=FakeEvidence(),
+        research=FakeResearch(),
         kb_repo=FakeKbRepo(),
         document_loader=FakeDocumentLoader(),
         auth=FakeAuth(),

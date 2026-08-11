@@ -18,10 +18,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
-import pytest
-
 from api.v2.sse import stream_with_keepalive
-
 
 # ──────────────────────────── 测试用最小 AgentEvent stub ────────────────────────────
 

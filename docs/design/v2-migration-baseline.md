@@ -24,9 +24,14 @@
 
 ```bash
 OPENAI_API_KEY=sk-test-fake \
+OPENAI_API_BASE=http://127.0.0.1:9/v1 \
+CHAT_API_KEY=sk-test-fake \
+CHAT_API_BASE=http://127.0.0.1:9/v1 \
 LLM_PROVIDER=api \
 RISK_EVIDENCE_PROVIDER=mock \
 ENABLE_RERANKER=false \
+HF_HUB_OFFLINE=1 \
+TRANSFORMERS_OFFLINE=1 \
 AUTH_PROVIDERS_ENABLED=github,anonymous \
 GITHUB_CLIENT_ID=fake_ci_client_id \
 GITHUB_CLIENT_SECRET=fake_ci_client_secret \
@@ -40,31 +45,26 @@ ADMIN_USER_IDS='' \
 ## 基线结果
 
 ```text
-796 passed
+1227 passed
 1 skipped
-1 failed
 ```
 
-存量失败：
+离线隔离：
 
-```text
-tests/api/test_copilot.py::TestChatMode::test_explicit_research_mode_persisted
-```
-
-原因：
-
-- 用例进入真实 `AgenticResearchAdapter`；
-- 测试配置中的假 API Key 被用于请求智谱 embeddings；
-- 服务返回 401；
-- 这是重构开始前已存在的离线测试隔离问题，不属于 V2 新增回归。
+- API 测试容器显式注入 `FakeResearch`，research 模式不会构造
+  `AgenticResearchAdapter`、Embedder 或真实模型客户端；
+- CI 使用假凭据只用于配置校验，OpenAI 兼容端点固定为本机丢弃端口，且 Hugging Face /
+  Transformers 强制离线，任何测试都不得向公网 API 发请求；
+- `tests/eval_ood.py` 是显式 live 评测，`tests/smoke_bm25_rrf.py` 是重 IO smoke，
+  两者不属于离线 pytest 门禁。
 
 后续提交的验证规则：
 
 1. 新增模块先运行对应的聚焦测试；
 2. 再运行离线全量测试；
-3. 不把上述存量失败计为新回归；
-4. 如果失败数量增加，当前步骤不得提交；
-5. 存量失败应在独立提交中修复，避免混入 V2 业务实现。
+3. 不允许通过 deselect 具体测试用例维持绿灯；
+4. 如果出现真实网络调用或失败，当前步骤不得提交；
+5. live / smoke 脚本只能按文件级明确排除并记录原因。
 
 ## 当前架构事实
 
@@ -99,5 +99,7 @@ tests/api/test_copilot.py::TestChatMode::test_explicit_research_mode_persisted
   进程重建后继续；
 - 已实现 `/api/v3/qa`，支持公共法规、Workspace Knowledge、Case Evidence 和
   Assessment 四类授权范围，并执行结构覆盖与独立语义支持双校验；
-- 最新离线回归为 `1226 passed, 1 skipped, 1 deselected`；显式 deselect 的仍是
-  本文件记录的存量真实 embeddings 401 用例。
+- 最新离线回归为 `1227 passed, 1 skipped`，无具体用例 deselect，research 模式已由
+  `FakeResearch` 完整隔离真实 embeddings / LLM 外呼；
+- GitHub Actions 已恢复 `main` push / pull request 自动触发，Ruff 覆盖 Domain、App、
+  V2/V3 API、QA/Workflow 适配器、Evidence QA 评测器及对应测试。

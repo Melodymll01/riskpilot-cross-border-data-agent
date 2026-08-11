@@ -11,6 +11,8 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.fakes.fake_research import FakeResearch
+
 _FINAL = json.dumps({"thought": "ok", "action": "final_answer", "answer": "回答完毕"})
 _ASK = json.dumps({"thought": "缺信息", "action": "ask_user", "question": "用户量？"})
 _TOOL_THEN_FINAL = [
@@ -177,6 +179,17 @@ class TestChatMode:
         task_id = resp.json()["task_id"]
         detail = client.get(f"/api/v2/tasks/{task_id}").json()
         assert detail["task"]["mode"] == "research"
+        from app.container import AppContainer
+
+        container: AppContainer = client.app.state.container  # type: ignore[attr-defined]
+        assert isinstance(container.research, FakeResearch)
+        assert container.research.calls == [
+            {
+                "query": "分析中美数据出境监管差异",
+                "top_k": 8,
+                "enable_web_search": True,
+            }
+        ]
 
     def test_explicit_profile_mode_persisted(
         self, authed_client: tuple[TestClient, dict[str, Any]]
