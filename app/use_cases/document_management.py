@@ -9,7 +9,7 @@ import uuid
 import zipfile
 from dataclasses import dataclass
 from pathlib import PurePosixPath
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from domain.documents import CaseDocument, Document, DocumentVersion, ProcessingJob
 from domain.errors import (
@@ -52,6 +52,13 @@ class DocumentDetail:
     document: Document
     version: DocumentVersion
     binding: CaseDocument
+    latest_job: ProcessingJob | None
+
+
+@dataclass(frozen=True)
+class CaseDocumentSummary:
+    document: Document
+    latest_job: ProcessingJob | None
 
 
 @dataclass(frozen=True)
@@ -187,9 +194,20 @@ class DocumentManagementUseCase:
             job=job,
         )
 
-    def list_case_documents(self, case_id: str, actor_id: str) -> list[Document]:
+    def list_case_documents(
+        self,
+        case_id: str,
+        actor_id: str,
+    ) -> list[CaseDocumentSummary]:
         self._case_management.get_case(case_id, actor_id)
-        return cast("list[Document]", self._repo.list_for_case(case_id))
+        documents = self._repo.list_for_case(case_id)
+        return [
+            CaseDocumentSummary(
+                document=document,
+                latest_job=self._get_latest_job(document),
+            )
+            for document in documents
+        ]
 
     def get_detail(
         self,
@@ -207,7 +225,12 @@ class DocumentManagementUseCase:
         version = self._repo.get_version(document.current_version_id)
         if version is None:
             raise InvalidDocumentContent("文档当前版本不存在")
-        return DocumentDetail(document=document, version=version, binding=binding)
+        return DocumentDetail(
+            document=document,
+            version=version,
+            binding=binding,
+            latest_job=self._repo.get_latest_job_for_version(version.version_id),
+        )
 
     def download(
         self,
@@ -288,6 +311,11 @@ class DocumentManagementUseCase:
         except WorkspaceNotFound as exc:
             raise ProcessingJobNotFound(job_id) from exc
         return job, document
+
+    def _get_latest_job(self, document: Document) -> ProcessingJob | None:
+        if document.current_version_id is None:
+            return None
+        return self._repo.get_latest_job_for_version(document.current_version_id)
 
 
 def _normalize_filename(filename: str) -> tuple[str, str]:

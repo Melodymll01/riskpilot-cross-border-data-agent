@@ -264,13 +264,17 @@ class TestQueries:
             content="制度文本".encode(),
             purpose="内部制度",
         )
-        assert uc.list_case_documents(case_id, "github:alice") == [result.document]
+        summaries = uc.list_case_documents(case_id, "github:alice")
+        assert len(summaries) == 1
+        assert summaries[0].document == result.document
+        assert summaries[0].latest_job == result.job
         detail = uc.get_detail(
             case_id,
             result.document.document_id,
             "github:alice",
         )
         assert detail.version == result.version
+        assert detail.latest_job == result.job
         download = uc.download(
             case_id,
             result.document.document_id,

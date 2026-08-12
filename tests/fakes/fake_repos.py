@@ -246,6 +246,17 @@ class InMemoryDocumentRepo:
     def get_job(self, job_id: str) -> ProcessingJob | None:
         return self._jobs.get(job_id)
 
+    def get_latest_job_for_version(
+        self,
+        document_version_id: str,
+    ) -> ProcessingJob | None:
+        jobs = [
+            job
+            for job in self._jobs.values()
+            if job.document_version_id == document_version_id
+        ]
+        return max(jobs, key=lambda job: (job.created_at, job.job_id), default=None)
+
     def update_document(self, document: Document) -> None:
         if document.document_id in self._documents:
             self._documents[document.document_id] = document

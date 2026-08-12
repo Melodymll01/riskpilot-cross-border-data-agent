@@ -179,6 +179,25 @@ class SqliteDocumentRepo:
         )
         return None if row is None else _row_to_job(row)
 
+    def get_latest_job_for_version(
+        self,
+        document_version_id: str,
+    ) -> ProcessingJob | None:
+        row = (
+            self._pool.get()
+            .execute(
+                """
+                SELECT * FROM processing_jobs
+                WHERE document_version_id = ?
+                ORDER BY created_at DESC, job_id DESC
+                LIMIT 1
+                """,
+                (document_version_id,),
+            )
+            .fetchone()
+        )
+        return None if row is None else _row_to_job(row)
+
     def update_document(self, document: Document) -> None:
         conn = self._pool.get()
         conn.execute(

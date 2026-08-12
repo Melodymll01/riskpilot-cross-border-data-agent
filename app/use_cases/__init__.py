@@ -5,6 +5,7 @@ from app.use_cases.assessment_runs import AssessmentRunUseCase
 from app.use_cases.auth_login import AuthLoginUseCase
 from app.use_cases.case_management import CaseManagementUseCase
 from app.use_cases.document_management import (
+    CaseDocumentSummary,
     DocumentDetail,
     DocumentDownload,
     DocumentManagementUseCase,
@@ -29,6 +30,7 @@ __all__ = [
     "AuthLoginUseCase",
     "AssessmentManagementUseCase",
     "AssessmentRunUseCase",
+    "CaseDocumentSummary",
     "CaseManagementUseCase",
     "DocumentDetail",
     "DocumentDownload",

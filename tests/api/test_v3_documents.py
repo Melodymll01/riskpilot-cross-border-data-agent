@@ -113,11 +113,15 @@ class TestDocumentQueries:
 
         listed = client.get(f"/api/v3/cases/{case_id}/documents")
         assert listed.status_code == 200
-        assert listed.json()["documents"][0]["document_id"] == document_id
+        listed_document = listed.json()["documents"][0]
+        assert listed_document["document_id"] == document_id
+        assert listed_document["latest_job"]["job_id"] == job_id
+        assert listed_document["latest_job"]["status"] == "queued"
 
         detail = client.get(f"/api/v3/cases/{case_id}/documents/{document_id}")
         assert detail.status_code == 200
         assert detail.json()["purpose"] == "内部制度"
+        assert detail.json()["latest_job"]["job_id"] == job_id
 
         content = client.get(f"/api/v3/cases/{case_id}/documents/{document_id}/content")
         assert content.status_code == 200
@@ -141,6 +145,12 @@ class TestDocumentQueries:
         assert indexed.json()["job"]["status"] == "completed"
         assert indexed.json()["document"]["status"] == "ready"
         assert indexed.json()["chunk_count"] >= 1
+
+        restored = client.get(f"/api/v3/cases/{case_id}/documents").json()
+        restored_document = restored["documents"][0]
+        assert restored_document["status"] == "ready"
+        assert restored_document["latest_job"]["status"] == "completed"
+        assert restored_document["latest_job"]["current_stage"] == "ready"
 
         evidence = client.get(
             f"/api/v3/cases/{case_id}/evidence/search",
@@ -219,6 +229,8 @@ class TestProcessingActions:
         assert retried.json()["retry_count"] == 1
         detail = client.get(f"/api/v3/cases/{case_id}/documents/{document_id}")
         assert detail.json()["document"]["status"] == "queued"
+        assert detail.json()["latest_job"]["job_id"] == job_id
+        assert detail.json()["latest_job"]["status"] == "queued"
 
 
 class TestEvidenceIsolation:

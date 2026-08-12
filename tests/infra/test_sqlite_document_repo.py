@@ -142,6 +142,7 @@ class TestCreateUpload:
         assert document_repo.get_version(version.version_id) == version
         assert document_repo.get_binding(binding.case_id, binding.document_id) == binding
         assert document_repo.get_job(job.job_id) == job
+        assert document_repo.get_latest_job_for_version(version.version_id) == job
         assert document_repo.list_versions(document.document_id) == [version]
         assert document_repo.list_for_case(binding.case_id) == [document]
 

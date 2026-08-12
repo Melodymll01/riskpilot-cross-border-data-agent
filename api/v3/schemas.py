@@ -161,14 +161,19 @@ class DocumentUploadResponse(BaseModel):
     purpose: str
 
 
+class CaseDocumentSummaryOut(DocumentOut):
+    latest_job: ProcessingJobOut | None
+
+
 class DocumentDetailResponse(BaseModel):
     document: DocumentOut
     version: DocumentVersionOut
+    latest_job: ProcessingJobOut | None
     purpose: str
 
 
 class DocumentListResponse(BaseModel):
-    documents: list[DocumentOut]
+    documents: list[CaseDocumentSummaryOut]
 
 
 class ParseStageResponse(BaseModel):

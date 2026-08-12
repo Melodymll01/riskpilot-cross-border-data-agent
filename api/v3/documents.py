@@ -11,6 +11,7 @@ from fastapi.responses import Response
 
 from api.v2.deps import make_require_owner
 from api.v3.schemas import (
+    CaseDocumentSummaryOut,
     DocumentDetailResponse,
     DocumentListResponse,
     DocumentOut,
@@ -24,7 +25,7 @@ from domain.errors import DocumentTooLarge
 
 if TYPE_CHECKING:
     from app.container import AppContainer
-    from app.use_cases import DocumentDetail, DocumentUploadResult
+    from app.use_cases import CaseDocumentSummary, DocumentDetail, DocumentUploadResult
     from domain.documents import Document, DocumentVersion, ProcessingJob
 
 
@@ -86,7 +87,21 @@ def _to_detail_response(detail: DocumentDetail) -> DocumentDetailResponse:
     return DocumentDetailResponse(
         document=_to_document_out(detail.document),
         version=_to_version_out(detail.version),
+        latest_job=(
+            _to_job_out(detail.latest_job) if detail.latest_job is not None else None
+        ),
         purpose=detail.binding.purpose,
+    )
+
+
+def _to_summary_out(summary: CaseDocumentSummary) -> CaseDocumentSummaryOut:
+    return CaseDocumentSummaryOut(
+        **_to_document_out(summary.document).model_dump(),
+        latest_job=(
+            _to_job_out(summary.latest_job)
+            if summary.latest_job is not None
+            else None
+        ),
     )
 
 
@@ -137,7 +152,7 @@ def build_document_routes(container: AppContainer) -> APIRouter:
             actor_id,
         )
         return DocumentListResponse(
-            documents=[_to_document_out(document) for document in documents]
+            documents=[_to_summary_out(document) for document in documents]
         )
 
     @router.get(
