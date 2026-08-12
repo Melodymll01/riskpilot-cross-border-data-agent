@@ -221,9 +221,15 @@ class TestFacts:
     ) -> None:
         client, user = authed_client
         owner = user["user_id"]
+        fact = _fact(owner, "用户在跨境电商行业").model_copy(
+            update={
+                "source_message_id": "msg_001",
+                "source_quote": "我在跨境电商行业工作",
+            }
+        )
         _inject_memory(
             client,
-            FakeMemory(facts={owner: [_fact(owner, "用户在跨境电商行业")]}),
+            FakeMemory(facts={owner: [fact]}),
         )
 
         resp = client.get("/api/v2/memory/facts")
@@ -232,6 +238,8 @@ class TestFacts:
         body = resp.json()
         assert body["count"] == 1
         assert body["facts"][0]["text"] == "用户在跨境电商行业"
+        assert body["facts"][0]["source_message_id"] == "msg_001"
+        assert body["facts"][0]["source_quote"] == "我在跨境电商行业工作"
         assert body["cap"] >= 1
 
     def test_facts_when_memory_disabled(

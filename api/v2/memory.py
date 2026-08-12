@@ -123,6 +123,8 @@ def build_memory_routes(container: AppContainer) -> APIRouter:
                 fact_id=f.fact_id,
                 text=f.text,
                 tags=list(f.tags),
+                source_message_id=f.source_message_id,
+                source_quote=f.source_quote,
                 created_at=f.created_at,
             )
             for f in facts

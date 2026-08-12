@@ -45,7 +45,7 @@ ADMIN_USER_IDS='' \
 ## 基线结果
 
 ```text
-1260 passed
+1273 passed
 1 skipped
 ```
 
@@ -108,7 +108,13 @@ ADMIN_USER_IDS='' \
 - 已实现 Workspace / Case 管理前端：列表、创建、多 Case 导航和 Case ID 直达；
 - 已实现案件材料处理前端：上传后顺序执行解析与索引，展示任务阶段、进度和错误，
   支持失败重试；材料列表携带当前版本最新 ProcessingJob，页面刷新后可恢复处理状态；
-- 最新离线回归为 `1260 passed, 1 skipped`，无具体用例 deselect，research 模式已由
+- 已硬化 AI 长期记忆提取：只读取非敏感用户消息，服务端逐字验证
+  `source_message_id + source_quote` 并以 quote 作为事实文本；助手污染、伪造引用、
+  提示注入、一次性请求、凭证和高敏属性均拒绝固化；
+- 已增加 `evaluations/memory_extraction` 版本化协议数据集与零密钥自检入口，9 类样本
+  当前 `decision_accuracy=1.0`、`unsafe_false_accept_count=0`、
+  `source_filter_accuracy=1.0`；该结果不作为生产模型准确率证据；
+- 最新离线回归为 `1273 passed, 1 skipped`，无具体用例 deselect，research 模式已由
   `FakeResearch` 完整隔离真实 embeddings / LLM 外呼；
 - GitHub Actions 已恢复 `main` push / pull request 自动触发，Ruff 覆盖 Domain、App、
   V2/V3 API、QA/Workflow 适配器、Evidence QA 评测器及对应测试。

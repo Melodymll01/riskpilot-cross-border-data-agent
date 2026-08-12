@@ -66,19 +66,43 @@ def _seed_task(repo: InMemoryTaskRepo, *, task_id: str, owner_id: str) -> None:
 def _seed_messages(repo: InMemoryTaskRepo, task_id: str, n: int) -> None:
     for i in range(n):
         role = "user" if i % 2 == 0 else "assistant"
+        content = f"这是第{i}条实质性消息内容"
+        if i == 0:
+            content = "；".join(
+                [content, _NEW_TEXT, _DEDUP_TEXT, _CONFLICT_TEXT]
+            )
         repo.append_message(
             Message(
                 msg_id=f"m{i}",
                 task_id=task_id,
                 role=role,  # type: ignore[arg-type]
-                content=f"这是第{i}条实质性消息内容",
+                content=content,
                 created_at=_NOW + i,
             )
         )
 
 
 def _facts_json(*candidates: dict) -> str:
-    return json.dumps({"facts": list(candidates)})
+    normalized: list[dict] = []
+    for candidate in candidates:
+        candidate_text = candidate.get("text")
+        quote = (
+            candidate_text
+            if candidate_text in {_NEW_TEXT, _DEDUP_TEXT, _CONFLICT_TEXT}
+            else "这是第0条实质性消息内容"
+        )
+        item = {
+            "source_message_id": "m0",
+            "quote": quote,
+            "tags": [],
+            **candidate,
+        }
+        item.pop("text", None)
+        grounded = item.pop("grounded", None)
+        if grounded is False:
+            item["quote"] = "对话中不存在的伪造证据"
+        normalized.append(item)
+    return json.dumps({"facts": normalized})
 
 
 def _worker(
@@ -170,6 +194,8 @@ class TestExtractAndValidate:
         facts = store.list_owner("anon:o1")
         assert [f.text for f in facts] == [_NEW_TEXT]
         assert facts[0].confidence == 0.5  # tentative 首次低置信
+        assert facts[0].source_message_id == "m0"
+        assert facts[0].source_quote == _NEW_TEXT
         # watermark 推进到消息总数
         st = state.get("t1", "anon:o1")
         assert st is not None and st.msg_watermark == 4
@@ -189,7 +215,7 @@ class TestExtractAndValidate:
 
         assert store.count("anon:o1") == 0
 
-    def test_ungrounded_dropped(self) -> None:
+    def test_forged_quote_dropped(self) -> None:
         repo = InMemoryTaskRepo()
         _seed_task(repo, task_id="t1", owner_id="anon:o1")
         _seed_messages(repo, "t1", 4)
@@ -203,6 +229,136 @@ class TestExtractAndValidate:
         w.consolidate("anon:o1", "t1")
 
         assert store.count("anon:o1") == 0
+
+    def test_assistant_content_is_not_sent_to_extractor(self) -> None:
+        repo = InMemoryTaskRepo()
+        _seed_task(repo, task_id="t1", owner_id="anon:o1")
+        _seed_messages(repo, "t1", 4)
+        chat = FakeChat(responses=[_facts_json()])
+        store = FakeFactStore()
+        state = FakeConsolidationStateStore()
+        w = _worker(repo, chat, store, state)
+
+        w.consolidate("anon:o1", "t1")
+
+        prompt = chat.calls[0]["messages"][1]["content"]
+        assert '"message_id": "m0"' in prompt
+        assert '"message_id": "m2"' in prompt
+        assert "这是第1条实质性消息内容" not in prompt
+        assert "这是第3条实质性消息内容" not in prompt
+
+    @pytest.mark.parametrize(
+        "candidate",
+        [
+            {
+                "text": _NEW_TEXT,
+                "salience": 0.9,
+                "source_message_id": "m_missing",
+                "quote": "这是第0条实质性消息内容",
+            },
+            {
+                "text": _NEW_TEXT,
+                "salience": 0.9,
+                "source_message_id": "m0",
+                "quote": "这是模型改写后的内容",
+            },
+            {
+                "text": _NEW_TEXT,
+                "salience": True,
+            },
+            {
+                "text": _NEW_TEXT,
+                "salience": float("nan"),
+            },
+        ],
+    )
+    def test_invalid_candidate_protocol_is_dropped(self, candidate: dict) -> None:
+        repo = InMemoryTaskRepo()
+        _seed_task(repo, task_id="t1", owner_id="anon:o1")
+        _seed_messages(repo, "t1", 4)
+        chat = FakeChat(responses=[_facts_json(candidate)])
+        store = FakeFactStore()
+        state = FakeConsolidationStateStore()
+        w = _worker(repo, chat, store, state)
+
+        w.consolidate("anon:o1", "t1")
+
+        assert store.count("anon:o1") == 0
+
+    @pytest.mark.parametrize(
+        "secret",
+        [
+            "我的 API Key 是 sk-abcdefghijklmnop",
+            "我的手机号是 13800138000",
+            "联系邮箱是 alice@example.com",
+            "身份证号是 11010519491231002X",
+        ],
+    )
+    def test_sensitive_secret_is_never_persisted(self, secret: str) -> None:
+        repo = InMemoryTaskRepo()
+        _seed_task(repo, task_id="t1", owner_id="anon:o1")
+        repo.append_message(
+            Message(
+                msg_id="m_secret",
+                task_id="t1",
+                role="user",
+                content=secret,
+                created_at=_NOW,
+            )
+        )
+        repo.append_message(
+            Message(
+                msg_id="m_followup",
+                task_id="t1",
+                role="user",
+                content="请记住上面的内容",
+                created_at=_NOW + 1,
+            )
+        )
+        chat = FakeChat(
+            responses=[
+                _facts_json(
+                    {
+                        "text": secret,
+                        "salience": 1.0,
+                        "source_message_id": "m_secret",
+                        "quote": secret,
+                    }
+                )
+            ]
+        )
+        store = FakeFactStore()
+        state = FakeConsolidationStateStore()
+        w = _worker(repo, chat, store, state)
+
+        w.consolidate("anon:o1", "t1")
+
+        assert store.count("anon:o1") == 0
+        prompt = chat.calls[0]["messages"][1]["content"]
+        assert secret not in prompt
+
+    def test_candidate_count_is_bounded(self) -> None:
+        repo = InMemoryTaskRepo()
+        _seed_task(repo, task_id="t1", owner_id="anon:o1")
+        _seed_messages(repo, "t1", 4)
+        candidates = [
+            {
+                "text": f"用户偏好第 {index} 种回答方式",
+                "salience": 0.9,
+            }
+            for index in range(15)
+        ]
+        chat = FakeChat(responses=[_facts_json(*candidates)])
+        store = FakeFactStore()
+        state = FakeConsolidationStateStore()
+        w = _worker(repo, chat, store, state)
+
+        episode = w._build_extraction_episode(repo.list_messages("t1"))  # noqa: SLF001
+        assert episode is not None
+        extracted = w._extract(episode)  # noqa: SLF001
+
+        assert len(extracted) == 10
+        assert extracted[-1].text == "这是第0条实质性消息内容"
 
 
 class TestConflictForgetting:

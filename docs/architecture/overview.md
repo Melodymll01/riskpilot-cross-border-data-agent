@@ -67,6 +67,26 @@ POST /api/v3/qa
   至少保留一条可信 Claim 时降级为部分回答，否则 fail closed；
 - API 不返回 Prompt、原始模型响应或思维链。
 
+### AI 长期记忆提取
+
+```text
+user messages only
+  → deterministic source filter
+  → LLM selects quote / tags / salience
+  → server verifies message_id + verbatim quote
+  → sensitive / injection / transient gates
+  → embed, deduplicate or supersede
+  → owner-scoped L4 Fact
+```
+
+- 助手、系统和工具消息不进入提取上下文，避免把模型回答反写成用户事实；
+- 输入以 JSON 数组传递 `message_id + content`，用户文本不能突破消息边界；
+- LLM 不生成最终事实文案，`Fact.text` 直接使用服务端核验过的用户逐字 quote；
+- 密码、API Key、联系方式、身份证/银行卡、生物特征、健康/政治等高敏属性、
+  提示注入和一次性/假设性请求均 fail closed；
+- `Fact` 持久化 `source_message_id + source_quote`，管理面板展示来源原话；
+- `evaluations/memory_extraction` 只证明确定性协议门禁，不冒充生产模型抽取准确率。
+
 ### Case Assessment
 
 ```text

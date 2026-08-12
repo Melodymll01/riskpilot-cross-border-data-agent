@@ -357,6 +357,7 @@ class Fact(BaseDomainModel):
     - ``last_used_at`` 最近被召回时间：衰减/容量淘汰用（recency）。
     - ``superseded_by`` 被哪条新事实取代（冲突遗忘）：非 None 即逻辑删除，永不召回。
     - ``source_episode`` 来源情景（task_id / summary 引用）：可解释性溯源。
+    - ``source_message_id`` / ``source_quote``：AI 提取时经服务端逐字核验的用户原话。
     """
 
     fact_id: str = Field(min_length=1)
@@ -369,6 +370,8 @@ class Fact(BaseDomainModel):
     last_used_at: float = Field(default_factory=lambda: time.time())
     superseded_by: str | None = None
     source_episode: str = ""
+    source_message_id: str = ""
+    source_quote: str = ""
 
 
 class ConsolidationState(BaseDomainModel):

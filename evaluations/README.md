@@ -28,6 +28,12 @@ evaluations/
 │   ├── run.py
 │   └── run_verifier.py            # 显式 --live 实测生产 independent_llm_v1
 │
+├── memory_extraction/            # AI 长期记忆来源/接地/隐私协议门禁
+│   ├── datasets/
+│   │   └── memory_extraction_eval_v1.json
+│   ├── evaluator.py
+│   └── run.py
+│
 └── README.md                     # 本文件
 ```
 
@@ -46,6 +52,7 @@ evaluations/
 | 切块参数 | [chunk_params/run.py](chunk_params/run.py) | — | [chunk_params/reports/chunk_eval_latest.json](chunk_params/reports/chunk_eval_latest.json) |
 | 端到端基准 | [benchmark/run.py](benchmark/run.py) | — | `logs/benchmark_report.json` |
 | V3 Evidence QA | [evidence_qa/run.py](evidence_qa/run.py) | [evidence_qa/datasets/claim_citation_eval_v1.json](evidence_qa/datasets/claim_citation_eval_v1.json) | `evidence_qa/reports/evidence_qa_eval_latest.md` |
+| AI 记忆提取协议 | [memory_extraction/run.py](memory_extraction/run.py) | [memory_extraction/datasets/memory_extraction_eval_v1.json](memory_extraction/datasets/memory_extraction_eval_v1.json) | 标准输出 |
 
 ## 跑评测
 
@@ -70,9 +77,18 @@ python evaluations/evidence_qa/run.py --predictions path/to/predictions.json
 
 # 实测当前生产 independent_llm_v1（会调用真实模型并产生费用）
 python evaluations/evidence_qa/run_verifier.py --live
+
+# AI 长期记忆确定性协议自检（零模型调用、零密钥）
+python evaluations/memory_extraction/run.py
 ```
 
 报告会自动写到 `evaluations/<name>/reports/`。
+
+### AI 长期记忆提取协议
+
+`memory_extraction/run.py` 覆盖用户来源过滤、逐字 quote 接地、助手污染、伪造引用、
+提示注入、API Key、个人标识符、高敏属性和一次性请求。该入口直接调用生产确定性
+校验器，验证 fail-closed 门禁，不调用模型，也不构成生产模型抽取准确率证据。
 
 ### Evidence QA 预测文件
 

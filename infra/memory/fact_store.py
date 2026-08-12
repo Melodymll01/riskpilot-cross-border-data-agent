@@ -17,7 +17,6 @@ import json
 import logging
 from typing import Any
 
-from config import settings
 from domain.models import Fact
 
 logger = logging.getLogger(__name__)
@@ -31,6 +30,8 @@ class ChromaFactStore:
     def __init__(self, collection: Any | None = None) -> None:
         if collection is None:
             import chromadb
+
+            from config import settings
 
             client = chromadb.PersistentClient(path=settings.chroma_persist_dir)
             collection = client.get_or_create_collection(
@@ -140,6 +141,8 @@ class ChromaFactStore:
             "last_used_at": fact.last_used_at,
             "superseded_by": fact.superseded_by or "",
             "source_episode": fact.source_episode,
+            "source_message_id": fact.source_message_id,
+            "source_quote": fact.source_quote,
         }
 
     @staticmethod
@@ -161,6 +164,8 @@ class ChromaFactStore:
             last_used_at=meta.get("last_used_at", 0.0),
             superseded_by=superseded,
             source_episode=meta.get("source_episode", ""),
+            source_message_id=meta.get("source_message_id", ""),
+            source_quote=meta.get("source_quote", ""),
         )
 
     @staticmethod

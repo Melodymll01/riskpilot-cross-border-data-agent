@@ -119,7 +119,7 @@ async function loadProfile() {
     const p = await memory.profile();
     const entries = Object.entries(p.facts || {});
     count.textContent = String(entries.length);
-    list.innerHTML = "";
+    list.replaceChildren();
     if (entries.length === 0) {
       empty.hidden = false;
       return;
@@ -151,7 +151,7 @@ async function loadFacts() {
   try {
     const r = await memory.facts();
     count.textContent = `${r.count} / ${r.cap}`;
-    list.innerHTML = "";
+    list.replaceChildren();
     if (!r.facts || r.facts.length === 0) {
       empty.hidden = false;
       return;
@@ -169,6 +169,12 @@ async function loadFacts() {
         tags.className = "memory-fact-tags";
         tags.textContent = f.tags.map((t) => `#${t}`).join(" ");
         li.appendChild(tags);
+      }
+      if (f.source_quote) {
+        const source = document.createElement("q");
+        source.className = "memory-fact-source";
+        source.textContent = f.source_quote;
+        li.appendChild(source);
       }
       const del = document.createElement("button");
       del.type = "button";

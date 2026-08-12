@@ -297,6 +297,8 @@ class MemoryFactItem(BaseModel):
     fact_id: str
     text: str
     tags: list[str] = Field(default_factory=list)
+    source_message_id: str
+    source_quote: str
     created_at: float
 
 

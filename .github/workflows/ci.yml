@@ -37,7 +37,7 @@ jobs:
             domain app \
             infra/auth infra/kb infra/risk_profile infra/audit infra/qa infra/workflows \
             api/v2 api/v3 \
-            evaluations/evidence_qa \
+            evaluations/evidence_qa evaluations/memory_extraction \
             config.py main.py \
             tests/api tests/app tests/domain tests/infra tests/fakes tests/evaluations
       # NOTE: ruff format --check 暂未启用 —— scoped 路径下仍有 33 个文件待

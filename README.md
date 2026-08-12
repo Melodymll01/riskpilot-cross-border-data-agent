@@ -1,7 +1,7 @@
 # RiskPilot · 数据出境合规案件智能体
 
 [![CI](https://github.com/Melodymll01/riskpilot-cross-border-data-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Melodymll01/riskpilot-cross-border-data-agent/actions/workflows/ci.yml)
-[![tests](https://img.shields.io/badge/offline_tests-1260%20passed-brightgreen)](https://github.com/Melodymll01/riskpilot-cross-border-data-agent/actions/workflows/ci.yml)
+[![tests](https://img.shields.io/badge/offline_tests-1273%20passed-brightgreen)](https://github.com/Melodymll01/riskpilot-cross-border-data-agent/actions/workflows/ci.yml)
 [![python](https://img.shields.io/badge/python-3.12-blue)](pyproject.toml)
 [![arch](https://img.shields.io/badge/arch-DDD%204--layer-9b5bff)](docs/architecture/overview.md)
 [![agent](https://img.shields.io/badge/agent-ReAct%20%C2%B7%204%20tools-ff7a59)](app/agent/copilot.py)
@@ -43,7 +43,7 @@
 | **OOD 拦截** | 检索前做 5 类意图分类，域外问题直接拒答 | [question_classifier.py](retrieval/agent/question_classifier.py) |
 | **查询变换** | 对模糊 / 复合问题做改写、拆解、HyDE | [query_transformer.py](retrieval/agent/query_transformer.py) |
 | **证据分级** | 判定 sufficient / partial / insufficient，决定追检或兜底 | [quality_grader.py](retrieval/agent/quality_grader.py) |
-| **4 层记忆 + 被遗忘权** | 最近消息 / 滚动摘要 / 用户画像 / 语义事实；支持单条删除与全量遗忘 | [infra/memory/](infra/memory/) |
+| **可验证 AI 记忆** | 仅从用户原话抽取；逐字 quote 接地；助手污染、提示注入、凭证和敏感属性 fail closed | [consolidation.py](infra/memory/consolidation.py) |
 | **答案可溯源** | 每条回答携带引用 chunk + 原文链接 | [retrieval/generation/](retrieval/generation/) |
 | **案件级证据** | Workspace/Case/Document 隔离，原件、版本、页码、Chunk、事实引用可追溯 | [domain/documents.py](domain/documents.py) |
 | **确定性合规评估** | 只消费 confirmed facts 的版本化规则引擎，生成 Finding、ActionItem 和不可变 Assessment | [domain/policy_engine.py](domain/policy_engine.py) |
@@ -57,7 +57,7 @@
 
 | 维度 | 数值 |
 | --- | --- |
-| 离线回归 | **1260 passed · 1 skipped · 零具体用例排除** |
+| 离线回归 | **1273 passed · 1 skipped · 零具体用例排除** |
 | 架构规模 | **36 Port + 18 Use Case** · DDD 4 层 |
 | V3 资源接口 | **42 个路由** · Workspace → Fact Proposal / Evidence QA / Assessment Run |
 | Agent 工具 | **4 个领域工具** + 9 类流式 AgentEvent |
@@ -115,7 +115,11 @@ flowchart LR
 | **L1 最近消息** | 短期上下文 | 恒开 | 滑动窗口，超出转 L2 |
 | **L2 滚动摘要** | 长对话压缩 | 恒开 | 触发式摘要 + TTL 过期 |
 | **L3 用户画像** | 稳定偏好 | 按需 | 结构化字段，跨任务复用 |
-| **L4 语义事实** | 可检索长期事实 | 按需 | 抽取后去重合并 |
+| **L4 语义事实** | 可检索长期事实 | 按需 | 用户逐字原话 + message_id 接地，验证后去重合并 |
+
+L4 采用抽取式记忆：模型只选择用户消息中的稳定 span、标签和显著性，服务端重新校验
+`source_message_id + source_quote`，落库文本就是核验过的用户原话。助手回答、伪造 quote、
+一次性请求、提示注入、密码/API Key、联系方式和高敏个人属性均不会进入长期记忆。
 
 **被遗忘权**：可逐条删除长期事实（`DELETE /api/v2/memory/facts/{id}`，owner 隔离 + 物理删除 + 审计留痕）或一键全量遗忘。
 
@@ -241,9 +245,9 @@ ADMIN_USER_IDS=github:your-github-login
 - **鉴权**：GitHub OAuth + JWT（HS256）+ admin 白名单
 - **LLM**：OpenAI 兼容接口（默认智谱 GLM，可换 Ollama / vLLM）
 - **检索**：ChromaDB + jieba BM25 + RRF 融合 + bge-reranker-base 重排
-- **记忆**：5 层分层记忆 + TTL + 语义事实去重 + 被遗忘权
+- **记忆**：4 层分层记忆 + 逐字接地提取 + TTL + 语义去重 + 被遗忘权
 - **前端**：原生 HTML + ES module（无构建依赖），含对话 / 案件 / 知识库 / 审计视图
-- **质量**：离线 pytest（1260 passed）+ Ruff + GitHub Actions CI
+- **质量**：离线 pytest（1273 passed）+ Ruff + GitHub Actions CI
 
 ## 文档
 

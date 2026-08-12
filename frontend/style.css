@@ -1707,6 +1707,11 @@ select.audit-input { cursor: pointer; }
 .memory-fact { flex-direction: column; gap: 4px; position: relative; padding-right: 30px; }
 .memory-fact-text { color: var(--fg); line-height: 1.5; }
 .memory-fact-tags { color: var(--fg-faint); font-size: 11px; font-family: var(--font-mono); }
+.memory-fact-source {
+  color: var(--fg-mute);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
 .memory-fact-del {
   position: absolute;
   top: 6px;

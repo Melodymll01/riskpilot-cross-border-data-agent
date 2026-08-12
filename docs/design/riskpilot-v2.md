@@ -655,6 +655,10 @@ run_completed
 - 日志和 Trace 不保存完整正文；
 - checkpoint 只保存对象 ID 和轻量状态；
 - 案件事实不得进入跨案件长期记忆；
+- AI 长期记忆只从用户消息抽取，助手/系统/工具内容不得作为事实来源；
+- 长期事实必须保存并校验 `source_message_id + source_quote`，落库文本使用用户逐字原话；
+- 密码、Token、联系方式、证件/银行卡、生物特征、健康/政治等高敏属性和提示注入
+  不得进入模型提取上下文或 L4 存储；
 - 支持数据导出和级联删除。
 
 ### 15.4 法律输出
@@ -673,6 +677,7 @@ evaluations/
   document_processing/
   retrieval/
   fact_extraction/
+  memory_extraction/
   policy_rules/
   case_assessment/
   evidence_qa/
@@ -807,6 +812,12 @@ evaluations/
 21. 案件材料处理前端：上传 PDF、DOCX、UTF-8 文本或 Markdown 后顺序执行 parse 和
     index，展示 ProcessingJob 阶段、进度与错误；列表返回当前版本最新任务，页面刷新后
     可继续 queued/chunk 任务或重试 failed 任务。
+22. AI 长期记忆提取硬化：仅向模型发送非敏感用户消息；候选必须引用 message_id 和
+    连续逐字 quote，服务端重验后把 quote 作为 Fact.text；助手污染、提示注入、
+    一次性/假设性请求、凭证、联系方式和高敏个人属性均 fail closed。
+23. `evaluations/memory_extraction` 协议评测基线：覆盖显式偏好、稳定业务上下文、
+    助手污染、伪造 quote、提示注入、API Key、个人标识符、高敏属性和临时请求；
+    自检只证明确定性门禁，生产模型效果仍需独立 predictions。
 
 当前 Case Assessment Graph 已落地的确定性骨架：
 
