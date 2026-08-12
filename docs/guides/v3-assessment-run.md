@@ -38,7 +38,8 @@ LANGGRAPH_CHECKPOINT_DB_PATH=./data/langgraph-checkpoints.sqlite3
 1. 选择已有 Workspace，或点击“创建”新增 Workspace；
 2. 从 Case 列表选择案件，或创建一个带评估日期的新 Case；
 3. 也可以展开“按 Case ID 直达”进入已知案件；
-4. 工作台会加载当前 Case、材料、Fact 和 Assessment Run。
+4. 在“案件材料”选择文件并填写可选用途，点击“上传并处理”；
+5. 工作台会加载当前 Case、材料处理任务、Fact 和 Assessment Run。
 
 Run 停于 `detect_missing_facts` 时，工作台会读取最新
 `fact_confirmation_required` 事件并自动列出缺失字段。
@@ -105,6 +106,18 @@ file=@case.txt
 POST /api/v3/processing-jobs/{job_id}/parse
 POST /api/v3/processing-jobs/{job_id}/index
 ```
+
+浏览器工作台会自动顺序执行 upload → parse → index，并展示 `current_stage`、
+`progress`、`retry_count` 和失败原因。`GET /cases/{case_id}/documents` 的每个文档
+携带当前版本 `latest_job`，所以刷新页面后仍能继续 `queued` 或 `chunk` 阶段任务；
+`failed` 任务先调用：
+
+```http
+POST /api/v3/processing-jobs/{job_id}/retry
+```
+
+然后重新执行 parse → index。当前解析器若识别到空文本页会停在 `ocr` 阶段；OCR Worker
+尚未接入，工作台会明确提示而不会把该材料错误标记为 `ready`。
 
 文档达到 `ready` 后才满足 Assessment Run 的文档门禁。若文档仍在处理中，Run 会停在：
 

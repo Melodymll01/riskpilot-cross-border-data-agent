@@ -216,8 +216,21 @@
 
           <section class="case-card">
             <header class="case-card-header">
-              <h3>案件材料</h3>
+              <div>
+                <h3>案件材料</h3>
+                <p class="case-muted">上传后自动解析并建立 Case 级证据索引；失败可重试。</p>
+              </div>
             </header>
+            <form class="case-upload-form" id="case-upload-form">
+              <input class="case-input" id="case-upload-file" name="file" type="file"
+                     accept=".pdf,.docx,.txt,.md,.markdown" required />
+              <input class="case-input" id="case-upload-purpose" name="purpose"
+                     placeholder="材料用途（可选），如：证明境外接收方责任" maxlength="500" />
+              <button class="btn btn-primary" id="case-upload-submit" type="submit">
+                上传并处理
+              </button>
+            </form>
+            <p class="case-muted case-upload-hint">支持 PDF、DOCX、UTF-8 TXT/Markdown。</p>
             <div class="case-list" id="case-documents"></div>
           </section>
         </div>

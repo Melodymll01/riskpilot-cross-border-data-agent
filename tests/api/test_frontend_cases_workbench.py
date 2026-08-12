@@ -27,6 +27,10 @@ def test_case_workbench_dom_contract() -> None:
         "case-btn-refresh",
         "case-btn-propose",
         "case-btn-continue",
+        "case-upload-form",
+        "case-upload-file",
+        "case-upload-purpose",
+        "case-upload-submit",
         "case-documents",
         "case-run",
         "case-missing-fields",
@@ -43,6 +47,11 @@ def test_case_api_client_uses_v3_routes() -> None:
     for route in (
         "/workspaces",
         "/cases?workspace_id=",
+        "/documents",
+        "/processing-jobs/",
+        "/parse",
+        "/index",
+        "/retry",
         "/fact-proposals",
         "/assessment-runs",
         "/transitions",
@@ -63,6 +72,10 @@ def test_case_renderer_does_not_inject_untrusted_html() -> None:
     assert "loadWorkspaces" in source
     assert "loadCases" in source
     assert "openCreateModal" in source
+    assert "uploadDocument" in source
+    assert "runDocumentPipeline" in source
+    assert "latest_job" in source
+    assert "documentAction" in source
 
 
 def test_app_mounts_authenticated_case_view() -> None:

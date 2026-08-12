@@ -406,6 +406,7 @@ a:hover { text-decoration: underline; }
 .case-list,
 .case-facts { display: flex; flex-direction: column; gap: 9px; }
 .case-list-row,
+.case-document-card,
 .case-fact-card,
 .case-run-grid,
 .case-check {
@@ -415,6 +416,36 @@ a:hover { text-decoration: underline; }
   background: var(--bg);
 }
 .case-list-main { display: flex; flex-direction: column; min-width: 0; }
+
+.case-upload-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(220px, 1.2fr) auto;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.case-upload-hint { margin-bottom: 12px; }
+.case-document-card { display: flex; flex-direction: column; gap: 8px; }
+.case-document-card .case-list-row { padding: 0; border: 0; background: transparent; }
+.case-document-progress {
+  width: 100%;
+  height: 7px;
+  border: 0;
+  accent-color: var(--brand);
+}
+.case-document-progress::-webkit-progress-bar {
+  background: var(--bg-elev2);
+  border-radius: 999px;
+}
+.case-document-progress::-webkit-progress-value {
+  background: var(--brand);
+  border-radius: 999px;
+}
+.case-document-error {
+  color: var(--err);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.case-document-actions { display: flex; justify-content: flex-end; }
 
 .case-badge {
   display: inline-flex;
@@ -485,6 +516,7 @@ a:hover { text-decoration: underline; }
   .case-manager { grid-template-columns: 1fr; }
   .case-grid { grid-template-columns: 1fr; }
   .case-load { flex-direction: column; }
+  .case-upload-form { grid-template-columns: 1fr; }
   .case-form-grid { grid-template-columns: 1fr; }
 }
 

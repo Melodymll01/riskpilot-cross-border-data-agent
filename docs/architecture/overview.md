@@ -94,8 +94,10 @@ AssessmentRunUseCase
 Fact 提议具备字段白名单、当前版本原文复核、冲突检测和 Reviewer 唯一确认，但尚未
 内联到 LangGraph `fact_confirmation` 节点；原生案件工作台通过 Run 事件完成候选生成、
 证据展示、Reviewer 确认和继续运行，并支持 Workspace / Case 创建与多 Case 导航。
-Assessment 已实现 Fact / Evidence / Clause 不可变引用快照和审批前漂移校验；材料
-上传、启动 Run、Assessment 审批详情、LLM 引用重写和 Deep Research Graph 仍待后续切片。
+案件材料支持浏览器上传、解析、索引、进度展示和失败重试；材料列表同时返回当前版本
+最新 ProcessingJob，因此页面刷新后仍可恢复 job_id 和处理状态。Assessment 已实现
+Fact / Evidence / Clause 不可变引用快照和审批前漂移校验；启动 Run、Assessment
+审批详情、LLM 引用重写和 Deep Research Graph 仍待后续切片。
 
 完整产品和技术设计见：
 

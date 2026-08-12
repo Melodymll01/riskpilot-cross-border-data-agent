@@ -804,6 +804,9 @@ evaluations/
     Reviewer 确认后继续 Run。
 20. Workspace / Case 管理前端：列出并创建当前用户 Workspace、列出并创建 Case、
     多 Case 导航与 Case ID 直达，并自动进入已有 Fact Confirmation 工作区。
+21. 案件材料处理前端：上传 PDF、DOCX、UTF-8 文本或 Markdown 后顺序执行 parse 和
+    index，展示 ProcessingJob 阶段、进度与错误；列表返回当前版本最新任务，页面刷新后
+    可继续 queued/chunk 任务或重试 failed 任务。
 
 当前 Case Assessment Graph 已落地的确定性骨架：
 
@@ -825,7 +828,7 @@ pickle fallback。
 
 尚未完成：
 
-1. 完整案件管理前端：材料上传与处理进度、启动 Run、Assessment 审批和引用详情；
+1. 完整案件管理前端：启动 Run、Assessment 审批和引用详情；
 2. 基于 Claim-Citation 评测基线的完整生成器 + 验证器端到端生产实测；
 3. Deep Research Graph；
 4. 评测中心、故障注入指标、安全红队和报告导出。

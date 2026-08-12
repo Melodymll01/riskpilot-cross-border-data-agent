@@ -27,6 +27,26 @@ async function requestV3(method, path, body) {
   return requestAt(V3_BASE, method, path, body);
 }
 
+async function requestFormV3(path, formData) {
+  const resp = await fetch(`${V3_BASE}${path}`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Accept": "application/json" },
+    body: formData,
+  });
+  const text = await resp.text();
+  let data = null;
+  if (text) {
+    try { data = JSON.parse(text); } catch { data = { raw: text }; }
+  }
+  if (!resp.ok) {
+    const code = data?.error_code || data?.detail?.error_code || "HTTP_ERROR";
+    const msg = data?.message || data?.detail?.message || data?.detail || resp.statusText;
+    throw new ApiError(resp.status, code, msg);
+  }
+  return data;
+}
+
 async function requestAt(base, method, path, body) {
   const opts = {
     method,
@@ -173,6 +193,24 @@ export const casesV3 = {
     requestV3("GET", `/cases/${encodeURIComponent(caseId)}`),
   documents: (caseId) =>
     requestV3("GET", `/cases/${encodeURIComponent(caseId)}/documents`),
+  uploadDocument: (caseId, file, { documentType = "case_material", purpose = "" } = {}) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("document_type", documentType);
+    formData.append("purpose", purpose);
+    return requestFormV3(
+      `/cases/${encodeURIComponent(caseId)}/documents`,
+      formData
+    );
+  },
+  processingJob: (jobId) =>
+    requestV3("GET", `/processing-jobs/${encodeURIComponent(jobId)}`),
+  parseDocument: (jobId) =>
+    requestV3("POST", `/processing-jobs/${encodeURIComponent(jobId)}/parse`),
+  indexDocument: (jobId) =>
+    requestV3("POST", `/processing-jobs/${encodeURIComponent(jobId)}/index`),
+  retryDocument: (jobId) =>
+    requestV3("POST", `/processing-jobs/${encodeURIComponent(jobId)}/retry`),
   facts: (caseId) =>
     requestV3("GET", `/cases/${encodeURIComponent(caseId)}/facts`),
   fact: (factId) =>

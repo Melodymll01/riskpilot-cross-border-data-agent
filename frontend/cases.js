@@ -5,6 +5,7 @@
 import { ApiError, casesV3 } from "./api.js";
 
 const $ = (selector) => document.querySelector(selector);
+const processingDocuments = new Set();
 
 const state = {
   mounted: false,
@@ -37,6 +38,8 @@ export function mount() {
   $("#case-create-form")?.addEventListener("submit", onCreateSubmit);
   $("#case-btn-propose")?.addEventListener("click", proposeFacts);
   $("#case-btn-continue")?.addEventListener("click", continueRun);
+  $("#case-upload-form")?.addEventListener("submit", uploadDocument);
+  $("#case-documents")?.addEventListener("click", onDocumentAction);
   $("#case-facts")?.addEventListener("click", onFactAction);
   loadWorkspaces();
 }
@@ -56,7 +59,7 @@ export async function refresh() {
       casesV3.runs(state.caseId),
     ]);
     state.caseData = caseData;
-    state.documents = documentData?.documents || [];
+    state.documents = normalizeDocumentSummaries(documentData?.documents);
     state.facts = factData?.facts || [];
     state.factDetails = await loadFactDetails(state.facts);
     state.runs = runData?.runs || [];
@@ -243,6 +246,108 @@ async function loadMissingFields(run) {
   return normalizeStringList(event?.payload?.missing_fact_fields);
 }
 
+async function uploadDocument(event) {
+  event.preventDefault();
+  if (!state.caseId) {
+    setStatus("error", "请先选择 Case");
+    return;
+  }
+  const fileInput = $("#case-upload-file");
+  const file = fileInput?.files?.[0];
+  if (!file) {
+    setStatus("error", "请选择案件材料");
+    return;
+  }
+  const purpose = String($("#case-upload-purpose")?.value || "").trim();
+  let documentId = "";
+  setDocumentControlsBusy(true);
+  setStatus("loading", `正在上传并处理 ${file.name}…`);
+  try {
+    const uploaded = await casesV3.uploadDocument(state.caseId, file, { purpose });
+    documentId = uploaded.document.document_id;
+    processingDocuments.add(documentId);
+    upsertDocumentSummary(uploaded.document, uploaded.job);
+    renderDocuments();
+    await runDocumentPipeline(uploaded.job);
+    event.target.reset();
+    await refresh();
+    setStatus("ok", `材料 “${file.name}” 已解析并完成索引`);
+  } catch (error) {
+    await refreshDocuments();
+    setStatus("error", `材料处理失败：${errorMessage(error)}`);
+  } finally {
+    if (documentId) processingDocuments.delete(documentId);
+    setDocumentControlsBusy(false);
+    renderDocuments();
+  }
+}
+
+async function onDocumentAction(event) {
+  const button = event.target.closest("[data-document-action]");
+  if (!button) return;
+  const action = button.dataset.documentAction;
+  const jobId = button.dataset.jobId;
+  const documentId = button.dataset.documentId;
+  if (!action || !jobId || !documentId || processingDocuments.has(documentId)) return;
+  processingDocuments.add(documentId);
+  renderDocuments();
+  setStatus("loading", action === "retry" ? "正在重试材料处理…" : "正在继续材料处理…");
+  try {
+    let job = await casesV3.processingJob(jobId);
+    if (action === "retry") {
+      job = await casesV3.retryDocument(jobId);
+    }
+    updateDocumentJob(documentId, job);
+    renderDocuments();
+    await runDocumentPipeline(job);
+    await refresh();
+    setStatus("ok", "材料已完成解析与索引");
+  } catch (error) {
+    await refreshDocuments();
+    setStatus("error", `材料处理失败：${errorMessage(error)}`);
+  } finally {
+    processingDocuments.delete(documentId);
+    renderDocuments();
+  }
+}
+
+async function runDocumentPipeline(job) {
+  let currentJob = job;
+  if (currentJob.status === "failed") {
+    throw new Error(currentJob.error_message || "处理任务失败，请重试");
+  }
+  if (currentJob.status === "queued") {
+    const parsed = await casesV3.parseDocument(currentJob.job_id);
+    currentJob = parsed.job;
+    upsertDocumentSummary(parsed.document, currentJob);
+    renderDocuments();
+  }
+  if (currentJob.status === "running" && currentJob.current_stage === "ocr") {
+    throw new Error("当前材料需要 OCR，服务端尚未提供 OCR 执行阶段");
+  }
+  if (currentJob.status === "running" && currentJob.current_stage === "chunk") {
+    const indexed = await casesV3.indexDocument(currentJob.job_id);
+    currentJob = indexed.job;
+    upsertDocumentSummary(indexed.document, currentJob);
+    renderDocuments();
+  }
+  if (currentJob.status !== "completed") {
+    throw new Error(
+      `任务停留在 ${currentJob.status}/${currentJob.current_stage}，请刷新后继续`
+    );
+  }
+  return currentJob;
+}
+
+async function refreshDocuments() {
+  if (!state.caseId) return;
+  try {
+    const response = await casesV3.documents(state.caseId);
+    state.documents = normalizeDocumentSummaries(response?.documents);
+    renderDocuments();
+  } catch {}
+}
+
 async function proposeFacts() {
   if (!state.caseId) return;
   const fieldNames = selectedFieldNames();
@@ -251,8 +356,8 @@ async function proposeFacts() {
     return;
   }
   const documentIds = state.documents
-    .filter((document) => document.status === "ready")
-    .map((document) => document.document_id);
+    .filter((item) => item.document.status === "ready")
+    .map((item) => item.document.document_id);
   if (!documentIds.length) {
     setStatus("error", "当前案件没有 ready 文档，无法生成 Fact 候选");
     return;
@@ -387,14 +492,57 @@ function renderDocuments() {
     root.appendChild(emptyNode("尚未上传案件材料"));
     return;
   }
-  for (const document of state.documents) {
-    const row = element("div", "case-list-row");
+  for (const summary of state.documents) {
+    const documentData = summary.document;
+    const job = summary.latest_job;
+    const row = element("article", "case-document-card");
+    const header = element("div", "case-list-row");
     const title = element("div", "case-list-main");
     title.append(
-      element("strong", "", document.logical_name),
-      element("span", "case-muted", document.document_type)
+      element("strong", "", documentData.logical_name),
+      element("span", "case-muted", documentData.document_type)
     );
-    row.append(title, badge(document.status, document.status));
+    header.append(title, badge(documentData.status, documentData.status));
+    row.appendChild(header);
+    if (job) {
+      const progress = document.createElement("progress");
+      progress.className = "case-document-progress";
+      progress.max = 100;
+      progress.value = Math.round(job.progress * 100);
+      const meta = element(
+        "span",
+        "case-muted",
+        `阶段：${job.current_stage} · 进度：${progress.value}% · 重试：${job.retry_count}`
+      );
+      row.append(meta, progress);
+      if (job.status === "failed") {
+        row.appendChild(
+          element(
+            "p",
+            "case-document-error",
+            job.error_message || job.error_code || "材料处理失败"
+          )
+        );
+      }
+      const action = documentAction(job);
+      if (action) {
+        const actions = element("div", "case-document-actions");
+        const button = element(
+          "button",
+          action === "retry" ? "btn btn-ghost" : "btn btn-primary",
+          action === "retry" ? "重试处理" : "继续处理"
+        );
+        button.type = "button";
+        button.dataset.documentAction = action;
+        button.dataset.documentId = documentData.document_id;
+        button.dataset.jobId = job.job_id;
+        button.disabled = processingDocuments.has(documentData.document_id);
+        actions.appendChild(button);
+        row.appendChild(actions);
+      }
+    } else {
+      row.appendChild(element("p", "case-document-error", "当前版本缺少处理任务"));
+    }
     root.appendChild(row);
   }
 }
@@ -520,6 +668,53 @@ function normalizeStringList(value) {
   return [...new Set(value.filter((item) => typeof item === "string" && item.trim()))];
 }
 
+function normalizeDocumentSummaries(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item) => item?.document_id)
+    .map((item) => ({
+      document: {
+        document_id: item.document_id,
+        workspace_id: item.workspace_id,
+        logical_name: item.logical_name,
+        document_type: item.document_type,
+        status: item.status,
+        created_by: item.created_by,
+        current_version_id: item.current_version_id,
+        created_at: item.created_at,
+        updated_at: item.updated_at,
+      },
+      latest_job: item.latest_job || null,
+    }));
+}
+
+function upsertDocumentSummary(documentData, job) {
+  const summary = { document: documentData, latest_job: job };
+  const index = state.documents.findIndex(
+    (item) => item.document.document_id === documentData.document_id
+  );
+  if (index >= 0) {
+    state.documents[index] = summary;
+  } else {
+    state.documents.unshift(summary);
+  }
+}
+
+function updateDocumentJob(documentId, job) {
+  const summary = state.documents.find(
+    (item) => item.document.document_id === documentId
+  );
+  if (summary) summary.latest_job = job;
+}
+
+function documentAction(job) {
+  if (!job) return "";
+  if (job.status === "failed") return "retry";
+  if (job.status === "queued") return "continue";
+  if (job.status === "running" && job.current_stage === "chunk") return "continue";
+  return "";
+}
+
 function setBusy(busy) {
   for (const selector of [
     "#case-btn-refresh",
@@ -542,6 +737,7 @@ function setBusy(busy) {
         !state.missingFields.length;
     }
   }
+  setDocumentControlsBusy(busy);
 }
 
 function setManagerBusy(busy) {
@@ -558,6 +754,13 @@ function setManagerBusy(busy) {
 function setCreateBusy(busy) {
   const button = $("#case-create-submit");
   if (button) button.disabled = busy;
+}
+
+function setDocumentControlsBusy(busy) {
+  for (const selector of ["#case-upload-file", "#case-upload-purpose", "#case-upload-submit"]) {
+    const node = $(selector);
+    if (node) node.disabled = busy;
+  }
 }
 
 function setStatus(kind, message) {
