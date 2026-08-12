@@ -31,7 +31,8 @@ let _currentView = "chat";
 
 function switchView(view) {
   if (!["chat", "cases", "kb", "audit"].includes(view)) return;
-  if (view === "cases" && getUser()?.provider === "anonymous") return;
+  const user = getUser();
+  if (view === "cases" && (!user || user.provider === "anonymous")) return;
   if (view === "kb" && !getUser()) return;  // 未登录不许进 KB
   if (view === "audit" && !getUser()?.is_admin) return;  // 只 admin 进 audit
   _currentView = view;

@@ -105,6 +105,7 @@ ADMIN_USER_IDS='' \
   重新验证 Fact 版本、DocumentVersion、SHA、quote 和 offset；
 - 已实现原生 V3 案件工作台最小闭环：按 Case ID 加载 Run 中断、生成 Fact 候选、
   展示证据、Reviewer 确认并继续运行；
+- 已实现 Workspace / Case 管理前端：列表、创建、多 Case 导航和 Case ID 直达；
 - 最新离线回归为 `1260 passed, 1 skipped`，无具体用例 deselect，research 模式已由
   `FakeResearch` 完整隔离真实 embeddings / LLM 外呼；
 - GitHub Actions 已恢复 `main` push / pull request 自动触发，Ruff 覆盖 Domain、App、

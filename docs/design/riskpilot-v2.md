@@ -802,6 +802,8 @@ evaluations/
 19. 原生 V3 案件工作台最小闭环：按 Case ID 加载案件、材料、Fact 和 Run；从
     `fact_confirmation_required` 事件读取缺失字段，生成 Fact 候选、展示原文证据、
     Reviewer 确认后继续 Run。
+20. Workspace / Case 管理前端：列出并创建当前用户 Workspace、列出并创建 Case、
+    多 Case 导航与 Case ID 直达，并自动进入已有 Fact Confirmation 工作区。
 
 当前 Case Assessment Graph 已落地的确定性骨架：
 
@@ -823,8 +825,7 @@ pickle fallback。
 
 尚未完成：
 
-1. 完整案件管理前端：Workspace / Case 列表与创建、材料上传、多 Case 导航、
-   Assessment 审批和引用详情；
+1. 完整案件管理前端：材料上传与处理进度、启动 Run、Assessment 审批和引用详情；
 2. 基于 Claim-Citation 评测基线的完整生成器 + 验证器端到端生产实测；
 3. Deep Research Graph；
 4. 评测中心、故障注入指标、安全红队和报告导出。

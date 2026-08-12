@@ -158,6 +158,17 @@ export const health = {
 
 /* ─────────── V3 案件工作台 ─────────── */
 export const casesV3 = {
+  workspaces: () =>
+    requestV3("GET", "/workspaces?limit=200"),
+  createWorkspace: (body) =>
+    requestV3("POST", "/workspaces", body),
+  list: (workspaceId) =>
+    requestV3(
+      "GET",
+      `/cases?workspace_id=${encodeURIComponent(workspaceId)}&limit=200`
+    ),
+  create: (body) =>
+    requestV3("POST", "/cases", body),
   get: (caseId) =>
     requestV3("GET", `/cases/${encodeURIComponent(caseId)}`),
   documents: (caseId) =>

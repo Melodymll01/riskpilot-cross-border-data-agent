@@ -15,6 +15,14 @@ def test_case_workbench_dom_contract() -> None:
         "case-pane",
         "case-load-form",
         "case-id-input",
+        "case-workspace-select",
+        "case-selector-list",
+        "case-btn-new-workspace",
+        "case-btn-new-case",
+        "case-create-modal",
+        "case-create-form",
+        "case-create-kind",
+        "case-create-name",
         "case-status",
         "case-btn-refresh",
         "case-btn-propose",
@@ -33,6 +41,8 @@ def test_case_api_client_uses_v3_routes() -> None:
     source = (FRONTEND / "api.js").read_text(encoding="utf-8")
     assert 'const V3_BASE = "/api/v3"' in source
     for route in (
+        "/workspaces",
+        "/cases?workspace_id=",
         "/fact-proposals",
         "/assessment-runs",
         "/transitions",
@@ -49,6 +59,10 @@ def test_case_renderer_does_not_inject_untrusted_html() -> None:
     assert ".textContent" in source
     assert "fact_confirmation_required" in source
     assert "missing_fact_fields" in source
+    assert "createWorkspace" in source
+    assert "loadWorkspaces" in source
+    assert "loadCases" in source
+    assert "openCreateModal" in source
 
 
 def test_app_mounts_authenticated_case_view() -> None:
@@ -57,4 +71,4 @@ def test_app_mounts_authenticated_case_view() -> None:
     assert 'view === "cases"' in source
     assert "cases.mount()" in source
     assert 'applyCaseGate(!!user && user.provider !== "anonymous")' in source
-    assert 'getUser()?.provider === "anonymous"' in source
+    assert '(!user || user.provider === "anonymous")' in source

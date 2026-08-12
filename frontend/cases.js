@@ -8,6 +8,9 @@ const $ = (selector) => document.querySelector(selector);
 
 const state = {
   mounted: false,
+  workspaces: [],
+  workspaceId: "",
+  caseList: [],
   caseId: "",
   caseData: null,
   documents: [],
@@ -24,13 +27,25 @@ export function mount() {
   state.mounted = true;
   $("#case-load-form")?.addEventListener("submit", onLoadCase);
   $("#case-btn-refresh")?.addEventListener("click", () => refresh());
+  $("#case-workspace-select")?.addEventListener("change", onWorkspaceChange);
+  $("#case-selector-list")?.addEventListener("click", onCaseSelect);
+  $("#case-btn-new-workspace")?.addEventListener("click", () => openCreateModal("workspace"));
+  $("#case-btn-new-case")?.addEventListener("click", () => openCreateModal("case"));
+  $("#case-create-close")?.addEventListener("click", closeCreateModal);
+  $("#case-create-cancel")?.addEventListener("click", closeCreateModal);
+  $("#case-create-modal")?.addEventListener("click", onModalBackdrop);
+  $("#case-create-form")?.addEventListener("submit", onCreateSubmit);
   $("#case-btn-propose")?.addEventListener("click", proposeFacts);
   $("#case-btn-continue")?.addEventListener("click", continueRun);
   $("#case-facts")?.addEventListener("click", onFactAction);
+  loadWorkspaces();
 }
 
 export async function refresh() {
-  if (!state.caseId) return;
+  if (!state.caseId) {
+    await loadWorkspaces();
+    return;
+  }
   setStatus("loading", "正在加载案件、材料、事实与 Run…");
   setBusy(true);
   try {
@@ -59,6 +74,67 @@ export async function refresh() {
   }
 }
 
+async function loadWorkspaces({ preserveSelection = true } = {}) {
+  setStatus("loading", "正在加载 Workspace 与 Case…");
+  setManagerBusy(true);
+  try {
+    const response = await casesV3.workspaces();
+    state.workspaces = response?.workspaces || [];
+    const stillExists = state.workspaces.some(
+      (workspace) => workspace.workspace_id === state.workspaceId
+    );
+    if (!preserveSelection || !stillExists) {
+      state.workspaceId = state.workspaces[0]?.workspace_id || "";
+    }
+    renderWorkspaceSelect();
+    await loadCases(state.workspaceId);
+    setStatus(
+      "ok",
+      state.workspaces.length ? "Workspace 与 Case 已刷新" : "尚无 Workspace，请先创建"
+    );
+  } catch (error) {
+    setStatus("error", errorMessage(error));
+  } finally {
+    setManagerBusy(false);
+  }
+}
+
+async function loadCases(workspaceId) {
+  state.caseList = [];
+  if (!workspaceId) {
+    renderCaseList();
+    return;
+  }
+  const response = await casesV3.list(workspaceId);
+  state.caseList = response?.cases || [];
+  renderCaseList();
+}
+
+async function onWorkspaceChange(event) {
+  state.workspaceId = event.target.value;
+  state.caseId = "";
+  state.caseData = null;
+  render();
+  setManagerBusy(true);
+  try {
+    await loadCases(state.workspaceId);
+    setStatus("ok", "Case 列表已刷新");
+  } catch (error) {
+    setStatus("error", errorMessage(error));
+  } finally {
+    setManagerBusy(false);
+  }
+}
+
+async function onCaseSelect(event) {
+  const button = event.target.closest("[data-case-id]");
+  if (!button) return;
+  state.caseId = button.dataset.caseId || "";
+  const input = $("#case-id-input");
+  if (input) input.value = state.caseId;
+  await refresh();
+}
+
 async function loadFactDetails(facts) {
   const candidates = facts.filter(
     (fact) => fact.status === "proposed" || fact.status === "conflicting"
@@ -85,6 +161,76 @@ async function onLoadCase(event) {
   }
   state.caseId = caseId;
   await refresh();
+}
+
+function openCreateModal(kind) {
+  if (kind === "case" && !state.workspaceId) {
+    setStatus("error", "请先创建或选择 Workspace");
+    return;
+  }
+  const modal = $("#case-create-modal");
+  const isCase = kind === "case";
+  $("#case-create-kind").value = kind;
+  setText("#case-create-title", isCase ? "创建 Case" : "创建 Workspace");
+  setText("#case-create-name-label", isCase ? "Case 标题" : "Workspace 名称");
+  document.querySelectorAll(".case-only").forEach((node) => {
+    node.classList.toggle("hidden", !isCase);
+  });
+  $("#case-create-form")?.reset();
+  $("#case-create-kind").value = kind;
+  if (isCase) $("#case-create-jurisdiction").value = "CN";
+  modal?.classList.remove("hidden");
+  modal?.setAttribute("aria-hidden", "false");
+  $("#case-create-name")?.focus();
+}
+
+function closeCreateModal() {
+  const modal = $("#case-create-modal");
+  modal?.classList.add("hidden");
+  modal?.setAttribute("aria-hidden", "true");
+}
+
+function onModalBackdrop(event) {
+  if (event.target.id === "case-create-modal") closeCreateModal();
+}
+
+async function onCreateSubmit(event) {
+  event.preventDefault();
+  const kind = $("#case-create-kind")?.value;
+  const name = String($("#case-create-name")?.value || "").trim();
+  if (!name) return;
+  setCreateBusy(true);
+  try {
+    if (kind === "workspace") {
+      const workspace = await casesV3.createWorkspace({ name });
+      state.workspaceId = workspace.workspace_id;
+      closeCreateModal();
+      await loadWorkspaces();
+      setStatus("ok", `Workspace “${workspace.name}” 已创建`);
+      return;
+    }
+    const body = {
+      workspace_id: state.workspaceId,
+      title: name,
+      description: String($("#case-create-description")?.value || "").trim(),
+      jurisdiction: String($("#case-create-jurisdiction")?.value || "CN").trim() || "CN",
+      scenario_type: String($("#case-create-scenario")?.value || "").trim(),
+    };
+    const assessmentDate = $("#case-create-date")?.value;
+    const reviewerId = String($("#case-create-reviewer")?.value || "").trim();
+    if (assessmentDate) body.assessment_date = assessmentDate;
+    if (reviewerId) body.reviewer_id = reviewerId;
+    const created = await casesV3.create(body);
+    state.caseId = created.case_id;
+    closeCreateModal();
+    await loadCases(state.workspaceId);
+    await refresh();
+    setStatus("ok", `Case “${created.title}” 已创建`);
+  } catch (error) {
+    setStatus("error", errorMessage(error));
+  } finally {
+    setCreateBusy(false);
+  }
 }
 
 async function loadMissingFields(run) {
@@ -185,6 +331,52 @@ function render() {
   renderRun();
   renderMissingFields();
   renderFacts();
+}
+
+function renderWorkspaceSelect() {
+  const select = $("#case-workspace-select");
+  if (!select) return;
+  select.replaceChildren();
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = state.workspaces.length
+    ? "请选择 Workspace"
+    : "暂无 Workspace";
+  select.appendChild(placeholder);
+  for (const workspace of state.workspaces) {
+    const option = document.createElement("option");
+    option.value = workspace.workspace_id;
+    option.textContent = workspace.name;
+    option.selected = workspace.workspace_id === state.workspaceId;
+    select.appendChild(option);
+  }
+}
+
+function renderCaseList() {
+  const root = $("#case-selector-list");
+  if (!root) return;
+  root.replaceChildren();
+  if (!state.workspaceId) {
+    root.appendChild(emptyNode("请先选择 Workspace"));
+    return;
+  }
+  if (!state.caseList.length) {
+    root.appendChild(emptyNode("当前 Workspace 尚无 Case"));
+    return;
+  }
+  for (const item of state.caseList) {
+    const button = element("button", "case-selector-item");
+    button.type = "button";
+    button.dataset.caseId = item.case_id;
+    button.classList.toggle("is-active", item.case_id === state.caseId);
+    const text = element("span", "case-list-main");
+    text.append(
+      element("strong", "", item.title),
+      element("span", "case-muted", item.case_id)
+    );
+    button.append(text, badge(item.status, item.status));
+    root.appendChild(button);
+  }
 }
 
 function renderDocuments() {
@@ -350,6 +542,22 @@ function setBusy(busy) {
         !state.missingFields.length;
     }
   }
+}
+
+function setManagerBusy(busy) {
+  for (const selector of [
+    "#case-workspace-select",
+    "#case-btn-new-workspace",
+    "#case-btn-new-case",
+  ]) {
+    const node = $(selector);
+    if (node) node.disabled = busy;
+  }
+}
+
+function setCreateBusy(busy) {
+  const button = $("#case-create-submit");
+  if (button) button.disabled = busy;
 }
 
 function setStatus(kind, message) {

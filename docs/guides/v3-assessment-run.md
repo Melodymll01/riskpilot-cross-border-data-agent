@@ -33,9 +33,15 @@ LangGraph checkpoint 默认保存在：
 LANGGRAPH_CHECKPOINT_DB_PATH=./data/langgraph-checkpoints.sqlite3
 ```
 
-浏览器打开首页后，左侧选择 `案件工作台`，输入 `case_id` 即可查看当前 Case、材料、
-Fact 和 Assessment Run。工作台在 Run 停于 `detect_missing_facts` 时会读取最新
-`fact_confirmation_required` 事件，自动列出缺失字段。
+浏览器打开首页后，左侧选择 `案件工作台`：
+
+1. 选择已有 Workspace，或点击“创建”新增 Workspace；
+2. 从 Case 列表选择案件，或创建一个带评估日期的新 Case；
+3. 也可以展开“按 Case ID 直达”进入已知案件；
+4. 工作台会加载当前 Case、材料、Fact 和 Assessment Run。
+
+Run 停于 `detect_missing_facts` 时，工作台会读取最新
+`fact_confirmation_required` 事件并自动列出缺失字段。
 
 ## 2. 创建 Workspace 与成员
 

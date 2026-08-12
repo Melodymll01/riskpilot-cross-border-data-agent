@@ -50,7 +50,7 @@
 | **文档 Fact 提议** | 字段白名单、当前版本原文复核、冲突检测、Reviewer 确认后才进入规则计算 | [fact_management.py](app/use_cases/fact_management.py) |
 | **Assessment 引用闭包** | Finding 关联 Fact / Evidence / Clause 快照，生成和批准前重验版本、SHA 与原文漂移 | [assessment_management.py](app/use_cases/assessment_management.py) |
 | **可恢复案件工作流** | LangGraph + SQLite checkpointer，支持 interrupt/resume、失败重试、取消和人工审批 | [assessment_runs.py](app/use_cases/assessment_runs.py) |
-| **V3 案件工作台** | Case ID 加载、Run 中断识别、Fact 候选生成、证据查看、Reviewer 确认与继续运行 | [cases.js](frontend/cases.js) |
+| **V3 案件工作台** | Workspace/Case 创建与导航、Run 中断识别、Fact 候选、证据查看、Reviewer 确认与继续运行 | [cases.js](frontend/cases.js) |
 | **V3 Evidence QA** | 四类授权检索；结构/语义双校验；有限 Claim 过滤修复，全部失败仍安全拒答 | [evidence_qa.py](app/use_cases/evidence_qa.py) |
 
 ## 关键指标

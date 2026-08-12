@@ -151,11 +151,40 @@
         <button class="btn btn-ghost" id="case-btn-refresh" type="button">↻ 刷新</button>
       </header>
 
-      <form class="case-load" id="case-load-form" autocomplete="off">
-        <input class="case-input" id="case-id-input" required
-               placeholder="输入 Case ID，例如 case_..." maxlength="100" />
-        <button class="btn btn-primary" id="case-load-submit" type="submit">加载案件</button>
-      </form>
+      <section class="case-manager">
+        <div class="case-manager-column">
+          <div class="case-manager-head">
+            <div>
+              <h2>Workspace</h2>
+              <p class="case-muted">当前账号加入的工作空间</p>
+            </div>
+            <button class="btn btn-ghost" id="case-btn-new-workspace" type="button">＋ 创建</button>
+          </div>
+          <select class="case-input" id="case-workspace-select" aria-label="选择 Workspace">
+            <option value="">请选择 Workspace</option>
+          </select>
+        </div>
+
+        <div class="case-manager-column">
+          <div class="case-manager-head">
+            <div>
+              <h2>Cases</h2>
+              <p class="case-muted">选择案件进入工作台</p>
+            </div>
+            <button class="btn btn-ghost" id="case-btn-new-case" type="button">＋ 创建</button>
+          </div>
+          <div class="case-selector-list" id="case-selector-list"></div>
+        </div>
+      </section>
+
+      <details class="case-direct">
+        <summary>按 Case ID 直达</summary>
+        <form class="case-load" id="case-load-form" autocomplete="off">
+          <input class="case-input" id="case-id-input" required
+                 placeholder="输入 Case ID，例如 case_..." maxlength="100" />
+          <button class="btn btn-primary" id="case-load-submit" type="submit">加载案件</button>
+        </form>
+      </details>
 
       <div class="case-status" id="case-status" data-state="idle">请输入 Case ID</div>
 
@@ -351,6 +380,51 @@
         <span class="audit-pager-hint">每页 50 条；同场过滤下翻页</span>
       </footer>
     </main>
+  </div>
+
+  <!-- Workspace / Case 创建模态 -->
+  <div class="modal-overlay hidden" id="case-create-modal" aria-hidden="true">
+    <div class="modal case-create-modal" role="dialog" aria-modal="true" aria-labelledby="case-create-title">
+      <header class="modal-header">
+        <h2 class="modal-title" id="case-create-title">创建</h2>
+        <button class="btn btn-ghost btn-icon" id="case-create-close" type="button" aria-label="关闭">✕</button>
+      </header>
+      <form class="modal-body case-create-form" id="case-create-form" autocomplete="off">
+        <input type="hidden" id="case-create-kind" />
+        <label class="case-field">
+          <span id="case-create-name-label">名称</span>
+          <input class="case-input" id="case-create-name" required maxlength="200" />
+        </label>
+        <label class="case-field case-only">
+          <span>描述</span>
+          <textarea class="case-input" id="case-create-description" rows="3" maxlength="4000"></textarea>
+        </label>
+        <div class="case-form-grid case-only">
+          <label class="case-field">
+            <span>法域</span>
+            <input class="case-input" id="case-create-jurisdiction" value="CN" maxlength="32" />
+          </label>
+          <label class="case-field">
+            <span>场景类型</span>
+            <input class="case-input" id="case-create-scenario" placeholder="personal_information" maxlength="100" />
+          </label>
+        </div>
+        <div class="case-form-grid case-only">
+          <label class="case-field">
+            <span>评估日期</span>
+            <input class="case-input" id="case-create-date" type="date" />
+          </label>
+          <label class="case-field">
+            <span>Reviewer ID（可选）</span>
+            <input class="case-input" id="case-create-reviewer" maxlength="200" />
+          </label>
+        </div>
+        <div class="case-create-actions">
+          <button class="btn btn-ghost" id="case-create-cancel" type="button">取消</button>
+          <button class="btn btn-primary" id="case-create-submit" type="submit">创建</button>
+        </div>
+      </form>
+    </div>
   </div>
 
   <!-- ─────────── 记忆与隐私设置（模态，Step 031b） ─────────── -->
