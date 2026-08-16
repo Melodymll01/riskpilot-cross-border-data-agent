@@ -13,7 +13,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
+from contextlib import AbstractContextManager
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from domain.agent import AgentEvent
@@ -33,7 +34,6 @@ from domain.models import (
     AuditEntry,
     Chunk,
     ConsolidationState,
-    EvidenceJudgement,
     Fact,
     ForgetResult,
     KbChunk,
@@ -584,6 +584,26 @@ class CopilotAgentPort(Protocol):
 
 
 @runtime_checkable
+class TraceSpanPort(Protocol):
+    """运行中的可观测性 span；只接收脱敏后的结构化元数据。"""
+
+    def add_metadata(self, metadata: Mapping[str, Any]) -> None: ...
+
+
+@runtime_checkable
+class TracePort(Protocol):
+    """框架无关的 AI Trace 端口。"""
+
+    def span(
+        self,
+        name: str,
+        *,
+        run_type: Literal["chain", "llm", "tool", "retriever"] = "chain",
+        metadata: Mapping[str, Any] | None = None,
+    ) -> AbstractContextManager[TraceSpanPort]: ...
+
+
+@runtime_checkable
 class FactProposalGeneratorPort(Protocol):
     """基于显式字段白名单和案件文档生成待人工确认的 Fact 候选。"""
 
@@ -636,22 +656,14 @@ class EvidenceQAGeneratorPort(Protocol):
 
 
 @runtime_checkable
-class EvidencePort(Protocol):
-    """风险画像 evidence 服务（schema-evidence-risk-profiling）。"""
-
-    def judge(self, factor_id: str, context: dict[str, str]) -> EvidenceJudgement: ...
-
-
-@runtime_checkable
 class RiskProfilePort(Protocol):
     """风险画像评估端口（schema-evidence v1 接口预留）。
 
-    与 ``EvidencePort.judge`` 不同：本端口承接「自然语言目标命题 → evidence_state」
-    的 sample-level 评估，对齐 ``schema-evidence-risk-profiling`` 仓库当前阶段输出
+    本端口承接「自然语言目标命题 → evidence_state」的 sample-level 评估，
+    对齐 ``schema-evidence-risk-profiling`` 仓库当前阶段输出
     （`evidence_v1/sample_schema_v1.json`）。
 
-    在 evidence-state 模型完成训练并部署前，所有适配器实现应以占位方式返回明确
-    的"模型未就绪"信号（参见 ``infra/risk_profile/StubRiskProfileService``）。
+    生产实现通过 HTTP 或本地推理服务接入，infra 负责校验返回 schema。
     """
 
     def assess(
@@ -685,7 +697,7 @@ class KbDocumentRepoPort(Protocol):
     - **不做**检索（检索走 ``RetrievePort``，由 BM25 + 向量 + RRF 协同）。
     - **只做**管理面：列出文档、按 source 聚合、计 chunk 数、按 source 删除，
       以及"批量写入 chunks + embeddings"的原子操作。
-    - 切分 / 清洗 / 嵌入由上层 ``IngestionUseCase``（Step 016b）编排，
+    - 切分 / 清洗 / 嵌入由上层 ``KbManagementUseCase`` 编排，
       本端口只接受已就绪的 ``KbChunk`` 列表与平行的 embeddings。
 
     与 v1 ``service.py:KnowledgeService.list_sources/delete_source`` 的老 KB 管理

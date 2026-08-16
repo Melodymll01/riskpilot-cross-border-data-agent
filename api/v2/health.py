@@ -28,7 +28,7 @@ def build_health_routes(container: AppContainer) -> APIRouter:
                 "embedder": container.embedder is not None,
                 "retriever": container.retriever is not None,
                 "web_search": container.web_search is not None,
-                "evidence": container.evidence is not None,
+                "risk_profile": container.risk_profile is not None,
                 "auth": container.auth is not None,
             },
             "tools": container.copilot_agent.tool_names,

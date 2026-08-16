@@ -33,7 +33,6 @@ from tests.fakes.fake_chat import FakeChat
 from tests.fakes.fake_document_loader import FakeDocumentLoader
 from tests.fakes.fake_document_parser import FakeDocumentParser
 from tests.fakes.fake_embed import FakeEmbed
-from tests.fakes.fake_evidence import FakeEvidence
 from tests.fakes.fake_evidence_chunker import FakeEvidenceChunker
 from tests.fakes.fake_evidence_index import FakeEvidenceIndex
 from tests.fakes.fake_fact_proposals import FakeFactProposalGenerator
@@ -53,6 +52,7 @@ from tests.fakes.fake_repos import (
 )
 from tests.fakes.fake_research import FakeResearch
 from tests.fakes.fake_retrieve import FakeRetrieve
+from tests.fakes.fake_risk_profile import FakeRiskProfile
 from tests.fakes.fake_visual import FakeVisualEmbedder, FakeVisualIndex
 from tests.fakes.fake_websearch import FakeWebSearch
 
@@ -121,7 +121,7 @@ def container(
         fact_proposal_generator=FakeFactProposalGenerator(),
         retriever=FakeRetrieve(),
         web_search=FakeWebSearch(),
-        evidence=FakeEvidence(),
+        risk_profile=FakeRiskProfile(),
         research=FakeResearch(),
         kb_repo=FakeKbRepo(),
         document_loader=FakeDocumentLoader(),

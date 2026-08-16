@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from domain.models import Chunk, EvidenceJudgement, KbChunk, KbDocument, WebResult
+from domain.models import Chunk, KbChunk, KbDocument, WebResult
 from domain.ports import (
     AgentRunRepoPort,
     AssessmentRepoPort,
@@ -18,13 +18,13 @@ from domain.ports import (
     EmbedPort,
     EvidenceChunkerPort,
     EvidenceIndexPort,
-    EvidencePort,
     EvidenceQAGeneratorPort,
     KbDocumentRepoPort,
     ObjectStorePort,
     PolicyRuleRepoPort,
     RetrievePort,
     TaskRepoPort,
+    TracePort,
     UserRepoPort,
     WebSearchPort,
 )
@@ -35,13 +35,13 @@ from tests.fakes import (
     FakeDocumentLoader,
     FakeDocumentParser,
     FakeEmbed,
-    FakeEvidence,
     FakeEvidenceChunker,
     FakeEvidenceIndex,
     FakeEvidenceQAGenerator,
     FakeKbRepo,
     FakeObjectStore,
     FakeRetrieve,
+    FakeTrace,
     FakeWebSearch,
     InMemoryAgentRunRepo,
     InMemoryAssessmentRepo,
@@ -67,11 +67,11 @@ class TestFakeProtocolConformance:
     def test_fake_retrieve_is_retrieve_port(self) -> None:
         assert isinstance(FakeRetrieve(), RetrievePort)
 
-    def test_fake_evidence_is_evidence_port(self) -> None:
-        assert isinstance(FakeEvidence(), EvidencePort)
-
     def test_fake_websearch_is_web_search_port(self) -> None:
         assert isinstance(FakeWebSearch(), WebSearchPort)
+
+    def test_fake_trace_is_trace_port(self) -> None:
+        assert isinstance(FakeTrace(), TracePort)
 
     def test_in_memory_user_repo_is_user_repo_port(self) -> None:
         assert isinstance(InMemoryUserRepo(), UserRepoPort)
@@ -138,13 +138,6 @@ class TestFakeBehavior:
         result = ret.retrieve("q", top_k=3)
         assert [c.chunk_id for c in result] == ["c0", "c1", "c2"]
         assert ret.calls[0]["query"] == "q"
-
-    def test_fake_evidence_default_label(self) -> None:
-        ev = FakeEvidence()
-        j = ev.judge("F1", {"region": "EU"})
-        assert isinstance(j, EvidenceJudgement)
-        assert j.label == "moderate"
-        assert ev.calls == [("F1", {"region": "EU"})]
 
     def test_evidence_fakes_satisfy_ports(self) -> None:
         assert isinstance(FakeEvidenceChunker(), EvidenceChunkerPort)

@@ -21,7 +21,16 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from app.memory import MemoryAssembler
-    from domain.ports import EvidencePort, RetrievePort, TaskRepoPort, WebSearchPort
+    from domain.ports import (
+        RetrievePort,
+        RiskProfilePort,
+        TaskRepoPort,
+        TracePort,
+        TraceSpanPort,
+        WebSearchPort,
+    )
+
+from infra.observability import NoopTraceAdapter
 
 _SYSTEM_PROMPT = """你是 RiskPilot 数据出境合规 Copilot。
 
@@ -54,12 +63,14 @@ class LangChainComplianceAgent:
         task_repo: TaskRepoPort,
         retriever: RetrievePort,
         web_search: WebSearchPort,
-        evidence: EvidencePort,
+        risk_profile: RiskProfilePort,
         memory_assembler: MemoryAssembler | None = None,
+        trace: TracePort | None = None,
     ) -> None:
         self._task_repo = task_repo
         self._memory_assembler = memory_assembler
-        self._tools = self._build_tools(retriever, web_search, evidence)
+        self._trace = trace or NoopTraceAdapter()
+        self._tools = self._build_tools(retriever, web_search, risk_profile)
         self._graph = create_agent(
             model=model,
             tools=self._tools,
@@ -85,7 +96,30 @@ class LangChainComplianceAgent:
             raise ValueError("task_id 必填")
         if self._task_repo.get(task_id, owner_id) is None:
             raise ValueError("task 不存在或不属于当前 owner")
+        with self._trace.span(
+            "riskpilot.copilot.run",
+            metadata={
+                "framework": "langchain",
+                "owner_id": owner_id,
+                "task_id": task_id,
+                "message_length": len(user_message),
+            },
+        ) as span:
+            yield from self._run_agent(
+                owner_id=owner_id,
+                task_id=task_id,
+                user_message=user_message,
+                span=span,
+            )
 
+    def _run_agent(
+        self,
+        *,
+        owner_id: str,
+        task_id: str,
+        user_message: str,
+        span: TraceSpanPort,
+    ) -> Iterator[AgentEvent]:
         memory_block = self._memory_block(
             owner_id=owner_id,
             task_id=task_id,
@@ -105,6 +139,7 @@ class LangChainComplianceAgent:
         messages.append({"role": "user", "content": user_message})
 
         final_message: AIMessage | None = None
+        tool_count = 0
         try:
             updates = self._graph.stream(
                 {"messages": messages},
@@ -118,6 +153,7 @@ class LangChainComplianceAgent:
                             continue
                         final_message = message
                         for call in message.tool_calls:
+                            tool_count += 1
                             yield AgentEvent.tool_call(
                                 str(call.get("name") or ""),
                                 dict(call.get("args") or {}),
@@ -140,6 +176,13 @@ class LangChainComplianceAgent:
         except Exception as exc:
             fallback = "抱歉，合规 Copilot 暂时无法完成本轮请求，请稍后重试。"
             msg_id = self._persist_assistant(task_id, fallback, [])
+            span.add_metadata(
+                {
+                    "error_type": type(exc).__name__,
+                    "status": "failed",
+                    "tool_count": tool_count,
+                }
+            )
             yield AgentEvent.tool_error("agent_runtime", f"{type(exc).__name__}: {exc}")
             yield AgentEvent.answer(fallback, [], msg_id=msg_id)
             return
@@ -149,6 +192,13 @@ class LangChainComplianceAgent:
             answer = "当前证据不足，暂时无法给出可靠结论。"
         citations = _citations_from_answer(answer)
         msg_id = self._persist_assistant(task_id, answer, citations)
+        span.add_metadata(
+            {
+                "evidence_count": len(citations),
+                "status": "completed",
+                "tool_count": tool_count,
+            }
+        )
         yield AgentEvent.answer(
             answer,
             [citation.model_dump() for citation in citations],
@@ -159,7 +209,7 @@ class LangChainComplianceAgent:
         self,
         retriever: RetrievePort,
         web_search: WebSearchPort,
-        evidence: EvidencePort,
+        risk_profile: RiskProfilePort,
     ) -> list[Any]:
         task_repo = self._task_repo
 
@@ -235,35 +285,33 @@ class LangChainComplianceAgent:
             )
 
         @tool
-        def evidence_judge(
-            factor_id: str,
+        def risk_profile_assess(
             document: str,
             target: str,
             runtime: ToolRuntime[CopilotContext] = None,  # type: ignore[assignment]
         ) -> str:
-            """对文档片段执行单个 factor 的证据状态研判。"""
+            """调用风险评估模型，返回 evidence_state、证据 span 与解释。"""
             assert runtime is not None
 
             def _invoke() -> dict[str, Any]:
-                judgement = evidence.judge(
-                    factor_id,
-                    {"document": document, "target": target},
+                profile = risk_profile.assess(
+                    target,
+                    document=document,
                 )
-                return judgement.model_dump()
+                return profile.model_dump()
 
             return _run_audited_tool(
                 task_repo,
                 runtime.context.task_id,
-                "evidence_judge",
+                "risk_profile_assess",
                 {
-                    "factor_id": factor_id,
                     "document": document,
                     "target": target,
                 },
                 _invoke,
             )
 
-        return [search_law, search_user_docs, web_search_tool, evidence_judge]
+        return [search_law, search_user_docs, web_search_tool, risk_profile_assess]
 
     def _memory_block(self, *, owner_id: str, task_id: str, query: str) -> str:
         if self._memory_assembler is None:

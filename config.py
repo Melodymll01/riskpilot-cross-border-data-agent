@@ -80,6 +80,18 @@ class Settings(BaseSettings):
     # 小规模多模态图片证据：Chinese-CLIP 懒加载，默认只在图片接口首次使用时加载。
     visual_model_name: str = "OFA-Sys/chinese-clip-vit-base-patch16"
     visual_max_upload_mb: int = Field(10, ge=1, le=50)
+    # schema-evidence-risk-profiling 推理服务；留空时 profile 模式明确返回未配置。
+    risk_profile_api_base: str | None = None
+    risk_profile_api_key: str | None = None
+    risk_profile_timeout_seconds: float = Field(30.0, ge=1.0, le=300.0)
+
+    # LangSmith 仅用于 AI Trace；默认关闭，且 Adapter 强制隐藏输入/输出。
+    risk_pilot_langsmith_enabled: bool = False
+    langsmith_api_key: str | None = None
+    langsmith_endpoint: str = "https://api.smith.langchain.com"
+    langsmith_project: str = "riskpilot"
+    langsmith_sampling_rate: float = Field(0.1, ge=0.0, le=1.0)
+    langsmith_hash_salt: str | None = None
 
     # API 限流
     rate_limit_enabled: bool = True             # 是否启用 v2 HTTP 限流（测试可关）

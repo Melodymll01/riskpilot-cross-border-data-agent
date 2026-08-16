@@ -22,7 +22,6 @@ from domain import (
     BaseDomainModel,
     Chunk,
     Citation,
-    EvidenceJudgement,
     Fact,
     KbChunk,
     KbDocument,
@@ -151,7 +150,7 @@ class TestArtifact:
         assert a.created_at > 0
 
 
-# === Chunk / WebResult / EvidenceJudgement ===
+# === Chunk / WebResult ===
 
 
 class TestChunk:
@@ -163,16 +162,6 @@ class TestChunk:
     def test_empty_source_name_rejected(self) -> None:
         with pytest.raises(ValidationError):
             Chunk(chunk_id="c1", text="t", source_type="law", source_name="")
-
-
-class TestEvidenceJudgement:
-    def test_confidence_range(self) -> None:
-        j = EvidenceJudgement(factor_id="F1", label="applicable", confidence=0.9)
-        assert j.confidence == 0.9
-
-    def test_confidence_out_of_range_rejected(self) -> None:
-        with pytest.raises(ValidationError):
-            EvidenceJudgement(factor_id="F1", label="x", confidence=1.5)
 
 
 class TestEvidenceSpan:
@@ -440,7 +429,6 @@ class TestInvariants:
             Artifact(artifact_id="a1", task_id="t1", artifact_type="x"),
             Chunk(chunk_id="c1", text="t", source_type="s", source_name="n"),
             WebResult(title="t", url="https://x.example", snippet=""),
-            EvidenceJudgement(factor_id="F1", label="x"),
             SessionProfile(owner_id="anon:u1"),
             Fact(fact_id="f1", owner_id="anon:u1", text="x"),
         ],

@@ -8,6 +8,7 @@ import pytest
 
 from domain import CaseDocumentReadiness, WorkflowRuntimePort
 from infra.workflows import LangGraphWorkflowRuntime
+from tests.fakes import FakeTrace
 
 
 @pytest.fixture
@@ -22,6 +23,48 @@ def _runtime(checkpoint_path: str) -> LangGraphWorkflowRuntime:
 class TestLangGraphInterruptResume:
     def test_satisfies_workflow_runtime_port(self, checkpoint_path: str) -> None:
         assert isinstance(_runtime(checkpoint_path), WorkflowRuntimePort)
+
+    def test_start_and_resume_record_structured_trace_metadata(
+        self,
+        checkpoint_path: str,
+    ) -> None:
+        trace = FakeTrace()
+        runtime = LangGraphWorkflowRuntime(checkpoint_path, trace=trace)
+
+        started = runtime.start_case_assessment(
+            thread_id="thread_trace",
+            case_id="case_sensitive",
+            workspace_id="ws_sensitive",
+            actor_id="github:alice",
+            ruleset_version="synthetic-v1",
+            document_readiness=CaseDocumentReadiness(
+                pending_document_ids=["document_sensitive"]
+            ),
+            missing_fact_fields=["important_data_involved"],
+        )
+        resumed = runtime.resume_case_assessment(
+            thread_id="thread_trace",
+            resume_value={"action": "retry"},
+            state_update={
+                "ready_document_ids": ["document_sensitive"],
+                "pending_document_ids": [],
+            },
+        )
+
+        assert started.stage == "validate_documents"
+        assert resumed.stage == "detect_missing_facts"
+        assert [span["name"] for span in trace.spans] == [
+            "riskpilot.case_assessment.start",
+            "riskpilot.case_assessment.resume",
+        ]
+        start_metadata = trace.spans[0]["metadata"]
+        assert start_metadata["pending_document_count"] == 1
+        assert start_metadata["missing_fact_count"] == 1
+        assert start_metadata["status"] == "interrupted"
+        assert "document_sensitive" not in str(start_metadata)
+        resume_metadata = trace.spans[1]["metadata"]
+        assert resume_metadata["resumed"] is True
+        assert resume_metadata["interrupt_kind"] == "fact_confirmation"
 
     def test_full_chain_survives_runtime_recreation(self, checkpoint_path: str) -> None:
         first = _runtime(checkpoint_path).start_case_assessment(

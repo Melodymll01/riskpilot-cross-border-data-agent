@@ -13,7 +13,8 @@
 > Copilot 负责会话式工具调用，Deep Research 与案件评估使用独立 Graph，
 > 将案件材料、confirmed facts、版本化规则、不可变 Assessment 和 Reviewer 审批串成
 > 可暂停、恢复、重试、取消和审计的闭环。工程上保留 DDD 4 层与 Port 边界，
-> `/api/v2` 和 `/api/v3` 增量并行。
+> `/api/v2` 提供通用 Copilot，`/api/v3` 提供案件工作台；可选 LangSmith 只承接
+> 隐私脱敏后的 AI Trace，不进入领域逻辑。
 
 ---
 
@@ -41,6 +42,8 @@
 | --- | --- | --- |
 | **LangChain Copilot** | `create_agent` + 原生 Tool Calling，owner 上下文由 `ToolRuntime` 注入，不暴露给模型 | [langchain_copilot.py](infra/agents/langchain_copilot.py) |
 | **LangGraph Deep Research** | plan → retrieve → assess → retry/web → generate，最多三轮补查 | [langgraph_research.py](infra/research/langgraph_research.py) |
+| **隐私保护 LangSmith** | 默认关闭；只上传哈希业务 ID、路径、计数和状态，隐藏输入/输出/异常/事件/附件 | [tracing.py](infra/observability/tracing.py) |
+| **风险评估模型** | `RiskProfilePort` + HTTP Adapter，严格校验 evidence-state schema，支持独立部署模型 | [http_client.py](infra/risk_profile/http_client.py) |
 | **混合文本检索** | Query Rewrite + Vector + BM25 + RRF + Cross-Encoder 重排 | [retriever.py](retrieval/search/retriever.py) |
 | **Chinese-CLIP 图片召回** | Case 图片上传、图像向量、自然语言搜图、Workspace/Case 隔离 | [visual_evidence.py](app/use_cases/visual_evidence.py) |
 | **可验证 AI 记忆** | 逐字 quote 接地写入；`hybrid_v1` 融合语义、置信度、显著性和新鲜度召回；支持安全过滤与召回解释 | [domain/memory.py](domain/memory.py) |
@@ -57,8 +60,8 @@
 
 | 维度 | 数值 |
 | --- | --- |
-| 离线回归 | **1211 passed · 1 skipped**；真实模型/CLIP 评测显式 `--live` |
-| 架构规模 | **39 Port + 18 Use Case** · DDD 4 层 |
+| 离线回归 | **1208 passed · 1 skipped**；真实模型/CLIP 评测显式 `--live` |
+| 架构规模 | **40 Port + 17 Use Case** · DDD 4 层 |
 | V3 资源接口 | **45 个路由** · Workspace → Visual Evidence / Evidence QA / Assessment Run |
 | Agent/Graph | LangChain Tool Calling + 2 张 LangGraph（Research / Assessment） |
 | 记忆系统 | **4 层**（L1 最近消息 → L4 语义事实）+ `hybrid_v1` 可解释召回 |
@@ -72,9 +75,9 @@
 ```mermaid
 flowchart TB
     API[api/v2 + api/v3 · 入口层<br/>QA / Case / Evidence / Assessment Run]
-    APP[app · 用例编排层<br/>AppContainer + 18 Use Case]
-    DOMAIN[domain · 纯模型 + 39 Port Protocol]
-    INFRA[infra · 适配器<br/>LangChain / LangGraph / retrieval / memory / Chinese-CLIP]
+    APP[app · 用例编排层<br/>AppContainer + 17 Use Case]
+    DOMAIN[domain · 纯模型 + 40 Port Protocol]
+    INFRA[infra · 适配器<br/>LangChain / LangGraph / LangSmith / retrieval / memory / Chinese-CLIP]
 
     API --> APP --> DOMAIN
     INFRA -.实现.-> DOMAIN
@@ -90,6 +93,9 @@ flowchart TB
   接入应用层，不再维护自定义 JSON 决策协议；
 - **Deep Research**：LangGraph 显式节点，最多三轮补查，可按证据状态路由到 Web Search；
 - **Case Assessment**：通过 `WorkflowRuntimePort` 使用 LangGraph，领域层不依赖框架；
+- **AI 可观测性**：通过 `TracePort` 接入 LangSmith；默认 `NoopTraceAdapter`，启用时
+  只记录哈希业务 ID、节点/工具路径、计数、状态和错误类型，案件正文、Prompt、模型
+  回答、异常文本、事件和附件均在客户端出站前移除；
 - **确定性边界**：LangGraph 负责流程状态，`PolicyRuleEngine` 负责门槛计算，
   `AssessmentManagementUseCase` 负责最终快照与审批；
 - **检查点边界**：只保存对象 ID 和轻量状态，不保存文档正文、凭证、原始 prompt 或思维链。
@@ -141,7 +147,7 @@ Prompt 或其他用户数据。`evaluations/memory_recall` 以版本化数据集
 
 ## 工程亮点
 
-- **DDD 4 层架构** + 39 Port Protocol + Container 依赖注入，domain 不依赖 FastAPI、
+- **DDD 4 层架构** + 40 Port Protocol + Container 依赖注入，domain 不依赖 FastAPI、
   LangGraph 或具体数据库
 - **标准 Agent 框架**：LangChain 负责模型和 Tool Calling；LangGraph 负责长程、有状态、
   可中断流程；领域层不依赖具体框架
@@ -154,6 +160,8 @@ Prompt 或其他用户数据。`evaluations/memory_recall` 以版本化数据集
   offset 和 SHA；Finding 的 Fact/Evidence/Clause 引用必须闭包，漂移即拒绝批准
 - **混合检索**：向量 + BM25 + RRF 融合 + Cross-Encoder 重排
 - **全链路审计**：admin 写操作全部落审计日志，可合规追责
+- **可替换可观测性**：`TracePort` 隔离 LangSmith，默认无网络；启用后强制客户端脱敏，
+  不把案件正文、记忆原文、Prompt、回答或异常栈上传第三方
 - **CI 守护**：GitHub Actions scoped Ruff + 完整离线 pytest，`main` push / PR 自动运行；
   research 等外部能力全部注入 Fake，假 API Key 不会产生真实外呼
 
@@ -194,6 +202,10 @@ ADMIN_USER_IDS=github:your-github-login
 ```
 
 > `.env` 已在 `.gitignore`，**严禁** `git add .env`。
+>
+> LangSmith 配置与隐私边界见 [docs/guides/langsmith-observability.md](docs/guides/langsmith-observability.md)；
+> 不要设置 SDK 标准全局开关 `LANGSMITH_TRACING`，本项目只使用
+> `RISK_PILOT_LANGSMITH_ENABLED` 经过隐私 Adapter 显式启用。
 
 ## 功能矩阵
 
@@ -257,9 +269,10 @@ ADMIN_USER_IDS=github:your-github-login
 ## 技术栈
 
 - **后端**：FastAPI + Pydantic v2
-- **架构**：DDD 4 层 + 39 Port + Container DI + WorkflowRuntimePort
+- **架构**：DDD 4 层 + 40 Port + Container DI + WorkflowRuntimePort + TracePort
 - **Agent**：LangChain 1.3 `create_agent` + OpenAI-compatible `ChatOpenAI`
 - **工作流**：LangGraph 1.2 + SQLite checkpointer + interrupt/resume
+- **可观测性**：可选 LangSmith + 客户端白名单/HMAC 脱敏；默认关闭
 - **存储**：SQLite（业务对象 / Run / Event）+ 独立 LangGraph checkpoint SQLite + ChromaDB
 - **鉴权**：GitHub OAuth + JWT（HS256）+ admin 白名单
 - **LLM**：OpenAI 兼容接口（默认智谱 GLM，可换 Ollama / vLLM）
@@ -274,9 +287,9 @@ ADMIN_USER_IDS=github:your-github-login
 1. **V2 完整设计**：[docs/design/riskpilot-v2.md](docs/design/riskpilot-v2.md)
 2. **架构全景**：[docs/architecture/overview.md](docs/architecture/overview.md)
 3. **架构决策**：[docs/decisions/](docs/decisions/)
-4. **迁移基线**：[docs/design/v2-migration-baseline.md](docs/design/v2-migration-baseline.md)
-5. **Assessment Run 演示**：[docs/guides/v3-assessment-run.md](docs/guides/v3-assessment-run.md)
-6. **Evidence QA 演示**：[docs/guides/v3-evidence-qa.md](docs/guides/v3-evidence-qa.md)
+4. **Assessment Run 演示**：[docs/guides/v3-assessment-run.md](docs/guides/v3-assessment-run.md)
+5. **Evidence QA 演示**：[docs/guides/v3-evidence-qa.md](docs/guides/v3-evidence-qa.md)
+6. **LangSmith 可观测性**：[docs/guides/langsmith-observability.md](docs/guides/langsmith-observability.md)
 
 ## 协议
 

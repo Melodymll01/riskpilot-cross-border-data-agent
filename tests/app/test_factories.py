@@ -21,14 +21,15 @@ from app.factories import (
     build_document_parser,
     build_document_repo,
     build_embedder,
-    build_evidence,
     build_evidence_qa_generator,
     build_fact_proposal_generator,
     build_object_store,
     build_policy_rule_repo,
     build_retriever,
+    build_risk_profile,
     build_sqlite_pool,
     build_task_repo,
+    build_trace,
     build_user_repo,
     build_web_search,
     build_workflow_runtime,
@@ -47,13 +48,14 @@ from domain.ports import (
     DocumentParserPort,
     DocumentRepoPort,
     EmbedPort,
-    EvidencePort,
     EvidenceQAGeneratorPort,
     FactProposalGeneratorPort,
     ObjectStorePort,
     PolicyRuleRepoPort,
     RetrievePort,
+    RiskProfilePort,
     TaskRepoPort,
+    TracePort,
     UserRepoPort,
     WebSearchPort,
     WorkflowRuntimePort,
@@ -168,8 +170,11 @@ class TestExternalFactories:
     def test_web_search_satisfies_port(self, settings: Settings) -> None:
         assert isinstance(build_web_search(settings), WebSearchPort)
 
-    def test_evidence_satisfies_port(self, settings: Settings) -> None:
-        assert isinstance(build_evidence(settings), EvidencePort)
+    def test_risk_profile_satisfies_port(self, settings: Settings) -> None:
+        assert isinstance(build_risk_profile(settings), RiskProfilePort)
+
+    def test_trace_defaults_to_noop_port(self, settings: Settings) -> None:
+        assert isinstance(build_trace(settings), TracePort)
 
     def test_workflow_runtime_satisfies_port(self, settings: Settings) -> None:
         settings = settings.model_copy(

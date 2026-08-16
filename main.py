@@ -77,15 +77,8 @@ def _warn_oauth_redirect_port_mismatch(server_port: int | None) -> None:
 async def lifespan(app: FastAPI):
     """应用生命周期管理：启动时初始化服务，关闭时释放资源。"""
     logger.info("数据出境知识库问答系统正在启动...")
-    # Step 025a 启动迁移：把缺 owner_id 的旧 chunk 标为公共库（幂等）
     container_ref = getattr(app.state, "container", None)
-    if container_ref is not None:
-        try:
-            await asyncio.to_thread(container_ref.startup_migrations)
-        except Exception:
-            logger.warning("Step 025a 启动迁移异常（已吞掉）", exc_info=True)
-    # 深度研究引擎预热：后台线程提前加载 ~1GB CrossEncoder，避免首个 research
-    # 请求让用户干等冷启动（约 1.5 分钟）。fire-and-forget，绝不阻塞启动 / yield。
+    # Deep Research 图预热，失败不影响服务启动。
     if container_ref is not None and settings.warmup_research_on_startup:
         app.state.warmup_task = asyncio.create_task(_warmup_research(container_ref))
     yield

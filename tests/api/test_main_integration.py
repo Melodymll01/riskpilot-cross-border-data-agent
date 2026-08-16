@@ -24,8 +24,7 @@ def main_client():
 
     import main as main_module
 
-    # 避免集成测试触发深度研究引擎的真实预热（~90s 加载 CrossEncoder）：
-    # lifespan 会后台调度 research.warmup，这里替成 no-op。
+    # 避免集成测试依赖后台预热时序。
     main_module.app.state.container.research.warmup = lambda: None  # type: ignore[method-assign]
 
     with TestClient(main_module.app) as c:
@@ -38,7 +37,7 @@ def test_main_app_has_container_in_state(main_client):
 
     assert hasattr(main_module.app.state, "container")
     assert main_module.app.state.container.copilot_agent.tool_names == [
-        "evidence_judge",
+        "risk_profile_assess",
         "search_law",
         "search_user_docs",
         "web_search",
@@ -61,7 +60,7 @@ def test_v2_ready_lists_all_tools(main_client):
         "search_law",
         "search_user_docs",
         "web_search",
-        "evidence_judge",
+        "risk_profile_assess",
     }
 
 

@@ -1,4 +1,4 @@
-"""AppContainer 装配测试：注入全 fake，断言 11 个 port + 5 个 use case 就位。"""
+"""AppContainer 装配测试：注入全 fake，断言核心 Port 与 Use Case 就位。"""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ from app.use_cases import (
     AuthLoginUseCase,
     CaseManagementUseCase,
     EvidenceQAUseCase,
-    IngestionUseCase,
     KbManagementUseCase,
     TaskManagementUseCase,
     WorkspaceManagementUseCase,
@@ -28,7 +27,6 @@ from domain.ports import (
     EmbedPort,
     EvidenceChunkerPort,
     EvidenceIndexPort,
-    EvidencePort,
     EvidenceQAGeneratorPort,
     FactProposalGeneratorPort,
     KbDocumentRepoPort,
@@ -37,6 +35,7 @@ from domain.ports import (
     RetrievePort,
     RiskProfilePort,
     TaskRepoPort,
+    TracePort,
     UserRepoPort,
     WebSearchPort,
     WorkflowRuntimePort,
@@ -51,7 +50,6 @@ from tests.fakes import (
     FakeDocumentLoader,
     FakeDocumentParser,
     FakeEmbed,
-    FakeEvidence,
     FakeEvidenceChunker,
     FakeEvidenceIndex,
     FakeEvidenceQAGenerator,
@@ -59,6 +57,8 @@ from tests.fakes import (
     FakeKbRepo,
     FakeObjectStore,
     FakeRetrieve,
+    FakeRiskProfile,
+    FakeTrace,
     FakeVisualEmbedder,
     FakeVisualIndex,
     FakeWebSearch,
@@ -78,6 +78,7 @@ from tests.fakes import (
 def _full_fake_container() -> AppContainer:
     document_repo = InMemoryDocumentRepo()
     case_repo = InMemoryCaseRepo()
+    trace = FakeTrace()
     return AppContainer(
         settings,
         agent_run_repo=InMemoryAgentRunRepo(),
@@ -102,7 +103,8 @@ def _full_fake_container() -> AppContainer:
         fact_proposal_generator=FakeFactProposalGenerator(),
         retriever=FakeRetrieve(),
         web_search=FakeWebSearch(),
-        evidence=FakeEvidence(),
+        risk_profile=FakeRiskProfile(),
+        trace=trace,
         kb_repo=FakeKbRepo(),
         document_loader=FakeDocumentLoader(),
         auth=FakeAuth(),
@@ -138,15 +140,15 @@ class TestPortConformance:
         assert isinstance(c.retriever, RetrievePort)
         assert isinstance(c.web_search, WebSearchPort)
         assert isinstance(c.workflow_runtime, WorkflowRuntimePort)
-        assert isinstance(c.evidence, EvidencePort)
         assert isinstance(c.risk_profile, RiskProfilePort)
+        assert isinstance(c.trace, TracePort)
         assert isinstance(c.kb_repo, KbDocumentRepoPort)
         assert isinstance(c.document_loader, DocumentLoaderPort)
         assert isinstance(c.auth, AuthPort)
 
 
 class TestUseCaseWiring:
-    """5 个 use case 都按预期挂在 self 上，且引用同一份依赖实例。"""
+    """核心 use case 都按预期挂在 self 上，且引用同一份依赖实例。"""
 
     def test_use_cases_assembled(self) -> None:
         c = _full_fake_container()
@@ -154,7 +156,6 @@ class TestUseCaseWiring:
         assert isinstance(c.task_management, TaskManagementUseCase)
         assert isinstance(c.workspace_management, WorkspaceManagementUseCase)
         assert isinstance(c.case_management, CaseManagementUseCase)
-        assert isinstance(c.ingest, IngestionUseCase)
         assert isinstance(c.kb_management, KbManagementUseCase)
         assert isinstance(c.assessment_runs, AssessmentRunUseCase)
         assert isinstance(c.evidence_qa, EvidenceQAUseCase)
@@ -175,10 +176,10 @@ class TestUseCaseWiring:
         assert c.evidence_qa._documents is c.document_repo
         assert c.evidence_qa._generator is c.evidence_qa_generator
         assert c.evidence_qa._support_verifier is c.claim_support_verifier
-        assert c.ingest._embedder is c.embedder
         assert c.kb_management._repo is c.kb_repo
         assert c.kb_management._loader is c.document_loader
         assert c.kb_management._embedder is c.embedder
+        assert c.copilot_agent._trace is c.trace
 
 
 class TestPartialInjection:
@@ -210,7 +211,7 @@ class TestPartialInjection:
             claim_support_verifier=FakeClaimSupportVerifier(),
             retriever=FakeRetrieve(),
             web_search=FakeWebSearch(),
-            evidence=FakeEvidence(),
+            risk_profile=FakeRiskProfile(),
             kb_repo=FakeKbRepo(),
             document_loader=FakeDocumentLoader(),
             auth=FakeAuth(),

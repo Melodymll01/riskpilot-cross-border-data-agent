@@ -123,10 +123,10 @@ class TestValidation:
 class TestProfileMode:
     """``mode='profile'`` 走 RiskProfilePort，不进 Agent。"""
 
-    def test_profile_mode_with_stub_emits_not_ready_answer(self) -> None:
-        from infra.risk_profile import StubRiskProfileService
+    def test_profile_mode_with_unconfigured_client_emits_not_ready_answer(self) -> None:
+        from infra.risk_profile import HttpRiskProfileClient
 
-        uc, repo = _make_uc_with_risk_profile(StubRiskProfileService(mode="raise"))
+        uc, repo = _make_uc_with_risk_profile(HttpRiskProfileClient(base_url=None))
         events = list(
             uc.stream(
                 owner_id="anon:x",
@@ -137,11 +137,11 @@ class TestProfileMode:
         )
         # 第一帧 task_created
         assert events[0].event_type is AgentEventType.TASK_CREATED
-        # 第二帧 answer，文本带"尚未上线"
+        # 第二帧 answer，文本带明确配置提示
         assert events[1].event_type is AgentEventType.ANSWER
         text = events[1].payload["text"]
-        assert "尚未上线" in text or "未上线" in text
-        assert "schema-evidence" in text
+        assert "当前不可用" in text
+        assert "RISK_PROFILE_API_BASE" in text
         # task.mode 持久化为 profile
         task = repo.get(events[0].payload["task_id"], "anon:x")
         assert task is not None and task.mode == "profile"
@@ -151,10 +151,10 @@ class TestProfileMode:
         assert AgentEventType.THOUGHT not in kinds
         assert AgentEventType.TOOL_CALL not in kinds
 
-    def test_profile_mode_with_placeholder_renders_markdown(self) -> None:
-        from infra.risk_profile import StubRiskProfileService
+    def test_profile_mode_with_model_result_renders_markdown(self) -> None:
+        from tests.fakes import FakeRiskProfile
 
-        uc, _ = _make_uc_with_risk_profile(StubRiskProfileService(mode="placeholder"))
+        uc, _ = _make_uc_with_risk_profile(FakeRiskProfile())
         events = list(
             uc.stream(
                 owner_id="anon:x",
@@ -167,8 +167,7 @@ class TestProfileMode:
         assert "## 风险画像评估" in answer_text
         assert "**目标命题**" in answer_text
         assert "临床数据出境到德国总部是否需要安全评估" in answer_text
-        # not_disclosed 占位
-        assert "not_disclosed" in answer_text
+        assert "supported" in answer_text
 
     def test_profile_mode_without_risk_profile_falls_back(self) -> None:
         """容器没装 risk_profile（不应该出现，但兜底友好提示）。"""

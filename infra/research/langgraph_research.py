@@ -12,7 +12,9 @@ from langgraph.graph import END, START, StateGraph
 from domain.models import Citation, ResearchReport, ResearchStep
 
 if TYPE_CHECKING:
-    from domain.ports import ChatPort, RetrievePort, WebSearchPort
+    from domain.ports import ChatPort, RetrievePort, TracePort, WebSearchPort
+
+from infra.observability import NoopTraceAdapter
 
 _MAX_ROUNDS = 3
 
@@ -40,10 +42,12 @@ class LangGraphResearchAdapter:
         retriever: RetrievePort,
         web_search: WebSearchPort,
         chat: ChatPort,
+        trace: TracePort | None = None,
     ) -> None:
         self._retriever = retriever
         self._web_search = web_search
         self._chat = chat
+        self._trace = trace or NoopTraceAdapter()
         self._graph = self._build_graph()
 
     def warmup(self) -> None:
@@ -88,49 +92,76 @@ class LangGraphResearchAdapter:
             "retrieval_round": 0,
             "web_search_used": False,
         }
-        final_report: ResearchReport | None = None
-        for update in self._graph.stream(state, stream_mode="updates"):
-            node_name, payload = next(iter(update.items()))
-            if node_name == "plan":
-                queries = payload.get("queries", [])
-                yield ResearchStep(
-                    step_name="plan",
-                    description="LangGraph 规划研究查询",
-                    result_summary=f"生成 {len(queries)} 个查询",
+        with self._trace.span(
+            "riskpilot.deep_research.run",
+            metadata={
+                "framework": "langgraph",
+                "owner_id": owner_id or "",
+                "query_length": len(query),
+                "top_k": top_k,
+                "enable_web_search": enable_web_search,
+                "workflow": "deep_research",
+            },
+        ) as span:
+            final_report: ResearchReport | None = None
+            try:
+                for update in self._graph.stream(state, stream_mode="updates"):
+                    node_name, payload = next(iter(update.items()))
+                    span.add_metadata({"langgraph_node": node_name})
+                    if node_name == "plan":
+                        queries = payload.get("queries", [])
+                        yield ResearchStep(
+                            step_name="plan",
+                            description="LangGraph 规划研究查询",
+                            result_summary=f"生成 {len(queries)} 个查询",
+                        )
+                    elif node_name == "retrieve":
+                        documents = payload.get("documents", [])
+                        yield ResearchStep(
+                            step_name="retrieve",
+                            description=f"第 {payload.get('retrieval_round', 0)} 轮混合检索",
+                            result_summary=f"累计 {len(documents)} 条证据",
+                        )
+                    elif node_name == "assess":
+                        yield ResearchStep(
+                            step_name="assess",
+                            description="评估证据充分性",
+                            result_summary=str(payload.get("verdict") or "unknown"),
+                        )
+                    elif node_name == "web_search":
+                        yield ResearchStep(
+                            step_name="web_search",
+                            description="知识库证据不足，搜索公开监管资料",
+                            result_summary=f"累计 {len(payload.get('documents', []))} 条证据",
+                        )
+                    elif node_name == "generate":
+                        final_report = payload.get("report")
+                        yield ResearchStep(
+                            step_name="generate",
+                            description="生成带来源标记的研究报告",
+                            result_summary=(
+                                f"{len(final_report.answer)} 字"
+                                if isinstance(final_report, ResearchReport)
+                                else "生成失败"
+                            ),
+                        )
+                if final_report is None:
+                    raise RuntimeError("LangGraph Deep Research 未生成报告")
+            except Exception as exc:
+                span.add_metadata(
+                    {"error_type": type(exc).__name__, "status": "failed"}
                 )
-            elif node_name == "retrieve":
-                documents = payload.get("documents", [])
-                yield ResearchStep(
-                    step_name="retrieve",
-                    description=f"第 {payload.get('retrieval_round', 0)} 轮混合检索",
-                    result_summary=f"累计 {len(documents)} 条证据",
-                )
-            elif node_name == "assess":
-                yield ResearchStep(
-                    step_name="assess",
-                    description="评估证据充分性",
-                    result_summary=str(payload.get("verdict") or "unknown"),
-                )
-            elif node_name == "web_search":
-                yield ResearchStep(
-                    step_name="web_search",
-                    description="知识库证据不足，搜索公开监管资料",
-                    result_summary=f"累计 {len(payload.get('documents', []))} 条证据",
-                )
-            elif node_name == "generate":
-                final_report = payload.get("report")
-                yield ResearchStep(
-                    step_name="generate",
-                    description="生成带来源标记的研究报告",
-                    result_summary=(
-                        f"{len(final_report.answer)} 字"
-                        if isinstance(final_report, ResearchReport)
-                        else "生成失败"
-                    ),
-                )
-        if final_report is None:
-            raise RuntimeError("LangGraph Deep Research 未生成报告")
-        yield final_report
+                raise
+            span.add_metadata(
+                {
+                    "document_count": final_report.total_docs,
+                    "refused": final_report.refused,
+                    "retrieval_rounds": final_report.retrieval_rounds,
+                    "status": "completed",
+                    "web_search_used": final_report.web_search_used,
+                }
+            )
+            yield final_report
 
     def _build_graph(self) -> Any:
         graph = StateGraph(_ResearchState)

@@ -2,7 +2,8 @@
 
 ## 当前架构
 
-当前采用 `/api/v2` 与 `/api/v3` 并行的 Strangler Fig 迁移方式，继续遵守四层结构：
+当前 `/api/v2` 提供通用 Copilot、知识库和记忆能力，`/api/v3` 提供案件工作台能力；
+两套 API 按产品域并行，继续遵守四层结构：
 
 ```text
 api → app → domain
@@ -40,7 +41,7 @@ V2 的关键边界：
 3. LangGraph 只保存执行状态，不取代领域 Repository；
 4. 合规门槛由版本化规则引擎计算；
 5. 文档、事实、证据和 Assessment 均为一等领域对象；
-6. `/api/v2` 与 `/api/v3` 在迁移期并行运行。
+6. `/api/v2` 与 `/api/v3` 按通用 Copilot / 案件工作台边界并行运行。
 
 ### LangChain Copilot
 
@@ -50,13 +51,43 @@ RunCopilotUseCase
     ← LangChainComplianceAgent
       → create_agent / ChatOpenAI
       → ToolRuntime(owner_id, task_id)
-      → law / user docs / web / evidence tools
+      → law / user docs / web / risk profile tools
 ```
 
 - 不再维护自定义 JSON action parser 和 ReAct 循环；
 - owner_id 由 `ToolRuntime` 注入，不进入模型可控参数；
 - Tool Call 仍写入 TaskRepo，API 继续输出既有 SSE 事件；
 - 记忆由应用层装配为额外 SystemMessage。
+
+### AI 可观测性
+
+```text
+LangChain Copilot / LangGraph Research / LangGraph Assessment / Risk Profile
+  → TracePort
+    ├─ NoopTraceAdapter（默认）
+    └─ LangSmithTraceAdapter（显式启用）
+```
+
+- LangSmith 是可替换基础设施 Adapter，不进入领域逻辑；
+- 默认关闭且无网络；项目专属开关避免 SDK 全局自动追踪绕过隐私策略；
+- Client 出站前隐藏输入/输出，删除序列化 Prompt、事件和附件；
+- 异常只记录类型，异常正文和 traceback 统一脱敏；
+- metadata 采用白名单，业务 ID 使用 HMAC 哈希；
+- 不上传案件正文、证据原文、记忆原文、Prompt、回答、图片、Embedding 或思维链。
+
+### 风险评估模型
+
+```text
+RunCopilotUseCase / risk_profile_assess tool
+  → RiskProfilePort
+    ← HttpRiskProfileClient
+      → POST /v1/risk-profile
+```
+
+- `RISK_PROFILE_API_BASE` 留空时 fail closed，明确返回模型未配置；
+- HTTP、JSON 和 `RiskProfile` schema 错误翻译为领域异常；
+- 风险模型可独立部署和升级，不把训练仓库依赖引入本应用；
+- Trace 只记录 target/document 长度、evidence state、证据数和状态。
 
 ### LangGraph Deep Research
 
@@ -180,7 +211,6 @@ Case 图片检索已落地，图片暂作为检索辅助证据，尚未进入正
 完整产品和技术设计见：
 
 - `docs/design/riskpilot-v2.md`
-- `docs/design/v2-migration-baseline.md`
 - `docs/decisions/ADR-014-v2-增量迁移与领域内核.md`
 - `docs/decisions/ADR-015-AI能力分层与LangGraph边界.md`
 - `docs/decisions/ADR-016-案件证据与规则快照.md`

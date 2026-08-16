@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -32,7 +33,6 @@ from domain.ports import (
     EmbedPort,
     EvidenceChunkerPort,
     EvidenceIndexPort,
-    EvidencePort,
     EvidenceQAGeneratorPort,
     FactProposalGeneratorPort,
     FactStorePort,
@@ -49,6 +49,7 @@ from domain.ports import (
     RiskProfilePort,
     SummaryStorePort,
     TaskRepoPort,
+    TracePort,
     UserRepoPort,
     WebSearchPort,
     WorkflowRuntimePort,
@@ -59,7 +60,7 @@ from infra.audit import SqliteAuditLogRepo
 from infra.auth import AnonymousProvider, AuthService, GitHubOAuthProvider, JwtIssuer
 from infra.chat import OpenAIChatAdapter
 from infra.document_processing import RiskPilotDocumentParser
-from infra.evidence import MockEvidenceClient, PageEvidenceChunker, SqliteEvidenceIndex
+from infra.evidence import PageEvidenceChunker, SqliteEvidenceIndex
 from infra.kb import ChromaKbRepo, UnifiedLoaderAdapter
 from infra.memory import (
     ChromaFactStore,
@@ -68,13 +69,14 @@ from infra.memory import (
     ThreadPoolMemoryScheduler,
 )
 from infra.object_store import LocalObjectStore
+from infra.observability import LangSmithTraceAdapter, NoopTraceAdapter
 from infra.qa import (
     StructuredClaimSupportVerifier,
     StructuredEvidenceQAGenerator,
     StructuredFactProposalGenerator,
 )
 from infra.research import LangGraphResearchAdapter
-from infra.risk_profile import StubRiskProfileService
+from infra.risk_profile import HttpRiskProfileClient
 from infra.search import EmbedderAdapter, HybridRetrieverAdapter
 from infra.storage import (
     SqliteAgentRunRepo,
@@ -262,17 +264,55 @@ def build_web_search(_settings: Settings) -> WebSearchPort:
     return DuckDuckGoAdapter()
 
 
-def build_workflow_runtime(settings: Settings) -> WorkflowRuntimePort:
-    return LangGraphWorkflowRuntime(settings.langgraph_checkpoint_db_path)
+def build_workflow_runtime(
+    settings: Settings,
+    *,
+    trace: TracePort | None = None,
+) -> WorkflowRuntimePort:
+    return LangGraphWorkflowRuntime(
+        settings.langgraph_checkpoint_db_path,
+        trace=trace,
+    )
 
 
-def build_evidence(_settings: Settings) -> EvidencePort:
-    return MockEvidenceClient()
+def build_risk_profile(
+    _settings: Settings,
+    *,
+    trace: TracePort | None = None,
+) -> RiskProfilePort:
+    return HttpRiskProfileClient(
+        base_url=_settings.risk_profile_api_base,
+        api_key=_settings.risk_profile_api_key,
+        timeout_seconds=_settings.risk_profile_timeout_seconds,
+        trace=trace,
+    )
 
 
-def build_risk_profile(_settings: Settings) -> RiskProfilePort:
-    """默认返回占位实现：evidence-state 模型部署后在此切到 HTTP client。"""
-    return StubRiskProfileService(mode="raise")
+def build_trace(settings: Settings) -> TracePort:
+    global_switches = {
+        "LANGSMITH_TRACING": os.getenv("LANGSMITH_TRACING", ""),
+        "LANGCHAIN_TRACING_V2": os.getenv("LANGCHAIN_TRACING_V2", ""),
+    }
+    enabled_switches = [
+        name
+        for name, value in global_switches.items()
+        if value.strip().lower() in {"1", "true", "yes", "on"}
+    ]
+    if enabled_switches:
+        raise ValueError(
+            "禁止使用 LangSmith SDK 全局追踪开关 "
+            f"{', '.join(enabled_switches)}；请改用 RISK_PILOT_LANGSMITH_ENABLED，"
+            "确保 Trace 经过隐私 Adapter"
+        )
+    if not settings.risk_pilot_langsmith_enabled:
+        return NoopTraceAdapter()
+    return LangSmithTraceAdapter(
+        api_key=settings.langsmith_api_key or "",
+        endpoint=settings.langsmith_endpoint,
+        project=settings.langsmith_project,
+        sampling_rate=settings.langsmith_sampling_rate,
+        hash_salt=settings.langsmith_hash_salt or "",
+    )
 
 
 def build_memory(
@@ -458,12 +498,14 @@ def build_research(
     retriever: RetrievePort,
     web_search: WebSearchPort,
     chat: ChatPort,
+    trace: TracePort | None = None,
 ) -> ResearchPort:
     """构造显式 LangGraph Deep Research。"""
     return LangGraphResearchAdapter(
         retriever=retriever,
         web_search=web_search,
         chat=chat,
+        trace=trace,
     )
 
 
@@ -524,7 +566,6 @@ __all__ = [
     "build_document_parser",
     "build_document_repo",
     "build_embedder",
-    "build_evidence",
     "build_evidence_qa_generator",
     "build_evidence_chunker",
     "build_evidence_index",
@@ -541,6 +582,7 @@ __all__ = [
     "build_sqlite_pool",
     "build_summary_store",
     "build_task_repo",
+    "build_trace",
     "build_user_repo",
     "build_web_search",
     "build_workflow_runtime",

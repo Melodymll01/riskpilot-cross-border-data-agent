@@ -125,11 +125,9 @@ class RunCopilotUseCase:
             result = self._risk_profile.assess(target=target)
         except RiskProfileNotReady as exc:
             yield AgentEvent.answer(
-                "⏳ **风险画像模型尚未上线**\n\n"
+                "⚠️ **风险画像模型当前不可用**\n\n"
                 f"{exc}\n\n"
-                "目前 `📊 风险画像` Tab 以接口预留形态运行；"
-                "`schema-evidence-risk-profiling` 仓库的 evidence-state v1 "
-                "模型完成训练后会自动接入此处。"
+                "请检查 `RISK_PROFILE_API_BASE`、模型服务健康状态与鉴权配置。"
             )
             return
         yield AgentEvent.answer(_format_risk_profile_md(result))

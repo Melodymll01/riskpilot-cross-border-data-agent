@@ -36,6 +36,7 @@ jobs:
           ruff check \
             domain app \
             infra/auth infra/kb infra/risk_profile infra/audit infra/qa infra/workflows \
+            infra/agents infra/research infra/observability \
             api/v2 api/v3 \
             evaluations/evidence_qa evaluations/memory_extraction evaluations/memory_recall evaluations/visual_retrieval \
             config.py main.py \
@@ -54,7 +55,6 @@ jobs:
       CHAT_API_KEY: sk-test-fake
       CHAT_API_BASE: http://127.0.0.1:9/v1
       LLM_PROVIDER: api
-      RISK_EVIDENCE_PROVIDER: mock
       ENABLE_RERANKER: "false"
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"

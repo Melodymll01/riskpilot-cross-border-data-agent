@@ -131,15 +131,6 @@ class ChromaKbRepo:
         cwm_list = [self._to_chunk_with_metadata(c) for c in chunks]
         self._vs.add_chunks(cwm_list, embeddings)
 
-    # ─── 启动迁移（Step 025a） ─────────────────────────────────────────
-
-    def migrate_owner_id_legacy(self) -> int:
-        """Step 025a 启动懒迁移：把缺 owner_id 的旧 chunk 标记为公共库。
-
-        透传到 ``VectorStore.migrate_owner_id_marker``；幂等。
-        """
-        return self._vs.migrate_owner_id_marker()
-
     # ─── 转换 ────────────────────────────────────────────────────────
 
     @staticmethod

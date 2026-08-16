@@ -1,16 +1,14 @@
-"""服务适配器测试：Chat / Embed / WebSearch / Evidence。"""
+"""服务适配器测试：Chat / Embed / WebSearch。"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-import pytest
 from langchain_core.messages import AIMessage
 
-from domain.models import EvidenceJudgement, WebResult
-from domain.ports import ChatPort, EmbedPort, EvidencePort, WebSearchPort
+from domain.models import WebResult
+from domain.ports import ChatPort, EmbedPort, WebSearchPort
 from infra.chat import OpenAIChatAdapter
-from infra.evidence import MockEvidenceClient
 from infra.search import EmbedderAdapter
 from infra.web import DuckDuckGoAdapter
 from tests.fakes.fake_agent_model import FakeToolCallingModel
@@ -126,32 +124,3 @@ class TestDuckDuckGoAdapter:
         adapter = DuckDuckGoAdapter(searcher=stub)
         results = adapter.search("q")
         assert [r.url for r in results] == ["https://b.com"]
-
-
-# ── Evidence ──────────────────────────────────────────────────────────
-
-
-class TestMockEvidenceClient:
-    def test_implements_evidence_port(self) -> None:
-        assert isinstance(MockEvidenceClient(), EvidencePort)
-
-    def test_judge_returns_stable_label(self) -> None:
-        client = MockEvidenceClient()
-        j1 = client.judge("F1", {"region": "EU"})
-        j2 = client.judge("F1", {"region": "US"})
-        assert isinstance(j1, EvidenceJudgement)
-        assert j1.factor_id == "F1"
-        # 同一 factor_id 应得到相同 label（确定性）
-        assert j1.label == j2.label
-        assert j1.label in ("low", "moderate", "high")
-        assert 0.0 <= j1.confidence <= 1.0
-
-    def test_judge_rationale_includes_context_keys(self) -> None:
-        client = MockEvidenceClient()
-        j = client.judge("F2", {"region": "EU", "data_type": "PI"})
-        assert "data_type" in j.rationale
-        assert "region" in j.rationale
-
-    def test_invalid_confidence_rejected(self) -> None:
-        with pytest.raises(ValueError):
-            MockEvidenceClient(default_confidence=1.5)

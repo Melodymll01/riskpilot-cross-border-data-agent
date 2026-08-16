@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
-from typing import Any, TypedDict, cast
+from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.sqlite import SqliteSaver
@@ -17,6 +17,10 @@ from domain.runs import (
     WorkflowInterrupt,
     WorkflowInterruptKind,
 )
+from infra.observability import NoopTraceAdapter
+
+if TYPE_CHECKING:
+    from domain.ports import TracePort
 
 _GRAPH_STAGES = (
     "load_case",
@@ -46,7 +50,12 @@ class _CaseAssessmentState(TypedDict, total=False):
 class LangGraphWorkflowRuntime:
     """使用 LangGraph 原生 checkpoint 和 interrupt/Command 执行案件评估。"""
 
-    def __init__(self, checkpoint_db_path: str) -> None:
+    def __init__(
+        self,
+        checkpoint_db_path: str,
+        *,
+        trace: TracePort | None = None,
+    ) -> None:
         if checkpoint_db_path == ":memory:":
             connection_target = checkpoint_db_path
         else:
@@ -60,6 +69,7 @@ class LangGraphWorkflowRuntime:
         )
         self._saver.setup()
         self._graph = _build_case_assessment_graph(self._saver)
+        self._trace = trace or NoopTraceAdapter()
 
     def inspect_case_assessment(
         self,
@@ -73,6 +83,52 @@ class LangGraphWorkflowRuntime:
         return self._result(config, [])
 
     def start_case_assessment(
+        self,
+        *,
+        thread_id: str,
+        case_id: str,
+        workspace_id: str,
+        actor_id: str,
+        ruleset_version: str,
+        document_readiness: CaseDocumentReadiness,
+        missing_fact_fields: list[str],
+    ) -> WorkflowExecutionResult:
+        with self._trace.span(
+            "riskpilot.case_assessment.start",
+            metadata={
+                "actor_id": actor_id,
+                "case_id": case_id,
+                "framework": "langgraph",
+                "missing_fact_count": len(missing_fact_fields),
+                "pending_document_count": len(
+                    document_readiness.pending_document_ids
+                ),
+                "ready_document_count": len(document_readiness.ready_document_ids),
+                "ruleset_version": ruleset_version,
+                "thread_id": thread_id,
+                "workflow": "case_assessment",
+                "workspace_id": workspace_id,
+            },
+        ) as span:
+            try:
+                result = self._start_case_assessment(
+                    thread_id=thread_id,
+                    case_id=case_id,
+                    workspace_id=workspace_id,
+                    actor_id=actor_id,
+                    ruleset_version=ruleset_version,
+                    document_readiness=document_readiness,
+                    missing_fact_fields=missing_fact_fields,
+                )
+            except Exception as exc:
+                span.add_metadata(
+                    {"error_type": type(exc).__name__, "status": "failed"}
+                )
+                raise
+            span.add_metadata(_result_metadata(result))
+            return result
+
+    def _start_case_assessment(
         self,
         *,
         thread_id: str,
@@ -106,6 +162,36 @@ class LangGraphWorkflowRuntime:
         return self._result(config, completed_stages)
 
     def resume_case_assessment(
+        self,
+        *,
+        thread_id: str,
+        resume_value: dict[str, Any],
+        state_update: dict[str, Any] | None = None,
+    ) -> WorkflowExecutionResult:
+        with self._trace.span(
+            "riskpilot.case_assessment.resume",
+            metadata={
+                "framework": "langgraph",
+                "resumed": True,
+                "thread_id": thread_id,
+                "workflow": "case_assessment",
+            },
+        ) as span:
+            try:
+                result = self._resume_case_assessment(
+                    thread_id=thread_id,
+                    resume_value=resume_value,
+                    state_update=state_update,
+                )
+            except Exception as exc:
+                span.add_metadata(
+                    {"error_type": type(exc).__name__, "status": "failed"}
+                )
+                raise
+            span.add_metadata(_result_metadata(result))
+            return result
+
+    def _resume_case_assessment(
         self,
         *,
         thread_id: str,
@@ -177,6 +263,17 @@ def _build_case_assessment_graph(saver: SqliteSaver) -> Any:
         builder.add_edge(source, target)
     builder.add_edge("complete", END)
     return builder.compile(checkpointer=saver, name="riskpilot_case_assessment")
+
+
+def _result_metadata(result: WorkflowExecutionResult) -> dict[str, Any]:
+    return {
+        "completed": result.status == "completed",
+        "completed_stage_count": len(result.completed_stages),
+        "interrupt_kind": result.interrupt.kind if result.interrupt else "",
+        "interrupted": result.status == "interrupted",
+        "stage": result.stage,
+        "status": result.status,
+    }
 
 
 def _load_case(state: _CaseAssessmentState) -> dict[str, Any]:

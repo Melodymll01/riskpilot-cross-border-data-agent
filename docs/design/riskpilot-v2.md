@@ -769,7 +769,7 @@ evaluations/
 
 ## 18. 当前实施切片
 
-截至 2026-08-11，已完成：
+截至 2026-08-17，已完成：
 
 1. Workspace、成员角色和 Case 状态机；
 2. 案件级 Document、DocumentVersion、原始对象存储与 ProcessingJob；
@@ -829,6 +829,14 @@ evaluations/
     AgenticRAG、过渡 RunQuery 和旧 ChatClient SDK。
 27. 小规模 Visual Evidence：Case 图片使用 Chinese-CLIP 图文共享向量做文本搜图，
     SQL 先下推 Workspace/Case 隔离；提供 12 张合成图片的 Recall@1/3 评测入口。
+28. Deep Research 显式 LangGraph：plan → retrieve → assess → retry/web → generate，
+    最多三轮补查，证据不足时可补充 Web Search。
+29. 风险评估模型真实接入边界：统一 `RiskProfilePort`，生产使用
+    `HttpRiskProfileClient` 调用独立 `/v1/risk-profile` 服务并严格校验 schema；
+    删除旧 Mock Evidence 与 Stub Risk Profile 双重占位链路。
+30. 隐私保护 LangSmith 可观测性：`TracePort` 隔离 Noop/LangSmith Adapter，默认关闭；
+    Copilot、Deep Research、Case Assessment 和风险模型共享同一 Trace；输入、输出、
+    异常正文、事件、附件和序列化 Prompt 在客户端出站前移除，业务 ID 使用 HMAC 哈希。
 
 当前 Case Assessment Graph 已落地的确定性骨架：
 
@@ -852,7 +860,7 @@ pickle fallback。
 
 1. 完整案件管理前端：启动 Run、Assessment 审批和引用详情；
 2. 基于 Claim-Citation 评测基线的完整生成器 + 验证器端到端生产实测；
-3. Deep Research Graph；
+3. 风险评估模型服务的生产部署、版本化评测与真实数据效果验证；
 4. 评测中心、故障注入指标、安全红队和报告导出。
 
 后续仍按“一个可验证步骤对应一个中文 commit”推进。

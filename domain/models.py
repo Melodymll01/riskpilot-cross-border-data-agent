@@ -179,20 +179,7 @@ class WebResult(BaseDomainModel):
     snippet: str = ""
 
 
-class EvidenceJudgement(BaseDomainModel):
-    """风险画像服务对单条 factor 的判定快照。
-
-    与 `risk/schema.py` 保持兼容；此处只暴露 domain 视角必需的字段，详细规则与
-    factor 列表（F1..F6）由 `risk/factors.py` 维护，不进 domain。
-    """
-
-    factor_id: str = Field(min_length=1)
-    label: str = Field(min_length=1)
-    rationale: str = ""
-    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
-
-
-# === 风险画像（schema-evidence-risk-profiling v1 接口预留） ===
+# === 风险画像（schema-evidence-risk-profiling） ===
 
 EvidenceState = Literal[
     "supported",

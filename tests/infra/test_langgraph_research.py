@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from domain.models import Chunk, ResearchReport, ResearchStep, WebResult
 from infra.research import LangGraphResearchAdapter
-from tests.fakes import FakeChat, FakeRetrieve, FakeWebSearch
+from tests.fakes import FakeChat, FakeRetrieve, FakeTrace, FakeWebSearch
 
 
 def _chunk(chunk_id: str = "chunk_001") -> Chunk:
@@ -20,6 +20,7 @@ def _chunk(chunk_id: str = "chunk_001") -> Chunk:
 
 def test_sufficient_evidence_routes_directly_to_generation() -> None:
     retriever = FakeRetrieve([_chunk()])
+    trace = FakeTrace()
     chat = FakeChat(
         responses=[
             '{"queries":["个人信息出境 条件"]}',
@@ -31,6 +32,7 @@ def test_sufficient_evidence_routes_directly_to_generation() -> None:
         retriever=retriever,
         web_search=FakeWebSearch(),
         chat=chat,
+        trace=trace,
     )
 
     items = list(research.research_stream("个人信息如何出境？", owner_id="github:alice"))
@@ -42,6 +44,12 @@ def test_sufficient_evidence_routes_directly_to_generation() -> None:
     assert report.citations[0].source_name == "个人信息保护法"
     assert all(isinstance(item, (ResearchStep, ResearchReport)) for item in items)
     assert {call["owner_id"] for call in retriever.calls} == {"github:alice"}
+    metadata = trace.spans[0]["metadata"]
+    assert metadata["query_length"] == len("个人信息如何出境？")
+    assert metadata["retrieval_rounds"] == 1
+    assert metadata["document_count"] == 1
+    assert metadata["status"] == "completed"
+    assert "个人信息如何出境？" not in str(metadata)
 
 
 def test_partial_evidence_loops_with_supplement_query() -> None:

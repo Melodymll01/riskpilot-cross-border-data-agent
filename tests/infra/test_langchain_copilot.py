@@ -12,9 +12,10 @@ from domain.models import Chunk, Message, Task
 from infra.agents import LangChainComplianceAgent
 from infra.memory import TaskBackedMemory
 from tests.fakes import (
-    FakeEvidence,
     FakeRetrieve,
+    FakeRiskProfile,
     FakeToolCallingModel,
+    FakeTrace,
     FakeWebSearch,
     InMemoryTaskRepo,
 )
@@ -59,7 +60,7 @@ def _agent(
         task_repo=repo,
         retriever=retriever or FakeRetrieve([_chunk()]),
         web_search=FakeWebSearch(),
-        evidence=FakeEvidence(),
+        risk_profile=FakeRiskProfile(),
         memory_assembler=memory_assembler,
     )
 
@@ -81,6 +82,37 @@ def test_direct_answer_persists_messages() -> None:
     messages = repo.list_messages(task.task_id)
     assert [message.role for message in messages] == ["user", "assistant"]
     assert messages[-1].content == "直接回答"
+
+
+def test_copilot_records_only_structured_trace_metadata() -> None:
+    repo = InMemoryTaskRepo()
+    task = _seed_task(repo)
+    trace = FakeTrace()
+    model = FakeToolCallingModel(responses=[AIMessage(content="直接回答")])
+    agent = LangChainComplianceAgent(
+        model=model,
+        task_repo=repo,
+        retriever=FakeRetrieve([_chunk()]),
+        web_search=FakeWebSearch(),
+        risk_profile=FakeRiskProfile(),
+        trace=trace,
+    )
+
+    list(
+        agent.run(
+            owner_id=task.owner_id,
+            task_id=task.task_id,
+            user_message="案件正文不得进入 Trace",
+        )
+    )
+
+    assert trace.spans[0]["name"] == "riskpilot.copilot.run"
+    metadata = trace.spans[0]["metadata"]
+    assert metadata["message_length"] == len("案件正文不得进入 Trace")
+    assert metadata["status"] == "completed"
+    assert metadata["tool_count"] == 0
+    assert "user_message" not in metadata
+    assert "案件正文不得进入 Trace" not in str(metadata)
 
 
 def test_tool_call_uses_runtime_owner_and_is_audited() -> None:
@@ -123,6 +155,51 @@ def test_tool_call_uses_runtime_owner_and_is_audited() -> None:
     assert tool_call.tool_name == "search_law"
     assert tool_call.status == "success"
     assert events[-1].payload["citations"][0]["source_name"] == "个人信息保护法"
+
+
+def test_risk_profile_tool_calls_real_port_contract() -> None:
+    repo = InMemoryTaskRepo()
+    task = _seed_task(repo)
+    risk_profile = FakeRiskProfile()
+    model = FakeToolCallingModel(
+        responses=[
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "risk_profile_assess",
+                        "args": {
+                            "target": "临床数据是否出境",
+                            "document": "合同约定传输至德国总部",
+                        },
+                        "id": "call_profile",
+                        "type": "tool_call",
+                    }
+                ],
+            ),
+            AIMessage(content="风险评估完成"),
+        ]
+    )
+    agent = LangChainComplianceAgent(
+        model=model,
+        task_repo=repo,
+        retriever=FakeRetrieve([_chunk()]),
+        web_search=FakeWebSearch(),
+        risk_profile=risk_profile,
+    )
+
+    events = list(
+        agent.run(
+            owner_id=task.owner_id,
+            task_id=task.task_id,
+            user_message="评估该合同",
+        )
+    )
+
+    assert risk_profile.calls[0]["target"] == "临床数据是否出境"
+    assert risk_profile.calls[0]["document"] == "合同约定传输至德国总部"
+    assert events[1].event_type is AgentEventType.TOOL_RESULT
+    assert events[1].payload["result"]["evidence_state"] == "supported"
 
 
 def test_memory_is_injected_as_system_message_without_current_query_duplication() -> None:

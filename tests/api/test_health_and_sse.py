@@ -18,12 +18,11 @@ def test_ready_lists_tools(client: TestClient) -> None:
     assert body["status"] == "ok"
     # 全部 8 个 Port 装配完毕
     assert all(body["ports_loaded"].values())
-    # Step 009 注册的 4 个工具
     assert set(body["tools"]) == {
         "search_law",
         "search_user_docs",
         "web_search",
-        "evidence_judge",
+        "risk_profile_assess",
     }
 
 

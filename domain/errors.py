@@ -230,16 +230,12 @@ class MemoryError(DomainError):  # noqa: A001 - 明确覆盖语义；不与 buil
     """记忆层读写失败。"""
 
 
-class EvidenceServiceError(DomainError):
-    """风险画像 evidence 服务不可用或返回非法 schema。"""
+class RiskProfileServiceError(DomainError):
+    """风险画像模型服务返回 HTTP、JSON 或 schema 错误。"""
 
 
 class RiskProfileNotReady(DomainError):
-    """风险画像模型尚未就绪（``schema-evidence-risk-profiling`` 仍在训练阶段）。
-
-    占位适配器在被调用时应抛出此异常，由上层路由捕获并转成用户可读的"敬请期待"
-    回执，避免误把占位 ``not_disclosed`` 当作真实模型输出。
-    """
+    """风险画像模型端点未配置或当前不可用。"""
 
 
 class WebSearchError(DomainError):
