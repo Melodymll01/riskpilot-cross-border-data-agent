@@ -25,7 +25,7 @@ from collections.abc import AsyncIterator, Iterator
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from app.agent.events import AgentEvent
+    from domain.agent import AgentEvent
 
 
 def event_to_sse(event: AgentEvent) -> str:

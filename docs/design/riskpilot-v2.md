@@ -818,6 +818,17 @@ evaluations/
 23. `evaluations/memory_extraction` 协议评测基线：覆盖显式偏好、稳定业务上下文、
     助手污染、伪造 quote、提示注入、API Key、个人标识符、高敏属性和临时请求；
     自检只证明确定性门禁，生产模型效果仍需独立 predictions。
+24. `hybrid_v1` 长期记忆召回：owner 隔离向量候选池经语义相关性、事实置信度、
+    显著性和新鲜度重排；低相关、过期和 superseded 事实不注入；提供不含向量、
+    Prompt 或思维链的召回解释 API 与前端检查器。
+25. `evaluations/memory_recall` 召回协议评测：覆盖相关性、可信事实重排、低相关拒绝、
+    TTL、冲突遗忘和 owner 隔离；给定候选语义分数，只证明确定性排序与安全过滤，
+    不冒充真实 embedding 端到端召回准确率。
+26. AI 框架统一：Copilot 迁移到 LangChain `create_agent` + 标准 Tool Calling，
+    Deep Research 迁移到显式 LangGraph；删除自研 ReAct、JSON 决策协议、旧
+    AgenticRAG、过渡 RunQuery 和旧 ChatClient SDK。
+27. 小规模 Visual Evidence：Case 图片使用 Chinese-CLIP 图文共享向量做文本搜图，
+    SQL 先下推 Workspace/Case 隔离；提供 12 张合成图片的 Recall@1/3 评测入口。
 
 当前 Case Assessment Graph 已落地的确定性骨架：
 

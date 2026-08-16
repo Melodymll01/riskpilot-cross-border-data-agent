@@ -211,6 +211,22 @@ export const casesV3 = {
     requestV3("POST", `/processing-jobs/${encodeURIComponent(jobId)}/index`),
   retryDocument: (jobId) =>
     requestV3("POST", `/processing-jobs/${encodeURIComponent(jobId)}/retry`),
+  uploadVisual: (caseId, file, caption = "") => {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("caption", caption);
+    return requestFormV3(
+      `/cases/${encodeURIComponent(caseId)}/visual-assets`,
+      formData
+    );
+  },
+  searchVisual: (caseId, query, topK = 5) =>
+    requestV3(
+      "GET",
+      `/cases/${encodeURIComponent(caseId)}/visual-assets/search?query=${encodeURIComponent(query)}&top_k=${topK}`
+    ),
+  visualContentUrl: (caseId, assetId) =>
+    `${V3_BASE}/cases/${encodeURIComponent(caseId)}/visual-assets/${encodeURIComponent(assetId)}/content`,
   facts: (caseId) =>
     requestV3("GET", `/cases/${encodeURIComponent(caseId)}/facts`),
   fact: (factId) =>
@@ -276,6 +292,14 @@ export const memory = {
 
   /** 当前 owner 生效的长期事实清单 + 容量上限。 */
   facts: () => request("GET", "/memory/facts"),
+
+  /**
+   * 解释指定问题会召回哪些长期事实及各维度分数。
+   * @param {string} query
+   * @param {number} k
+   */
+  explainRecall: (query, k = 3) =>
+    request("POST", "/memory/recall/explain", { query, k }),
 
   /**
    * 删除当前 owner 的单条长期事实（被遗忘权细粒度，Step 034）。

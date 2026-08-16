@@ -18,21 +18,25 @@ import contextlib
 from collections.abc import Iterator
 from typing import TYPE_CHECKING
 
-from app.agent.events import AgentEvent
+from domain.agent import AgentEvent
 from domain.errors import RiskProfileNotReady
 
 if TYPE_CHECKING:
-    from app.agent.copilot import ComplianceCopilotAgent
     from app.use_cases.task_management import TaskManagementUseCase
     from domain.models import RiskProfile, TaskMode
-    from domain.ports import MemoryJobSchedulerPort, ResearchPort, RiskProfilePort
+    from domain.ports import (
+        CopilotAgentPort,
+        MemoryJobSchedulerPort,
+        ResearchPort,
+        RiskProfilePort,
+    )
 
 
 class RunCopilotUseCase:
     def __init__(
         self,
         *,
-        agent: ComplianceCopilotAgent,
+        agent: CopilotAgentPort,
         task_management: TaskManagementUseCase,
         risk_profile: RiskProfilePort | None = None,
         research: ResearchPort | None = None,
@@ -76,7 +80,7 @@ class RunCopilotUseCase:
 
         # 2b) research 模式：跳过 ReAct agent，走 ResearchPort 产出长篇报告
         if mode == "research":
-            yield from self._run_research(query=user_message)
+            yield from self._run_research(owner_id=owner_id, query=user_message)
             return
 
         # 3) qa：附件信息进 user_message，再跑 Agent
@@ -132,7 +136,7 @@ class RunCopilotUseCase:
 
     # ─── research 分支 ─────────────────────────────────────────────
 
-    def _run_research(self, *, query: str) -> Iterator[AgentEvent]:
+    def _run_research(self, *, owner_id: str, query: str) -> Iterator[AgentEvent]:
         """research 模式分流：调 ResearchPort，把决策步骤渲染成 thought、报告渲染成 answer。
 
         优先走流式 ``research_stream``：研究链路（分类 → 改写 → 多轮检索 → 证据检查 →
@@ -154,7 +158,7 @@ class RunCopilotUseCase:
         if stream_fn is not None:
             from domain.models import ResearchReport
 
-            for item in stream_fn(query):
+            for item in stream_fn(query, owner_id=owner_id):
                 if isinstance(item, ResearchReport):
                     citations = [c.model_dump() for c in item.citations]
                     yield AgentEvent.answer(item.answer, citations)
@@ -167,7 +171,7 @@ class RunCopilotUseCase:
             return
 
         # 回退：一次性阻塞式 research()
-        report = self._research.research(query)
+        report = self._research.research(query, owner_id=owner_id)
         # 把研究链路（分类 → 改写 → 多轮检索 → 证据检查 → 生成）逐步渲染成 thought
         for step in report.steps:
             detail = f"[{step.step_name}] {step.description}"

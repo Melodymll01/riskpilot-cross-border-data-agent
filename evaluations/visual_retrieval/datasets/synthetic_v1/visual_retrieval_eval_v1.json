@@ -1,0 +1,94 @@
+{
+  "name": "RiskPilot Synthetic Visual Retrieval",
+  "version": "1.0",
+  "synthetic": true,
+  "images_dir": "images",
+  "queries": [
+    {
+      "query_id": "VR-001",
+      "query": "服务器机柜 红色告警灯",
+      "relevant_asset_ids": [
+        "red_server"
+      ]
+    },
+    {
+      "query_id": "VR-002",
+      "query": "服务器机柜 绿色正常灯",
+      "relevant_asset_ids": [
+        "green_server"
+      ]
+    },
+    {
+      "query_id": "VR-003",
+      "query": "云服务 海外云平台",
+      "relevant_asset_ids": [
+        "blue_cloud"
+      ]
+    },
+    {
+      "query_id": "VR-004",
+      "query": "数据库 客户数据库",
+      "relevant_asset_ids": [
+        "orange_database"
+      ]
+    },
+    {
+      "query_id": "VR-005",
+      "query": "移动应用 手机应用",
+      "relevant_asset_ids": [
+        "purple_mobile"
+      ]
+    },
+    {
+      "query_id": "VR-006",
+      "query": "摄像头 监控摄像头",
+      "relevant_asset_ids": [
+        "gray_camera"
+      ]
+    },
+    {
+      "query_id": "VR-007",
+      "query": "风险告警 黄色警告标志",
+      "relevant_asset_ids": [
+        "yellow_warning"
+      ]
+    },
+    {
+      "query_id": "VR-008",
+      "query": "网络拓扑 跨境网络连接",
+      "relevant_asset_ids": [
+        "cyan_network"
+      ]
+    },
+    {
+      "query_id": "VR-009",
+      "query": "用户画像 客户个人信息",
+      "relevant_asset_ids": [
+        "pink_profile"
+      ]
+    },
+    {
+      "query_id": "VR-010",
+      "query": "合同材料 纸质标准合同",
+      "relevant_asset_ids": [
+        "brown_paper"
+      ]
+    },
+    {
+      "query_id": "VR-011",
+      "query": "智能汽车 车辆轨迹数据",
+      "relevant_asset_ids": [
+        "navy_car"
+      ]
+    },
+    {
+      "query_id": "VR-012",
+      "query": "临床试验 医疗研究数据",
+      "relevant_asset_ids": [
+        "white_lab"
+      ]
+    }
+  ],
+  "recall_at_1_min": 0.75,
+  "recall_at_3_min": 0.9
+}

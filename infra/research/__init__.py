@@ -1,5 +1,5 @@
-"""深度研究适配器：ResearchPort 的具体实现（Step 028）。"""
+"""深度研究适配器：ResearchPort 的 LangGraph 实现。"""
 
-from infra.research.agentic_research import AgenticResearchAdapter
+from infra.research.langgraph_research import LangGraphResearchAdapter
 
-__all__ = ["AgenticResearchAdapter"]
+__all__ = ["LangGraphResearchAdapter"]

@@ -219,7 +219,7 @@ app.include_router(build_v3_router(container), prefix="/api/v3")
 install_exception_handlers(app)
 logger.info(
     "api/v2 + api/v3 routes mounted (tools=%s, rate_limit=%s)",
-    sorted(container.tool_registry.keys()),
+    container.copilot_agent.tool_names,
     "on" if limiter is not None else "off",
 )
 

@@ -9,8 +9,6 @@
 
 from __future__ import annotations
 
-import json
-
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -21,6 +19,7 @@ from app.container import AppContainer
 from app.request_context import install_request_id_middleware
 from config import Settings
 from infra.workflows import LangGraphWorkflowRuntime
+from tests.fakes.fake_agent_model import final_answer_model
 from tests.fakes.fake_audit_log import FakeAuditLogRepo
 from tests.fakes.fake_auth import FakeAuth
 from tests.fakes.fake_chat import FakeChat
@@ -45,9 +44,8 @@ from tests.fakes.fake_repos import (
     InMemoryWorkspaceRepo,
 )
 from tests.fakes.fake_retrieve import FakeRetrieve
+from tests.fakes.fake_visual import FakeVisualEmbedder, FakeVisualIndex
 from tests.fakes.fake_websearch import FakeWebSearch
-
-_FINAL_JSON = json.dumps({"thought": "", "action": "final_answer", "answer": "done"})
 
 
 def _make_container(**overrides: object) -> AppContainer:
@@ -72,7 +70,7 @@ def _make_container(**overrides: object) -> AppContainer:
         workflow_runtime=LangGraphWorkflowRuntime(":memory:"),
         audit_log=FakeAuditLogRepo(),
         embedder=FakeEmbed(),
-        chat=FakeChat(responses=[_FINAL_JSON, _FINAL_JSON, _FINAL_JSON, _FINAL_JSON]),
+        chat=FakeChat(responses=["done"]),
         evidence_qa_generator=FakeEvidenceQAGenerator(),
         claim_support_verifier=FakeClaimSupportVerifier(),
         retriever=FakeRetrieve(),
@@ -81,6 +79,9 @@ def _make_container(**overrides: object) -> AppContainer:
         kb_repo=FakeKbRepo(),
         document_loader=FakeDocumentLoader(),
         auth=FakeAuth(),
+        agent_model=final_answer_model(),
+        visual_index=FakeVisualIndex(),
+        visual_embedder=FakeVisualEmbedder(),
     )
 
 

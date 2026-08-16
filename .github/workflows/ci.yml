@@ -37,7 +37,7 @@ jobs:
             domain app \
             infra/auth infra/kb infra/risk_profile infra/audit infra/qa infra/workflows \
             api/v2 api/v3 \
-            evaluations/evidence_qa evaluations/memory_extraction \
+            evaluations/evidence_qa evaluations/memory_extraction evaluations/memory_recall evaluations/visual_retrieval \
             config.py main.py \
             tests/api tests/app tests/domain tests/infra tests/fakes tests/evaluations
       # NOTE: ruff format --check 暂未启用 —— scoped 路径下仍有 33 个文件待
@@ -76,9 +76,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
       - name: Run pytest
-        # eval_ood.py 需要真实 LLM；smoke_bm25_rrf.py 是重 IO 烟雾脚本，本地手动跑。
-        # 其余测试必须全 Fake、零外呼，不允许按具体测试名 deselect。
+        # smoke_bm25_rrf.py 是重 IO 烟雾脚本；Chinese-CLIP live 评测不在 pytest 中。
+        # 其余测试必须全 Fake、零外呼。
         run: |
           pytest -q \
-            --ignore=tests/eval_ood.py \
             --ignore=tests/smoke_bm25_rrf.py

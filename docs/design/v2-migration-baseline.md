@@ -2,6 +2,10 @@
 
 > 本文件记录 2026-08-06 重构开始时的历史快照，不代表当前实现状态。当前进度见
 > `docs/design/riskpilot-v2.md` 第 18 节和 `docs/architecture/overview.md`。
+>
+> 2026-08-16 已完成框架迁移：下文提到的自研 `ComplianceCopilotAgent`、
+> `AgenticRAGAgent`、`AgenticResearchAdapter`、`ToolSpec`、`tests/eval_ood.py`
+> 均已删除，当前使用 LangChain Agent 与 LangGraph Deep Research。
 
 ## 记录时间
 

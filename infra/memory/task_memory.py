@@ -20,7 +20,15 @@ from __future__ import annotations
 import logging
 import time
 
-from domain.models import Fact, ForgetResult, Message, SessionProfile, TaskSummary
+from domain.memory import MemoryRecallPolicy
+from domain.models import (
+    Fact,
+    ForgetResult,
+    MemoryRecallTrace,
+    Message,
+    SessionProfile,
+    TaskSummary,
+)
 from domain.ports import (
     ChatPort,
     ConsolidationStatePort,
@@ -59,6 +67,8 @@ class TaskBackedMemory:
         l2_ttl_days: float = 180.0,
         l4_ttl_days: float = 365.0,
         summary_threshold: int = 20,
+        recall_policy: MemoryRecallPolicy | None = None,
+        recall_candidate_multiplier: int = 4,
     ) -> None:
         self._repo = task_repo
         self._summary_store = summary_store
@@ -71,6 +81,8 @@ class TaskBackedMemory:
         self._l2_ttl_days = l2_ttl_days
         self._l4_ttl_days = l4_ttl_days
         self._summary_threshold = summary_threshold
+        self._recall_policy = recall_policy or MemoryRecallPolicy()
+        self._recall_candidate_multiplier = max(1, recall_candidate_multiplier)
 
     # ── L1 短期 ────────────────────────────────────────────────────────────
 
@@ -155,34 +167,45 @@ class TaskBackedMemory:
     # ── L4 语义事实（读） ──────────────────────────────────────────────────
 
     def recall_semantic(self, owner_id: str, query: str, k: int) -> list[Fact]:
-        """按 query 语义召回该 owner 的长期事实；逻辑遗忘已 superseded / 过期的。
+        """按混合评分召回该 owner 的长期事实。
 
         未配置 fact_store/embedder、k≤0、query 为空均安全返回空列表。
         owner 隔离由 ``FactStorePort.query`` 的 owner_id 过滤保证。
         """
+        trace = self.explain_recall(owner_id, query, k)
+        return [hit.fact for hit in trace.hits]
+
+    def explain_recall(self, owner_id: str, query: str, k: int) -> MemoryRecallTrace:
+        """返回 L4 召回结果及分数组成，供调试、评测和用户解释。"""
+        normalized_query = (query or "").strip()
         if self._fact_store is None or self._embedder is None:
-            return []
-        if k <= 0 or not (query or "").strip():
-            return []
+            return self._empty_recall_trace(owner_id, normalized_query)
+        if k <= 0 or not normalized_query:
+            return self._empty_recall_trace(owner_id, normalized_query)
         try:
-            embedding = self._embedder.embed([query])[0]
-            hits = self._fact_store.query(owner_id, embedding, k)
+            embedding = self._embedder.embed([normalized_query])[0]
+            candidate_k = max(k, k * self._recall_candidate_multiplier)
+            candidates = self._fact_store.query(owner_id, embedding, candidate_k)
         except Exception:  # noqa: BLE001 — 召回失败时降级为无事实，不影响主回复
             logger.warning("L4 语义召回失败（已降级为空）", exc_info=True)
-            return []
-        cutoff = (
-            time.time() - self._l4_ttl_days * _SECONDS_PER_DAY
-            if self._l4_ttl_days > 0
-            else None
+            return self._empty_recall_trace(owner_id, normalized_query)
+        return self._recall_policy.rank(
+            owner_id=owner_id,
+            query=normalized_query,
+            candidates=candidates,
+            k=k,
+            now=time.time(),
+            ttl_days=self._l4_ttl_days,
         )
-        facts: list[Fact] = []
-        for fact, _sim in hits:
-            if fact.superseded_by is not None:
-                continue  # 逻辑遗忘：被取代的事实不召回
-            if cutoff is not None and fact.created_at < cutoff:
-                continue  # TTL 逻辑遗忘
-            facts.append(fact)
-        return facts
+
+    def _empty_recall_trace(self, owner_id: str, query: str) -> MemoryRecallTrace:
+        return MemoryRecallTrace(
+            owner_id=owner_id,
+            query=query,
+            strategy_version=self._recall_policy.strategy_version,
+            candidate_count=0,
+            eligible_count=0,
+        )
 
     def list_facts(self, owner_id: str) -> list[Fact]:
         """列出该 owner 当前生效的长期事实（管理面板展示，Step 031a）。

@@ -249,6 +249,28 @@
         <section class="case-card">
           <header class="case-card-header">
             <div>
+              <h3>图片证据召回</h3>
+              <p class="case-muted">Chinese-CLIP 图文共享向量：上传单图后可用自然语言在当前 Case 内搜图。</p>
+            </div>
+          </header>
+          <form class="case-visual-upload" id="case-visual-upload-form">
+            <input class="case-input" id="case-visual-file" type="file"
+                   accept="image/png,image/jpeg,image/webp" required />
+            <input class="case-input" id="case-visual-caption"
+                   placeholder="图片说明（可选），如：机房红色告警灯" maxlength="1000" />
+            <button class="btn btn-primary" type="submit">上传图片</button>
+          </form>
+          <form class="case-visual-search" id="case-visual-search-form">
+            <input class="case-input" id="case-visual-query"
+                   placeholder="例如：查找包含服务器机柜和红色告警灯的图片" maxlength="1000" required />
+            <button class="btn btn-ghost" type="submit">文本搜图</button>
+          </form>
+          <div class="case-visual-results" id="case-visual-results"></div>
+        </section>
+
+        <section class="case-card">
+          <header class="case-card-header">
+            <div>
               <h3>Fact 候选与确认状态</h3>
               <p class="case-muted">模型候选统一为 critical；确认操作需要 Reviewer/Admin。</p>
             </div>
@@ -449,7 +471,7 @@
       </header>
 
       <div class="modal-body" id="memory-modal-body">
-        <!-- 双开关 -->
+        <!-- 记忆开关 -->
         <section class="settings-section">
           <div class="switch-row">
             <div class="switch-text">
@@ -489,6 +511,28 @@
             <ul class="memory-list" id="facts-list"></ul>
             <div class="memory-empty" id="facts-empty" hidden>暂无长期事实。</div>
           </div>
+        </section>
+
+        <section class="settings-section">
+          <div class="settings-section-head">
+            <div>
+              <h3 class="settings-section-title">召回解释器</h3>
+              <p class="memory-recall-desc">输入一个问题，查看 hybrid_v1 为什么选择这些长期记忆。仅展示你的事实和安全分数，不暴露向量或内部 Prompt。</p>
+            </div>
+          </div>
+          <form class="memory-recall-form" id="memory-recall-form">
+            <input
+              class="memory-recall-input"
+              id="memory-recall-query"
+              maxlength="2000"
+              placeholder="例如：我从事什么行业？"
+              required
+            />
+            <button class="btn btn-primary" type="submit">解释召回</button>
+          </form>
+          <div class="memory-recall-meta" id="memory-recall-meta" hidden></div>
+          <ol class="memory-recall-list" id="memory-recall-list"></ol>
+          <div class="memory-empty" id="memory-recall-empty" hidden>没有事实达到召回阈值，本轮不会注入长期记忆。</div>
         </section>
 
         <!-- 危险操作：清除 -->

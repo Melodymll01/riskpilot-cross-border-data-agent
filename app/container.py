@@ -1,9 +1,9 @@
 """``AppContainer``：DI 装配中心。
 
 职责：
-- 一次性把 10 个 Port 装好，所有 use case 共享同一组实例（保证 SQLite 单连接池）
+- 一次性装配所有 Port，Repository 共享 SQLite 连接池
 - 支持"全工厂"模式（生产）与"全注入"模式（测试）混用
-- 同步装配 5 个 use case，挂在 self 上
+- 统一装配应用 Use Case、LangChain Agent 与 LangGraph Runtime
 
 用法：
     >>> from config import settings
@@ -18,10 +18,10 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from app.agent import ComplianceCopilotAgent, register_default_tools
 from app.factories import (
+    build_agent_model,
     build_agent_run_repo,
     build_assessment_repo,
     build_audit_log,
@@ -56,6 +56,8 @@ from app.factories import (
     build_sqlite_pool,
     build_task_repo,
     build_user_repo,
+    build_visual_embedder,
+    build_visual_index,
     build_web_search,
     build_workflow_runtime,
     build_workspace_repo,
@@ -73,14 +75,15 @@ from app.use_cases import (
     IngestionUseCase,
     KbManagementUseCase,
     PolicyManagementUseCase,
-    RunQueryUseCase,
     TaskManagementUseCase,
+    VisualEvidenceUseCase,
     WorkspaceManagementUseCase,
 )
 from app.use_cases.feedback import FeedbackUseCase
 from app.use_cases.forget_memory import ForgetMemoryUseCase
 from app.use_cases.memory_settings import MemorySettingsUseCase
 from app.use_cases.run_copilot import RunCopilotUseCase
+from infra.agents import LangChainComplianceAgent
 
 if TYPE_CHECKING:
     from config import Settings
@@ -123,7 +126,7 @@ if TYPE_CHECKING:
 
 
 class AppContainer:
-    """13 个 Port + 5 个 use case 的中央配电盘。"""
+    """应用 Port、Use Case 与 AI Runtime 的中央配电盘。"""
 
     def __init__(
         self,
@@ -156,8 +159,11 @@ class AppContainer:
         policy_rule_repo: PolicyRuleRepoPort | None = None,
         object_store: ObjectStorePort | None = None,
         workflow_runtime: WorkflowRuntimePort | None = None,
+        visual_index=None,
+        visual_embedder=None,
         auth: AuthPort | None = None,
         memory: MemoryPort | None = None,
+        agent_model: Any | None = None,
     ) -> None:
         self.settings = settings
 
@@ -236,12 +242,13 @@ class AppContainer:
         self.risk_profile: RiskProfilePort = risk_profile or build_risk_profile(
             settings
         )
-        self.research: ResearchPort = research or build_research(settings)
         self.kb_repo: KbDocumentRepoPort = kb_repo or build_kb_repo(settings)
         self.document_loader: DocumentLoaderPort = document_loader or build_document_loader(
             settings
         )
         self.object_store: ObjectStorePort = object_store or build_object_store(settings)
+        self.visual_index = visual_index or build_visual_index(settings, pool=pool)
+        self.visual_embedder = visual_embedder or build_visual_embedder(settings)
         self.document_parser: DocumentParserPort = (
             document_parser or build_document_parser(settings)
         )
@@ -250,6 +257,12 @@ class AppContainer:
         )
         self.workflow_runtime: WorkflowRuntimePort = (
             workflow_runtime or build_workflow_runtime(settings)
+        )
+        self.research: ResearchPort = research or build_research(
+            settings,
+            retriever=self.retriever,
+            web_search=self.web_search,
+            chat=self.chat,
         )
 
         # ── 鉴权（依赖 user_repo） ────────────────────────────────────
@@ -338,6 +351,14 @@ class AppContainer:
             embedder=self.embedder,
             case_management=self.case_management,
         )
+        self.visual_evidence = VisualEvidenceUseCase(
+            visual_index=self.visual_index,
+            embedder=self.visual_embedder,
+            object_store=self.object_store,
+            case_management=self.case_management,
+            workspace_management=self.workspace_management,
+            max_upload_bytes=settings.visual_max_upload_mb * 1024 * 1024,
+        )
         self.fact_management = FactManagementUseCase(
             fact_repo=self.case_fact_repo,
             document_repo=self.document_repo,
@@ -388,20 +409,19 @@ class AppContainer:
             self.memory_settings_store, audit_log=self.audit_log
         )
         self.ingest = IngestionUseCase(self.embedder)
-        self.run_query = RunQueryUseCase(retriever=self.retriever, chat=self.chat)
         self.kb_management = KbManagementUseCase(
             kb_repo=self.kb_repo,
             loader=self.document_loader,
             embedder=self.embedder,
             audit_log=self.audit_log,
         )
-        # ── Agent 层（Step 009 PR-5b）─────────────────────────────────
-        # 工具注册表必须晚于所有 port 初始化，因为 handler 闭包持有 self.* 引用
-        self.tool_registry = register_default_tools(self)
-        self.copilot_agent = ComplianceCopilotAgent(
-            chat=self.chat,
+        self.agent_model = agent_model or build_agent_model(settings)
+        self.copilot_agent = LangChainComplianceAgent(
+            model=self.agent_model,
             task_repo=self.task_repo,
-            tool_registry=self.tool_registry,
+            retriever=self.retriever,
+            web_search=self.web_search,
+            evidence=self.evidence,
             memory_assembler=self.memory_assembler,
         )
         self.run_copilot = RunCopilotUseCase(

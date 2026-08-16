@@ -212,6 +212,28 @@ class EvidenceSearchResponse(BaseModel):
     hits: list[EvidenceSearchHitOut]
 
 
+class VisualAssetOut(BaseModel):
+    asset_id: str
+    workspace_id: str
+    case_id: str
+    filename: str
+    mime_type: str
+    width: int
+    height: int
+    caption: str
+    created_by: str
+    created_at: float
+
+
+class VisualSearchHitOut(BaseModel):
+    asset: VisualAssetOut
+    score: float
+
+
+class VisualSearchResponse(BaseModel):
+    hits: list[VisualSearchHitOut]
+
+
 FactStatusValue = Literal["proposed", "confirmed", "rejected", "conflicting", "unknown"]
 FactSourceValue = Literal["user", "document", "system", "import"]
 FactCriticalityValue = Literal["normal", "critical"]

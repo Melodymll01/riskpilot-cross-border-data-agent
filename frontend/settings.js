@@ -1,10 +1,11 @@
 /**
- * settings.js — 「记忆与隐私」模态：双开关 + 记忆管理面板 + 被遗忘权清除。
+ * settings.js — 「记忆与隐私」模态：记忆开关 + 管理面板 + 召回解释 + 被遗忘权清除。
  *
  * 对接 Step 031a 后端：
- *   GET/PUT /api/v2/memory/settings   两个开关（参考保存的记忆 / 参考会话上下文）
+ *   GET/PUT /api/v2/memory/settings   参考保存记忆开关
  *   GET     /api/v2/memory/profile    L3 用户画像
  *   GET     /api/v2/memory/facts      生效的长期事实 + 容量上限
+ *   POST    /api/v2/memory/recall/explain 解释长期事实召回排序
  *   DELETE  /api/v2/memory/facts/{id} 删单条长期事实（被遗忘权细粒度，Step 034）
  *   POST    /api/v2/memory/forget     主动遗忘（scope = memory | all）
  *
@@ -52,6 +53,7 @@ export function mount() {
   );
 
   $("#memory-refresh")?.addEventListener("click", () => loadManagement());
+  $("#memory-recall-form")?.addEventListener("submit", onExplainRecall);
   $("#btn-forget-memory")?.addEventListener("click", () => onForget("memory"));
   $("#btn-forget-all")?.addEventListener("click", () => onForget("all"));
 }
@@ -215,6 +217,73 @@ async function onDeleteFact(factId, text) {
   }
 }
 
+// ─────────── 召回解释器 ───────────
+
+async function onExplainRecall(ev) {
+  ev.preventDefault();
+  if (_busy) return;
+  const query = $("#memory-recall-query")?.value.trim();
+  if (!query) return;
+  _busy = true;
+  setStatus("正在计算召回分数…", "busy");
+  try {
+    const trace = await memory.explainRecall(query, 3);
+    renderRecallTrace(trace);
+    setStatus("召回解释已更新", "ok");
+  } catch (err) {
+    setStatus(`召回解释失败：${errMsg(err)}`, "err");
+  } finally {
+    _busy = false;
+  }
+}
+
+function renderRecallTrace(trace) {
+  const list = $("#memory-recall-list");
+  const empty = $("#memory-recall-empty");
+  const meta = $("#memory-recall-meta");
+  if (!list || !empty || !meta) return;
+  list.replaceChildren();
+  const rejected = Object.entries(trace.rejected_counts || {})
+    .map(([reason, count]) => `${reason}=${count}`)
+    .join(" · ");
+  meta.textContent = [
+    trace.strategy_version,
+    `候选 ${trace.candidate_count}`,
+    `达标 ${trace.eligible_count}`,
+    rejected ? `过滤 ${rejected}` : "",
+  ].filter(Boolean).join(" · ");
+  meta.hidden = false;
+  const hits = trace.hits || [];
+  empty.hidden = hits.length !== 0;
+  for (const hit of hits) {
+    const item = document.createElement("li");
+    item.className = "memory-recall-hit";
+
+    const head = document.createElement("div");
+    head.className = "memory-recall-hit-head";
+    const rank = document.createElement("span");
+    rank.textContent = `#${hit.rank}`;
+    const score = document.createElement("strong");
+    score.textContent = `综合分 ${formatScore(hit.final_score)}`;
+    head.append(rank, score);
+
+    const text = document.createElement("div");
+    text.className = "memory-recall-hit-text";
+    text.textContent = hit.text;
+
+    const breakdown = document.createElement("div");
+    breakdown.className = "memory-recall-breakdown";
+    breakdown.textContent = [
+      `语义 ${formatScore(hit.semantic_score)}`,
+      `置信 ${formatScore(hit.confidence_score)}`,
+      `显著 ${formatScore(hit.salience_score)}`,
+      `新鲜 ${formatScore(hit.freshness_score)}`,
+    ].join(" · ");
+    item.append(head, text, breakdown);
+    list.appendChild(item);
+  }
+}
+
 // ─────────── 危险操作：清除 ───────────
 
 async function onForget(scope) {
@@ -266,6 +335,10 @@ function formatValue(v) {
   if (Array.isArray(v)) return v.join("、");
   if (v && typeof v === "object") return JSON.stringify(v);
   return String(v);
+}
+
+function formatScore(value) {
+  return Number(value || 0).toFixed(3);
 }
 
 function errMsg(err) {

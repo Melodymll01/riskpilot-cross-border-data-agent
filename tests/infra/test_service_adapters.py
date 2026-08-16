@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import pytest
+from langchain_core.messages import AIMessage
 
 from domain.models import EvidenceJudgement, WebResult
 from domain.ports import ChatPort, EmbedPort, EvidencePort, WebSearchPort
@@ -12,33 +13,9 @@ from infra.chat import OpenAIChatAdapter
 from infra.evidence import MockEvidenceClient
 from infra.search import EmbedderAdapter
 from infra.web import DuckDuckGoAdapter
+from tests.fakes.fake_agent_model import FakeToolCallingModel
 
 # ── Stub 客户端（无网络） ──────────────────────────────────────────────
-
-
-class _StubChatClient:
-    def __init__(self, response: str = "stub-answer") -> None:
-        self.response = response
-        self.calls: list[dict] = []
-
-    def complete(
-        self,
-        messages: list[dict[str, str]],
-        model: str | None = None,
-        temperature: float | None = None,
-        max_tokens: int | None = None,
-        response_format: dict | None = None,
-    ) -> str:
-        self.calls.append(
-            {
-                "messages": messages,
-                "model": model,
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-                "response_format": response_format,
-            }
-        )
-        return self.response
 
 
 class _StubEmbedder:
@@ -73,29 +50,32 @@ class _StubSearcher:
 
 class TestOpenAIChatAdapter:
     def test_implements_chat_port(self) -> None:
-        adapter = OpenAIChatAdapter(client=_StubChatClient())
+        adapter = OpenAIChatAdapter(
+            FakeToolCallingModel(responses=[AIMessage(content="stub-answer")])
+        )
         assert isinstance(adapter, ChatPort)
 
     def test_chat_delegates_with_kwargs(self) -> None:
-        client = _StubChatClient(response="hi")
-        adapter = OpenAIChatAdapter(client=client)
+        model = FakeToolCallingModel(responses=[AIMessage(content="hi")])
+        adapter = OpenAIChatAdapter(model)
         out = adapter.chat(
             [{"role": "user", "content": "你好"}],
             temperature=0.5,
             max_tokens=128,
         )
         assert out == "hi"
-        assert client.calls[0]["temperature"] == 0.5
-        assert client.calls[0]["max_tokens"] == 128
-        assert client.calls[0]["messages"] == [{"role": "user", "content": "你好"}]
-        # 默认不强制 JSON
-        assert client.calls[0]["response_format"] is None
+        assert model.calls[0][0].content == "你好"
+        assert model.generation_kwargs[0]["temperature"] == 0.5
+        assert model.generation_kwargs[0]["max_completion_tokens"] == 128
+        assert "response_format" not in model.generation_kwargs[0]
 
     def test_chat_json_mode_forwards_response_format(self) -> None:
-        client = _StubChatClient(response="{}")
-        adapter = OpenAIChatAdapter(client=client)
+        model = FakeToolCallingModel(responses=[AIMessage(content="{}")])
+        adapter = OpenAIChatAdapter(model)
         adapter.chat([{"role": "user", "content": "hi"}], json_mode=True)
-        assert client.calls[0]["response_format"] == {"type": "json_object"}
+        assert model.generation_kwargs[0]["response_format"] == {
+            "type": "json_object"
+        }
 
 
 # ── Embed ─────────────────────────────────────────────────────────────

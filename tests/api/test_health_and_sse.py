@@ -30,7 +30,7 @@ def test_ready_lists_tools(client: TestClient) -> None:
 def test_sse_serialization() -> None:
     """单测 SSE 工具函数（不经过 HTTP 层）。"""
     from api.v2.sse import event_to_sse, sse_error, sse_keepalive
-    from app.agent.events import AgentEvent
+    from domain.agent import AgentEvent
 
     frame = event_to_sse(AgentEvent.thought("先查\n法条"))
     # 帧体不应包含裸换行（除了 event/data 行之间和帧尾的 \n\n）

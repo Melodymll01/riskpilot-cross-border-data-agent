@@ -10,18 +10,21 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from langchain_core.messages import AIMessage
 
-_FINAL = json.dumps({"thought": "ok", "action": "final_answer", "answer": "done"})
 _TOOL_THEN_FINAL = [
-    json.dumps(
-        {
-            "thought": "查法条",
-            "action": "tool",
-            "tool_name": "search_law",
-            "tool_args": {"query": "PIPL"},
-        }
+    AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": "search_law",
+                "args": {"query": "PIPL"},
+                "id": "call_search_law",
+                "type": "tool_call",
+            }
+        ],
     ),
-    json.dumps({"thought": "结论", "action": "final_answer", "answer": "答"}),
+    AIMessage(content="答"),
 ]
 
 
@@ -45,8 +48,8 @@ def _read_sse_frames(text: str) -> list[dict[str, Any]]:
 
 class TestSseSimple:
     @pytest.fixture
-    def chat_script(self) -> list[str]:
-        return [_FINAL]
+    def agent_script(self) -> list[AIMessage]:
+        return [AIMessage(content="done")]
 
     def test_stream_emits_sse_frames(
         self, authed_client: tuple[TestClient, dict[str, Any]]
@@ -64,7 +67,6 @@ class TestSseSimple:
         frames = _read_sse_frames(body)
         events = [f["event"] for f in frames]
         assert "task_created" in events
-        assert "thought" in events
         assert events[-1] == "answer"
         answer = next(f for f in frames if f["event"] == "answer")
         assert answer["data"]["text"] == "done"
@@ -72,7 +74,7 @@ class TestSseSimple:
 
 class TestSseToolLoop:
     @pytest.fixture
-    def chat_script(self) -> list[str]:
+    def agent_script(self) -> list[AIMessage]:
         return _TOOL_THEN_FINAL
 
     def test_stream_includes_tool_call_and_result(

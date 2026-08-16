@@ -13,6 +13,7 @@ from infra.storage.sqlite_profile_store import SqliteProfileStore
 from infra.storage.sqlite_summary_store import SqliteSummaryStore
 from infra.storage.sqlite_task_repo import SqliteTaskRepo
 from infra.storage.sqlite_user_repo import SqliteUserRepo
+from infra.storage.sqlite_visual_index import SqliteVisualIndex
 from infra.storage.sqlite_workspace_repo import SqliteWorkspaceRepo
 
 __all__ = [
@@ -29,5 +30,6 @@ __all__ = [
     "SqliteSummaryStore",
     "SqliteTaskRepo",
     "SqliteUserRepo",
+    "SqliteVisualIndex",
     "SqliteWorkspaceRepo",
 ]

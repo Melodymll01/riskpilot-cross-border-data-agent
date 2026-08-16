@@ -31,7 +31,7 @@ def build_health_routes(container: AppContainer) -> APIRouter:
                 "evidence": container.evidence is not None,
                 "auth": container.auth is not None,
             },
-            "tools": sorted(container.tool_registry.keys()),
+            "tools": container.copilot_agent.tool_names,
         }
 
     return router

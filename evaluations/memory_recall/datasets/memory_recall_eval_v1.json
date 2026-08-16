@@ -1,0 +1,184 @@
+{
+  "name": "RiskPilot AI 长期记忆召回排序协议评测集",
+  "version": "1.0",
+  "description": "验证 hybrid_v1 在给定语义候选上的混合排序、低相关拒绝、TTL、冲突遗忘和 owner 隔离。",
+  "usage": "仅用于生产确定性排序协议自检，不构成真实 embedding 召回准确率证据。",
+  "thresholds": {
+    "hit_rate_at_k_min": 1.0,
+    "top1_accuracy_min": 1.0,
+    "forbidden_recall_count_max": 0,
+    "irrelevant_recall_rate_max": 0.0
+  },
+  "cases": [
+    {
+      "case_id": "MR-001",
+      "category": "semantic_relevance",
+      "owner_id": "user:alice",
+      "query": "我从事什么行业？",
+      "k": 1,
+      "candidates": [
+        {
+          "fact_id": "F-INDUSTRY",
+          "owner_id": "user:alice",
+          "text": "我长期在跨境电商行业工作",
+          "semantic_score": 0.92,
+          "confidence": 0.8,
+          "salience": 0.9,
+          "age_days": 30
+        },
+        {
+          "fact_id": "F-LANGUAGE",
+          "owner_id": "user:alice",
+          "text": "我偏好中文回答",
+          "semantic_score": 0.42,
+          "confidence": 1.0,
+          "salience": 0.9,
+          "age_days": 1
+        }
+      ],
+      "relevant_fact_ids": ["F-INDUSTRY"],
+      "expected_top_fact_id": "F-INDUSTRY"
+    },
+    {
+      "case_id": "MR-002",
+      "category": "trust_aware_rerank",
+      "owner_id": "user:alice",
+      "query": "回答语言偏好是什么？",
+      "k": 1,
+      "candidates": [
+        {
+          "fact_id": "F-TENTATIVE",
+          "owner_id": "user:alice",
+          "text": "也许可以偶尔用英文回答",
+          "semantic_score": 0.86,
+          "confidence": 0.1,
+          "salience": 0.2,
+          "age_days": 200
+        },
+        {
+          "fact_id": "F-CONFIRMED",
+          "owner_id": "user:alice",
+          "text": "我偏好中文回答",
+          "semantic_score": 0.8,
+          "confidence": 1.0,
+          "salience": 1.0,
+          "age_days": 2
+        }
+      ],
+      "relevant_fact_ids": ["F-CONFIRMED"],
+      "expected_top_fact_id": "F-CONFIRMED"
+    },
+    {
+      "case_id": "MR-003",
+      "category": "low_relevance_rejection",
+      "owner_id": "user:alice",
+      "query": "今天上海天气如何？",
+      "k": 3,
+      "candidates": [
+        {
+          "fact_id": "F-IRRELEVANT",
+          "owner_id": "user:alice",
+          "text": "我长期在跨境电商行业工作",
+          "semantic_score": 0.18,
+          "confidence": 1.0,
+          "salience": 1.0,
+          "age_days": 1
+        }
+      ],
+      "relevant_fact_ids": [],
+      "forbidden_fact_ids": ["F-IRRELEVANT"]
+    },
+    {
+      "case_id": "MR-004",
+      "category": "superseded_filter",
+      "owner_id": "user:alice",
+      "query": "我偏好什么语言？",
+      "k": 2,
+      "candidates": [
+        {
+          "fact_id": "F-OLD",
+          "owner_id": "user:alice",
+          "text": "我偏好英文回答",
+          "semantic_score": 0.96,
+          "confidence": 1.0,
+          "salience": 1.0,
+          "age_days": 20,
+          "superseded_by": "F-NEW"
+        },
+        {
+          "fact_id": "F-NEW",
+          "owner_id": "user:alice",
+          "text": "我偏好中文回答",
+          "semantic_score": 0.9,
+          "confidence": 0.8,
+          "salience": 0.9,
+          "age_days": 2
+        }
+      ],
+      "relevant_fact_ids": ["F-NEW"],
+      "forbidden_fact_ids": ["F-OLD"],
+      "expected_top_fact_id": "F-NEW"
+    },
+    {
+      "case_id": "MR-005",
+      "category": "ttl_filter",
+      "owner_id": "user:alice",
+      "query": "我过去关注哪类合规问题？",
+      "k": 2,
+      "ttl_days": 365,
+      "candidates": [
+        {
+          "fact_id": "F-EXPIRED",
+          "owner_id": "user:alice",
+          "text": "我关注旧版数据出境办法",
+          "semantic_score": 0.94,
+          "confidence": 1.0,
+          "salience": 1.0,
+          "age_days": 500
+        },
+        {
+          "fact_id": "F-CURRENT",
+          "owner_id": "user:alice",
+          "text": "我持续关注数据出境合规",
+          "semantic_score": 0.82,
+          "confidence": 0.8,
+          "salience": 0.9,
+          "age_days": 20
+        }
+      ],
+      "relevant_fact_ids": ["F-CURRENT"],
+      "forbidden_fact_ids": ["F-EXPIRED"],
+      "expected_top_fact_id": "F-CURRENT"
+    },
+    {
+      "case_id": "MR-006",
+      "category": "owner_isolation",
+      "owner_id": "user:alice",
+      "query": "我的行业是什么？",
+      "k": 2,
+      "candidates": [
+        {
+          "fact_id": "F-OTHER-OWNER",
+          "owner_id": "user:bob",
+          "text": "我在医疗行业工作",
+          "semantic_score": 0.99,
+          "confidence": 1.0,
+          "salience": 1.0,
+          "age_days": 1
+        },
+        {
+          "fact_id": "F-OWN",
+          "owner_id": "user:alice",
+          "text": "我长期在跨境电商行业工作",
+          "semantic_score": 0.81,
+          "confidence": 0.9,
+          "salience": 0.9,
+          "age_days": 20
+        }
+      ],
+      "relevant_fact_ids": ["F-OWN"],
+      "forbidden_fact_ids": ["F-OTHER-OWNER"],
+      "expected_top_fact_id": "F-OWN"
+    }
+  ]
+}

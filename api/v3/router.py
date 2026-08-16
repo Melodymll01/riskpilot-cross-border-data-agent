@@ -14,6 +14,7 @@ from api.v3.evidence import build_evidence_routes
 from api.v3.facts import build_fact_routes
 from api.v3.policies import build_policy_routes
 from api.v3.qa import build_qa_routes
+from api.v3.visual import build_visual_routes
 from api.v3.workspaces import build_workspace_routes
 
 if TYPE_CHECKING:
@@ -31,4 +32,5 @@ def build_v3_router(container: AppContainer) -> APIRouter:
     root.include_router(build_assessment_routes(container))
     root.include_router(build_assessment_run_routes(container))
     root.include_router(build_qa_routes(container))
+    root.include_router(build_visual_routes(container))
     return root

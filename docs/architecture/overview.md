@@ -16,9 +16,9 @@ api → app → domain
 - `api`：FastAPI 路由、鉴权依赖和 SSE；
 - `frontend`：无构建步骤的浏览器端工作台。
 
-现有 QA 使用自研 ReAct，Research 使用旧 Agentic RAG 适配器，继续由 `/api/v2`
-提供服务。案件工作台使用 `/api/v3`，已覆盖 Workspace、Case、Document、Evidence、
-Fact、Policy、Assessment 和 Assessment Run。
+Copilot 使用 LangChain 标准 Tool Calling Agent，Deep Research 与 Case Assessment
+使用两张独立 LangGraph；案件工作台使用 `/api/v3`，覆盖 Workspace、Case、Document、
+Text Evidence、Visual Evidence、Fact、Policy、Assessment 和 Assessment Run。
 
 ## V2 已落地架构
 
@@ -41,6 +41,34 @@ V2 的关键边界：
 4. 合规门槛由版本化规则引擎计算；
 5. 文档、事实、证据和 Assessment 均为一等领域对象；
 6. `/api/v2` 与 `/api/v3` 在迁移期并行运行。
+
+### LangChain Copilot
+
+```text
+RunCopilotUseCase
+  → CopilotAgentPort
+    ← LangChainComplianceAgent
+      → create_agent / ChatOpenAI
+      → ToolRuntime(owner_id, task_id)
+      → law / user docs / web / evidence tools
+```
+
+- 不再维护自定义 JSON action parser 和 ReAct 循环；
+- owner_id 由 `ToolRuntime` 注入，不进入模型可控参数；
+- Tool Call 仍写入 TaskRepo，API 继续输出既有 SSE 事件；
+- 记忆由应用层装配为额外 SystemMessage。
+
+### LangGraph Deep Research
+
+```text
+plan → retrieve → assess ── sufficient ─→ generate
+                    ├─ partial ─────────→ retrieve
+                    └─ insufficient ────→ web_search → generate
+```
+
+- 检索始终携带 owner_id；
+- 最多三轮补查，防止无限循环；
+- 证据为空且禁用 Web Search 时安全拒答。
 
 ### Evidence QA
 
@@ -87,6 +115,36 @@ user messages only
 - `Fact` 持久化 `source_message_id + source_quote`，管理面板展示来源原话；
 - `evaluations/memory_extraction` 只证明确定性协议门禁，不冒充生产模型抽取准确率。
 
+### AI 长期记忆召回
+
+```text
+query
+  → owner-scoped vector candidates
+  → superseded / TTL / minimum semantic gates
+  → hybrid_v1 score
+      semantic 0.65
+      + confidence 0.15
+      + salience 0.15
+      + freshness 0.05
+  → minimum final score
+  → top-k prompt injection + safe recall trace
+```
+
+- `domain.memory.MemoryRecallPolicy` 是纯领域策略，生产和离线评测复用同一实现；
+- 向量库只负责 owner 隔离的候选获取，扩大候选池后再按事实质量重排；
+- `MemoryRecallTrace` 记录候选数、过滤原因和命中分解，不记录 embedding、Prompt 或思维链；
+- `/api/v2/memory/recall/explain` 只向已认证 owner 展示其自己的事实与分数；
+- `evaluations/memory_recall` 验证排序和安全过滤协议，不冒充真实 embedding 召回准确率。
+
+### Visual Evidence
+
+- PNG/JPEG/WebP 经魔数、解码、尺寸和大小校验后写入对象存储；
+- Chinese-CLIP 分别生成 image embedding 与 text embedding；
+- SQLite 查询先按 `workspace_id + case_id` 过滤，再计算余弦相似度；
+- Viewer 可以检索，Editor/Reviewer/Admin 才能上传；
+- `evaluations/visual_retrieval` 默认生成 12 张合成图片；
+- `run.py --live` 才下载并实测 Chinese-CLIP，CI 不下载模型。
+
 ### Case Assessment
 
 ```text
@@ -116,8 +174,8 @@ Fact 提议具备字段白名单、当前版本原文复核、冲突检测和 Re
 证据展示、Reviewer 确认和继续运行，并支持 Workspace / Case 创建与多 Case 导航。
 案件材料支持浏览器上传、解析、索引、进度展示和失败重试；材料列表同时返回当前版本
 最新 ProcessingJob，因此页面刷新后仍可恢复 job_id 和处理状态。Assessment 已实现
-Fact / Evidence / Clause 不可变引用快照和审批前漂移校验；启动 Run、Assessment
-审批详情、LLM 引用重写和 Deep Research Graph 仍待后续切片。
+Fact / Evidence / Clause 不可变引用快照和审批前漂移校验；Deep Research Graph 与
+Case 图片检索已落地，图片暂作为检索辅助证据，尚未进入正式 Assessment 引用闭包。
 
 完整产品和技术设计见：
 

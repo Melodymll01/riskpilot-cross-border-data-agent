@@ -238,14 +238,11 @@ class RiskProfile(BaseDomainModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-# === 深度研究（Step 028：v1 AgenticRAG 报告能力迁移） ===
+# === LangGraph 深度研究 ===
 
 
 class ResearchStep(BaseDomainModel):
-    """深度研究执行的单个决策步骤记录（对应 v1 ``AgentStep``）。
-
-    供前端把"分类 → 改写 → 多轮检索 → 证据检查 → 生成"的推理链路渲染成进度。
-    """
+    """Deep Research Graph 的单个可观察阶段。"""
 
     step_name: str = Field(min_length=1)
     description: str = ""
@@ -253,12 +250,7 @@ class ResearchStep(BaseDomainModel):
 
 
 class ResearchReport(BaseDomainModel):
-    """深度研究产出：长篇结构化报告 + 决策过程元数据。
-
-    与 ``qa`` 模式的会话式 ``answer`` 区别：本模型承载 v1 ``ReportGenerator`` 的
-    多段落报告（含问题分类、查询改写、多轮检索、证据充分性判定、联网补齐）。
-    ``answer`` 是渲染好的 markdown 全文；``steps`` 是可视化的推理链路。
-    """
+    """LangGraph Deep Research 产出的结构化报告与阶段元数据。"""
 
     answer: str = ""
     citations: list[Citation] = Field(default_factory=list)
@@ -372,6 +364,30 @@ class Fact(BaseDomainModel):
     source_episode: str = ""
     source_message_id: str = ""
     source_quote: str = ""
+
+
+class MemoryRecallHit(BaseDomainModel):
+    """单条长期记忆召回的可解释评分明细。"""
+
+    rank: int = Field(ge=1)
+    fact: Fact
+    semantic_score: float = Field(ge=0.0, le=1.0)
+    confidence_score: float = Field(ge=0.0, le=1.0)
+    salience_score: float = Field(ge=0.0, le=1.0)
+    freshness_score: float = Field(ge=0.0, le=1.0)
+    final_score: float = Field(ge=0.0, le=1.0)
+
+
+class MemoryRecallTrace(BaseDomainModel):
+    """一次 L4 召回的决策轨迹，不包含向量、Prompt 或其他 owner 数据。"""
+
+    owner_id: str = Field(min_length=1)
+    query: str
+    strategy_version: str = Field(min_length=1)
+    candidate_count: int = Field(ge=0)
+    eligible_count: int = Field(ge=0)
+    rejected_counts: dict[str, int] = Field(default_factory=dict)
+    hits: list[MemoryRecallHit] = Field(default_factory=list)
 
 
 class ConsolidationState(BaseDomainModel):

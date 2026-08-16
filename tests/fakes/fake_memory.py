@@ -6,7 +6,14 @@
 
 from __future__ import annotations
 
-from domain.models import Fact, ForgetResult, Message, SessionProfile
+from domain.models import (
+    Fact,
+    ForgetResult,
+    MemoryRecallHit,
+    MemoryRecallTrace,
+    Message,
+    SessionProfile,
+)
 
 
 class FakeMemory:
@@ -82,6 +89,28 @@ class FakeMemory:
         if k <= 0:
             return []
         return self._facts.get(owner_id, [])[:k]
+
+    def explain_recall(self, owner_id: str, query: str, k: int) -> MemoryRecallTrace:
+        facts = self.recall_semantic(owner_id, query, k)
+        return MemoryRecallTrace(
+            owner_id=owner_id,
+            query=query,
+            strategy_version="fake_hybrid_v1",
+            candidate_count=len(self._facts.get(owner_id, [])),
+            eligible_count=len(self._facts.get(owner_id, [])),
+            hits=[
+                MemoryRecallHit(
+                    rank=rank,
+                    fact=fact,
+                    semantic_score=1.0,
+                    confidence_score=fact.confidence,
+                    salience_score=fact.salience,
+                    freshness_score=1.0,
+                    final_score=1.0,
+                )
+                for rank, fact in enumerate(facts, start=1)
+            ],
+        )
 
     def list_facts(self, owner_id: str) -> list[Fact]:
         self.list_facts_calls.append(owner_id)

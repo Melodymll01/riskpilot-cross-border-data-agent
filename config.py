@@ -66,12 +66,9 @@ class Settings(BaseSettings):
     rrf_vector_weight: float = Field(1.0, ge=0.0, le=5.0)
     rrf_bm25_weight: float = Field(1.0, ge=0.0, le=5.0)
 
-    # Agentic RAG 参数
-    enable_agentic_rag: bool = True         # 是否启用 Agentic RAG 深度研究模式
-    max_reflection_rounds: int = Field(3, ge=1, le=5)  # 最大反思循环轮次
+    # Deep Research 参数
     enable_web_search: bool = True          # 质量不足时是否允许联网搜索
-    enable_hyde: bool = True                # 是否启用 HyDE（假设文档嵌入）
-    warmup_research_on_startup: bool = True  # 启动时后台预热深度研究引擎（懒加载 ~1GB CrossEncoder）
+    warmup_research_on_startup: bool = True  # 启动时预编译/预热 Research Graph
 
     # 存储路径
     chroma_persist_dir: str = "./data/chroma_db"
@@ -80,6 +77,9 @@ class Settings(BaseSettings):
 
     # 上传限制
     max_upload_mb: int = Field(50, ge=1, le=500)  # 最大上传文件大小（MB）
+    # 小规模多模态图片证据：Chinese-CLIP 懒加载，默认只在图片接口首次使用时加载。
+    visual_model_name: str = "OFA-Sys/chinese-clip-vit-base-patch16"
+    visual_max_upload_mb: int = Field(10, ge=1, le=50)
 
     # API 限流
     rate_limit_enabled: bool = True             # 是否启用 v2 HTTP 限流（测试可关）
@@ -169,6 +169,17 @@ class Settings(BaseSettings):
     memory_fact_cap_per_owner: int = Field(500, ge=10, le=100000)
     # 注入 prompt 的 L4 召回事实条数；0 关闭 L4 注入。
     memory_fact_recall_k: int = Field(3, ge=0, le=20)
+    # hybrid_v1 先扩大向量候选池，再融合语义/置信度/显著性/新鲜度重排。
+    memory_recall_candidate_multiplier: int = Field(4, ge=1, le=20)
+    memory_recall_semantic_weight: float = Field(0.65, ge=0.0, le=1.0)
+    memory_recall_confidence_weight: float = Field(0.15, ge=0.0, le=1.0)
+    memory_recall_salience_weight: float = Field(0.15, ge=0.0, le=1.0)
+    memory_recall_freshness_weight: float = Field(0.05, ge=0.0, le=1.0)
+    memory_recall_min_semantic_score: float = Field(0.25, ge=0.0, le=1.0)
+    memory_recall_min_final_score: float = Field(0.35, ge=0.0, le=1.0)
+    memory_recall_freshness_half_life_days: float = Field(
+        90.0, ge=0.0, le=3650.0
+    )
     # 写入门控阈值：显著性低于此值不固化（防污染）。
     memory_fact_salience_threshold: float = Field(0.5, ge=0.0, le=1.0)
     # 去重相似度门控：候选与最近邻 ≥ 此值视为重复（强化置信，不新增）。

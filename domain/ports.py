@@ -3,7 +3,6 @@
 每个 Protocol 都是 infra 层适配器的"对接合同"。本文件不实现任何方法，只定义签名。
 约定：
 - 所有 Protocol 标注 `@runtime_checkable`，便于测试使用 `isinstance` 检查 fake 是否满足契约。
-- 方法签名以 `docs/experiment_v1.md` §4.2 为准。
 - 不导入 infra / app / api；不引入 IO 或网络依赖。
 - L3+ 记忆相关 Port 暴露 `SessionProfile` / `Fact`，不暴露底层向量库 / SQLite 细节。
 
@@ -14,8 +13,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import Any, Literal, Protocol, runtime_checkable
 
+from domain.agent import AgentEvent
 from domain.assessments import Assessment, AssessmentBundle
 from domain.cases import Case
 from domain.document_content import DocumentParseSnapshot
@@ -37,6 +38,7 @@ from domain.models import (
     ForgetResult,
     KbChunk,
     KbDocument,
+    MemoryRecallTrace,
     MemorySettings,
     Message,
     MessageFeedback,
@@ -63,6 +65,7 @@ from domain.runs import (
     RunEvent,
     WorkflowExecutionResult,
 )
+from domain.visual import VisualAsset, VisualSearchHit
 from domain.workspaces import Workspace, WorkspaceMembership
 
 # === 身份 ===
@@ -165,6 +168,33 @@ class ObjectStorePort(Protocol):
     def delete(self, object_key: str) -> bool: ...
 
     def exists(self, object_key: str) -> bool: ...
+
+
+@runtime_checkable
+class VisualEmbedPort(Protocol):
+    """Chinese-CLIP 图文共享向量空间。"""
+
+    def embed_images(self, images: list[bytes]) -> list[list[float]]: ...
+
+    def embed_texts(self, texts: list[str]) -> list[list[float]]: ...
+
+
+@runtime_checkable
+class VisualIndexPort(Protocol):
+    """Case 作用域图片元数据与向量索引。"""
+
+    def add(self, asset: VisualAsset, embedding: list[float]) -> None: ...
+
+    def search(
+        self,
+        *,
+        workspace_id: str,
+        case_id: str,
+        query_embedding: list[float],
+        top_k: int,
+    ) -> list[VisualSearchHit]: ...
+
+    def get(self, asset_id: str) -> VisualAsset | None: ...
 
 
 @runtime_checkable
@@ -541,6 +571,19 @@ class ChatPort(Protocol):
 
 
 @runtime_checkable
+class CopilotAgentPort(Protocol):
+    """会话式 Tool Calling Agent 入口。"""
+
+    def run(
+        self,
+        *,
+        owner_id: str,
+        task_id: str,
+        user_message: str,
+    ) -> Iterator[AgentEvent]: ...
+
+
+@runtime_checkable
 class FactProposalGeneratorPort(Protocol):
     """基于显式字段白名单和案件文档生成待人工确认的 Fact 候选。"""
 
@@ -622,26 +665,13 @@ class RiskProfilePort(Protocol):
 
 @runtime_checkable
 class ResearchPort(Protocol):
-    """深度研究端口（Step 028）：``research`` 模式的高层入口。
-
-    承接 v1 ``AgenticRAGAgent`` 的报告能力——问题分类 → 查询改写 → 多轮检索 +
-    证据充分性判定 → 联网补齐 → ``ReportGenerator`` 生成长篇结构化报告。
-
-    与 ``RetrievePort`` 区别：``RetrievePort`` 只做单轮召回返回 ``Chunk``；本端口
-    编排「分类/改写/多轮/证据/联网/报告」整条研究链路，返回渲染好的 ``ResearchReport``。
-    与 ``qa`` 模式（``ComplianceCopilotAgent`` 会话式 ReAct）区别：research 产出的是
-    一次性长报告而非多轮对话。
-
-    实现方约定：
-    - 同步阻塞，可能耗时数十秒（多轮检索 + LLM 生成）
-    - 底层引擎（embedder / vector_store / reranker / web_search）由适配器内部组合，
-      重型模型应懒加载，避免容器构造期阻塞
-    """
+    """LangGraph Deep Research 的高层入口。"""
 
     def research(
         self,
         query: str,
         *,
+        owner_id: str | None = None,
         top_k: int = 8,
         enable_web_search: bool = True,
     ) -> ResearchReport: ...
@@ -775,6 +805,8 @@ class MemoryPort(Protocol):
 
     # L4 语义事实：按 owner_id
     def recall_semantic(self, owner_id: str, query: str, k: int) -> list[Fact]: ...
+
+    def explain_recall(self, owner_id: str, query: str, k: int) -> MemoryRecallTrace: ...
 
     # L4 事实列表（管理面板展示，过滤已 superseded / 过期，Step 031a）
     def list_facts(self, owner_id: str) -> list[Fact]: ...

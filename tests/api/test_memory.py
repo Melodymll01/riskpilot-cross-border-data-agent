@@ -168,6 +168,13 @@ class TestSettingsAuthGating:
     def test_facts_unauthed_returns_401(self, client: TestClient) -> None:
         assert client.get("/api/v2/memory/facts").status_code == 401
 
+    def test_recall_explain_unauthed_returns_401(self, client: TestClient) -> None:
+        resp = client.post(
+            "/api/v2/memory/recall/explain",
+            json={"query": "我的行业是什么？", "k": 3},
+        )
+        assert resp.status_code == 401
+
 
 class TestSettings:
     def test_default_fresh_owner(
@@ -253,6 +260,58 @@ class TestFacts:
 
         assert resp.status_code == 200
         assert resp.json()["count"] == 0
+
+
+class TestRecallExplain:
+    def test_explains_owner_recall_without_internal_vectors(
+        self, authed_client: tuple[TestClient, dict[str, Any]]
+    ) -> None:
+        client, user = authed_client
+        owner = user["user_id"]
+        fact = _fact(owner, "我长期在跨境电商行业工作").model_copy(
+            update={
+                "source_message_id": "msg_001",
+                "source_quote": "我长期在跨境电商行业工作",
+            }
+        )
+        _inject_memory(client, FakeMemory(facts={owner: [fact]}))
+
+        resp = client.post(
+            "/api/v2/memory/recall/explain",
+            json={"query": "我的行业是什么？", "k": 3},
+        )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["strategy_version"] == "fake_hybrid_v1"
+        assert body["candidate_count"] == 1
+        assert body["eligible_count"] == 1
+        assert body["hits"][0]["fact_id"] == fact.fact_id
+        assert body["hits"][0]["source_message_id"] == "msg_001"
+        assert body["hits"][0]["final_score"] == 1.0
+        assert "embedding" not in body["hits"][0]
+        assert "prompt" not in body
+
+    def test_memory_disabled_returns_empty_trace(
+        self, authed_client: tuple[TestClient, dict[str, Any]]
+    ) -> None:
+        client, _ = authed_client
+        container: AppContainer = client.app.state.container  # type: ignore[attr-defined]
+        container.memory = None
+
+        resp = client.post(
+            "/api/v2/memory/recall/explain",
+            json={"query": "我的行业是什么？", "k": 3},
+        )
+
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "strategy_version": "hybrid_v1",
+            "candidate_count": 0,
+            "eligible_count": 0,
+            "rejected_counts": {},
+            "hits": [],
+        }
 
 
 class TestDeleteFact:

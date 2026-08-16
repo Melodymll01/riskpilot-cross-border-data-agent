@@ -309,3 +309,36 @@ class MemoryFactsResponse(BaseModel):
     count: int = Field(ge=0)
     cap: int = Field(ge=0)
 
+
+class MemoryRecallExplainRequest(BaseModel):
+    """``POST /memory/recall/explain`` 请求：解释指定问题会召回哪些长期事实。"""
+
+    query: str = Field(min_length=1, max_length=2000)
+    k: int = Field(default=3, ge=1, le=20)
+
+
+class MemoryRecallHitResponse(BaseModel):
+    """单条召回命中的安全解释，不返回向量或内部 Prompt。"""
+
+    rank: int = Field(ge=1)
+    fact_id: str
+    text: str
+    tags: list[str] = Field(default_factory=list)
+    source_message_id: str
+    source_quote: str
+    semantic_score: float = Field(ge=0.0, le=1.0)
+    confidence_score: float = Field(ge=0.0, le=1.0)
+    salience_score: float = Field(ge=0.0, le=1.0)
+    freshness_score: float = Field(ge=0.0, le=1.0)
+    final_score: float = Field(ge=0.0, le=1.0)
+
+
+class MemoryRecallExplainResponse(BaseModel):
+    """一次长期记忆召回轨迹。"""
+
+    strategy_version: str
+    candidate_count: int = Field(ge=0)
+    eligible_count: int = Field(ge=0)
+    rejected_counts: dict[str, int] = Field(default_factory=dict)
+    hits: list[MemoryRecallHitResponse] = Field(default_factory=list)
+

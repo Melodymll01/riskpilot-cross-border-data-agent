@@ -37,7 +37,7 @@ def test_main_app_has_container_in_state(main_client):
     import main as main_module
 
     assert hasattr(main_module.app.state, "container")
-    assert sorted(main_module.app.state.container.tool_registry.keys()) == [
+    assert main_module.app.state.container.copilot_agent.tool_names == [
         "evidence_judge",
         "search_law",
         "search_user_docs",
@@ -110,6 +110,8 @@ def test_openapi_contains_v2_and_v3(main_client):
     assert "/api/v3/processing-jobs/{job_id}/retry" in paths
     assert "/api/v3/processing-jobs/{job_id}/index" in paths
     assert "/api/v3/cases/{case_id}/evidence/search" in paths
+    assert "/api/v3/cases/{case_id}/visual-assets" in paths
+    assert "/api/v3/cases/{case_id}/visual-assets/search" in paths
     assert "/api/v3/cases/{case_id}/facts" in paths
     assert "/api/v3/facts/{fact_id}/transitions" in paths
     assert "/api/v3/workspaces/{workspace_id}/policy-rules" in paths

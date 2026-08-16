@@ -10,7 +10,6 @@ from app.use_cases import (
     EvidenceQAUseCase,
     IngestionUseCase,
     KbManagementUseCase,
-    RunQueryUseCase,
     TaskManagementUseCase,
     WorkspaceManagementUseCase,
 )
@@ -60,6 +59,8 @@ from tests.fakes import (
     FakeKbRepo,
     FakeObjectStore,
     FakeRetrieve,
+    FakeVisualEmbedder,
+    FakeVisualIndex,
     FakeWebSearch,
     InMemoryAgentRunRepo,
     InMemoryAssessmentRepo,
@@ -70,6 +71,7 @@ from tests.fakes import (
     InMemoryTaskRepo,
     InMemoryUserRepo,
     InMemoryWorkspaceRepo,
+    final_answer_model,
 )
 
 
@@ -104,6 +106,9 @@ def _full_fake_container() -> AppContainer:
         kb_repo=FakeKbRepo(),
         document_loader=FakeDocumentLoader(),
         auth=FakeAuth(),
+        agent_model=final_answer_model(),
+        visual_index=FakeVisualIndex(),
+        visual_embedder=FakeVisualEmbedder(),
     )
 
 
@@ -150,7 +155,6 @@ class TestUseCaseWiring:
         assert isinstance(c.workspace_management, WorkspaceManagementUseCase)
         assert isinstance(c.case_management, CaseManagementUseCase)
         assert isinstance(c.ingest, IngestionUseCase)
-        assert isinstance(c.run_query, RunQueryUseCase)
         assert isinstance(c.kb_management, KbManagementUseCase)
         assert isinstance(c.assessment_runs, AssessmentRunUseCase)
         assert isinstance(c.evidence_qa, EvidenceQAUseCase)
@@ -172,8 +176,6 @@ class TestUseCaseWiring:
         assert c.evidence_qa._generator is c.evidence_qa_generator
         assert c.evidence_qa._support_verifier is c.claim_support_verifier
         assert c.ingest._embedder is c.embedder
-        assert c.run_query._chat is c.chat
-        assert c.run_query._retriever is c.retriever
         assert c.kb_management._repo is c.kb_repo
         assert c.kb_management._loader is c.document_loader
         assert c.kb_management._embedder is c.embedder
@@ -212,6 +214,9 @@ class TestPartialInjection:
             kb_repo=FakeKbRepo(),
             document_loader=FakeDocumentLoader(),
             auth=FakeAuth(),
+            agent_model=final_answer_model(),
+            visual_index=FakeVisualIndex(),
+            visual_embedder=FakeVisualEmbedder(),
         )
         assert isinstance(c.chat, ChatPort)
         out = c.chat.chat([{"role": "user", "content": "ping"}])

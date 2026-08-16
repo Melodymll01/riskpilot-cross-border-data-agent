@@ -10,7 +10,6 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -18,6 +17,7 @@ from typing import Any
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from langchain_core.messages import AIMessage
 
 from api.v2 import build_v2_router
 from api.v2.errors import install_exception_handlers
@@ -26,6 +26,7 @@ from app.container import AppContainer
 from app.request_context import install_request_id_middleware
 from config import Settings
 from infra.workflows import LangGraphWorkflowRuntime
+from tests.fakes.fake_agent_model import FakeToolCallingModel
 from tests.fakes.fake_audit_log import FakeAuditLogRepo
 from tests.fakes.fake_auth import FakeAuth
 from tests.fakes.fake_chat import FakeChat
@@ -52,9 +53,8 @@ from tests.fakes.fake_repos import (
 )
 from tests.fakes.fake_research import FakeResearch
 from tests.fakes.fake_retrieve import FakeRetrieve
+from tests.fakes.fake_visual import FakeVisualEmbedder, FakeVisualIndex
 from tests.fakes.fake_websearch import FakeWebSearch
-
-_FINAL_JSON = json.dumps({"thought": "", "action": "final_answer", "answer": "done"})
 
 
 @pytest.fixture
@@ -78,18 +78,18 @@ def test_settings(admin_user_ids: list[str]) -> Settings:
 
 
 @pytest.fixture
-def chat_script() -> list[str]:
-    """单测可通过覆盖此 fixture 注入自定义 LLM 决策序列。
+def agent_script() -> list[AIMessage]:
+    """单测可覆盖此 fixture 注入标准 LangChain AIMessage 序列。
 
-    默认：一步 final_answer。
+    默认：直接回答。
     """
-    return [_FINAL_JSON]
+    return [AIMessage(content="done")]
 
 
 @pytest.fixture
 def container(
     test_settings: Settings,
-    chat_script: list[str],
+    agent_script: list[AIMessage],
     tmp_path: Path,
 ) -> AppContainer:
     """全 Fake 注入的 AppContainer。"""
@@ -115,7 +115,7 @@ def container(
         ),
         audit_log=FakeAuditLogRepo(),
         embedder=FakeEmbed(),
-        chat=FakeChat(responses=chat_script),
+        chat=FakeChat(responses=["done"]),
         evidence_qa_generator=FakeEvidenceQAGenerator(),
         claim_support_verifier=FakeClaimSupportVerifier(),
         fact_proposal_generator=FakeFactProposalGenerator(),
@@ -126,6 +126,9 @@ def container(
         kb_repo=FakeKbRepo(),
         document_loader=FakeDocumentLoader(),
         auth=FakeAuth(),
+        agent_model=FakeToolCallingModel(responses=agent_script),
+        visual_index=FakeVisualIndex(),
+        visual_embedder=FakeVisualEmbedder(),
     )
 
 

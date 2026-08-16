@@ -1,15 +1,16 @@
 # RiskPilot · 数据出境合规案件智能体
 
 [![CI](https://github.com/Melodymll01/riskpilot-cross-border-data-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Melodymll01/riskpilot-cross-border-data-agent/actions/workflows/ci.yml)
-[![tests](https://img.shields.io/badge/offline_tests-1273%20passed-brightgreen)](https://github.com/Melodymll01/riskpilot-cross-border-data-agent/actions/workflows/ci.yml)
+[![tests](https://img.shields.io/badge/tests-offline%20CI-brightgreen)](https://github.com/Melodymll01/riskpilot-cross-border-data-agent/actions/workflows/ci.yml)
 [![python](https://img.shields.io/badge/python-3.12-blue)](pyproject.toml)
 [![arch](https://img.shields.io/badge/arch-DDD%204--layer-9b5bff)](docs/architecture/overview.md)
-[![agent](https://img.shields.io/badge/agent-ReAct%20%C2%B7%204%20tools-ff7a59)](app/agent/copilot.py)
+[![agent](https://img.shields.io/badge/agent-LangChain%201.3%20%C2%B7%20LangGraph%201.2-ff7a59)](infra/agents/)
 [![memory](https://img.shields.io/badge/memory-4--layer-00b3a4)](infra/memory/)
 
 > 面向**数据出境合规**场景的证据驱动案件工作台，内置以《个人信息保护法》《数据安全法》《网络安全法》及安全评估 / 标准合同 / 个保认证三路径为代表的法规知识库。
 >
-> 系统采用双路径：简单问答继续使用低成本自研 ReAct；案件评估使用 LangGraph，
+> 系统直接使用 **LangChain 1.3 标准 Tool Calling Agent** 和 **LangGraph 1.2 状态图**：
+> Copilot 负责会话式工具调用，Deep Research 与案件评估使用独立 Graph，
 > 将案件材料、confirmed facts、版本化规则、不可变 Assessment 和 Reviewer 审批串成
 > 可暂停、恢复、重试、取消和审计的闭环。工程上保留 DDD 4 层与 Port 边界，
 > `/api/v2` 和 `/api/v3` 增量并行。
@@ -18,7 +19,7 @@
 
 ## 产品速览
 
-| 多步自主推理（ReAct 环路） | 带溯源引用的回答 |
+| LangChain 工具调用过程 | 带溯源引用的回答 |
 | :---: | :---: |
 | ![Agent 推理过程](screenshots/02-回答推理.png) | ![带引用的回答](screenshots/03-回答引文.png) |
 
@@ -38,13 +39,12 @@
 
 | 能力 | 实现 | 代码 |
 | --- | --- | --- |
-| **自主工具调用** | LLM 输出 JSON 决策协议，运行时分发到 4 工具：证据研判 / 法条库 / 用户私库 / Web 兜底 | [copilot.py](app/agent/copilot.py) |
-| **多步推理 + 自反思** | 证据不足时回到查询变换重新检索，每步以 9 类 `AgentEvent` 流式推送，过程可观测 | [retrieval/agent/](retrieval/agent/) |
-| **OOD 拦截** | 检索前做 5 类意图分类，域外问题直接拒答 | [question_classifier.py](retrieval/agent/question_classifier.py) |
-| **查询变换** | 对模糊 / 复合问题做改写、拆解、HyDE | [query_transformer.py](retrieval/agent/query_transformer.py) |
-| **证据分级** | 判定 sufficient / partial / insufficient，决定追检或兜底 | [quality_grader.py](retrieval/agent/quality_grader.py) |
-| **可验证 AI 记忆** | 仅从用户原话抽取；逐字 quote 接地；助手污染、提示注入、凭证和敏感属性 fail closed | [consolidation.py](infra/memory/consolidation.py) |
-| **答案可溯源** | 每条回答携带引用 chunk + 原文链接 | [retrieval/generation/](retrieval/generation/) |
+| **LangChain Copilot** | `create_agent` + 原生 Tool Calling，owner 上下文由 `ToolRuntime` 注入，不暴露给模型 | [langchain_copilot.py](infra/agents/langchain_copilot.py) |
+| **LangGraph Deep Research** | plan → retrieve → assess → retry/web → generate，最多三轮补查 | [langgraph_research.py](infra/research/langgraph_research.py) |
+| **混合文本检索** | Query Rewrite + Vector + BM25 + RRF + Cross-Encoder 重排 | [retriever.py](retrieval/search/retriever.py) |
+| **Chinese-CLIP 图片召回** | Case 图片上传、图像向量、自然语言搜图、Workspace/Case 隔离 | [visual_evidence.py](app/use_cases/visual_evidence.py) |
+| **可验证 AI 记忆** | 逐字 quote 接地写入；`hybrid_v1` 融合语义、置信度、显著性和新鲜度召回；支持安全过滤与召回解释 | [domain/memory.py](domain/memory.py) |
+| **答案可溯源** | Agent/Research 输出来源标记；Evidence QA 使用独立 Claim-Citation 验证 | [evidence_qa.py](app/use_cases/evidence_qa.py) |
 | **案件级证据** | Workspace/Case/Document 隔离，原件、版本、页码、Chunk、事实引用可追溯 | [domain/documents.py](domain/documents.py) |
 | **确定性合规评估** | 只消费 confirmed facts 的版本化规则引擎，生成 Finding、ActionItem 和不可变 Assessment | [domain/policy_engine.py](domain/policy_engine.py) |
 | **文档 Fact 提议** | 字段白名单、当前版本原文复核、冲突检测、Reviewer 确认后才进入规则计算 | [fact_management.py](app/use_cases/fact_management.py) |
@@ -57,15 +57,13 @@
 
 | 维度 | 数值 |
 | --- | --- |
-| 离线回归 | **1273 passed · 1 skipped · 零具体用例排除** |
-| 架构规模 | **36 Port + 18 Use Case** · DDD 4 层 |
-| V3 资源接口 | **42 个路由** · Workspace → Fact Proposal / Evidence QA / Assessment Run |
-| Agent 工具 | **4 个领域工具** + 9 类流式 AgentEvent |
-| 记忆系统 | **4 层**（L1 最近消息 → L4 语义事实） |
+| 离线回归 | **1211 passed · 1 skipped**；真实模型/CLIP 评测显式 `--live` |
+| 架构规模 | **39 Port + 18 Use Case** · DDD 4 层 |
+| V3 资源接口 | **45 个路由** · Workspace → Visual Evidence / Evidence QA / Assessment Run |
+| Agent/Graph | LangChain Tool Calling + 2 张 LangGraph（Research / Assessment） |
+| 记忆系统 | **4 层**（L1 最近消息 → L4 语义事实）+ `hybrid_v1` 可解释召回 |
 | Top-K=2 检索命中率 | **93.3%**（chunk_size=300, overlap=60） |
-| OOD 误杀率（in-domain） | **0.0%** |
-
-> 坦诚记录：OOD 召回率 66.7%、细分类型软标签准确率 70%，仍未达自定目标，改进方向见 [evaluations/ood/](evaluations/ood/)。
+| 图片评测 | **12 张合成图片** + 12 个文本查询，Recall@1/3 门禁 |
 
 ## 架构
 
@@ -75,35 +73,48 @@
 flowchart TB
     API[api/v2 + api/v3 · 入口层<br/>QA / Case / Evidence / Assessment Run]
     APP[app · 用例编排层<br/>AppContainer + 18 Use Case]
-    DOMAIN[domain · 纯模型 + 36 Port Protocol]
-    INFRA[infra · 适配器<br/>storage / retrieval / LLM / memory / LangGraph]
+    DOMAIN[domain · 纯模型 + 39 Port Protocol]
+    INFRA[infra · 适配器<br/>LangChain / LangGraph / retrieval / memory / Chinese-CLIP]
 
     API --> APP --> DOMAIN
     INFRA -.实现.-> DOMAIN
     APP -.装配.-> INFRA
 ```
 
-### 双路径 AI 架构
+### 分层 AI 架构
 
 - **V3 Evidence QA**：普通线性应用服务，不使用 LangGraph；先做授权范围检索，再生成
   原子 Claim，执行结构覆盖和独立语义支持校验，再以 `bounded_filter_v1` 只移除坏
   Claim；至少保留一条可信 Claim 时返回部分回答，否则安全拒答；
-- **旧问答**：`/api/v2` 继续保留自研 ReAct，迁移期不做 Big Bang 删除；
+- **Copilot**：LangChain `create_agent` + 标准 Tool Calling，通过 `CopilotAgentPort`
+  接入应用层，不再维护自定义 JSON 决策协议；
+- **Deep Research**：LangGraph 显式节点，最多三轮补查，可按证据状态路由到 Web Search；
 - **Case Assessment**：通过 `WorkflowRuntimePort` 使用 LangGraph，领域层不依赖框架；
 - **确定性边界**：LangGraph 负责流程状态，`PolicyRuleEngine` 负责门槛计算，
   `AssessmentManagementUseCase` 负责最终快照与审批；
 - **检查点边界**：只保存对象 ID 和轻量状态，不保存文档正文、凭证、原始 prompt 或思维链。
 
-### Agentic RAG 决策环路
+### LangGraph Deep Research
 
 ```mermaid
 flowchart LR
-    Q[用户问题] --> QC[问题分类] --> QT[查询变换]
-    QT --> R[混合检索<br/>Vector+BM25 RRF] --> RR[Cross-Encoder 重排]
-    RR --> EC{证据质量}
-    EC -- partial --> QT
-    EC -- insufficient --> WS[Web 兜底] --> RR
-    EC -- sufficient --> GEN[LLM 生成 + 引用溯源]
+    Q[用户问题] --> P[Plan 查询规划]
+    P --> R[Retrieve<br/>Vector + BM25 + RRF]
+    R --> EC{Assess 证据充分性}
+    EC -- partial --> R
+    EC -- insufficient --> WS[Web Search]
+    EC -- sufficient --> GEN[Generate 带来源报告]
+    WS --> GEN
+```
+
+### 图片知识库召回
+
+图片召回不是 OCR 文本检索：OCR 负责扫描文档文字恢复；Visual Evidence 使用
+Chinese-CLIP 图文共享向量空间，用于机房照片、架构图、告警截图等非纯文本证据。
+
+```text
+图片 → Chinese-CLIP image embedding → Case-scoped visual index
+查询 → Chinese-CLIP text embedding  → SQL scope filter → cosine Top-K
 ```
 
 ## 4 层记忆系统
@@ -121,14 +132,19 @@ L4 采用抽取式记忆：模型只选择用户消息中的稳定 span、标签
 `source_message_id + source_quote`，落库文本就是核验过的用户原话。助手回答、伪造 quote、
 一次性请求、提示注入、密码/API Key、联系方式和高敏个人属性均不会进入长期记忆。
 
+召回使用 `hybrid_v1`：先按 owner 隔离扩大向量候选池，再融合语义相关性、事实置信度、
+显著性和新鲜度重排；低相关、过期和已被取代的事实不会注入。`POST
+/api/v2/memory/recall/explain` 与前端召回解释器可展示综合分及各维度分数，但不返回向量、
+Prompt 或其他用户数据。`evaluations/memory_recall` 以版本化数据集验证排序与安全过滤门禁。
+
 **被遗忘权**：可逐条删除长期事实（`DELETE /api/v2/memory/facts/{id}`，owner 隔离 + 物理删除 + 审计留痕）或一键全量遗忘。
 
 ## 工程亮点
 
-- **DDD 4 层架构** + 36 Port Protocol + Container 依赖注入，domain 不依赖 FastAPI、
+- **DDD 4 层架构** + 39 Port Protocol + Container 依赖注入，domain 不依赖 FastAPI、
   LangGraph 或具体数据库
-- **分层 AI 运行时**：V3 简单 QA 使用普通应用服务，V2 兼容问答保留自研 ReAct，
-  Case Assessment 使用 `WorkflowRuntimePort + LangGraph`
+- **标准 Agent 框架**：LangChain 负责模型和 Tool Calling；LangGraph 负责长程、有状态、
+  可中断流程；领域层不依赖具体框架
 - **可验证 Evidence QA**：LLM 只返回结构化 Claim；服务端重新读取当前文档版本原文，
   再用独立调用验证 Claim-Citation 语义支持；结果层只删除坏 Claim，不改写结论或
   补造引用，全部失败才拒答
@@ -206,6 +222,7 @@ ADMIN_USER_IDS=github:your-github-login
 | POST/DELETE | `/documents/file` `/web` `/{name}` | admin | KB 写入 / 删除 |
 | GET | `/audit/logs` | admin | 审计日志查询 |
 | GET | `/memory/facts` | owner | 长期事实清单 |
+| POST | `/memory/recall/explain` | owner | 解释长期事实召回排序 |
 | DELETE | `/memory/facts/{id}` | owner | **删除单条事实（被遗忘权）** |
 | POST | `/memory/forget` | owner | 级联遗忘 |
 
@@ -220,6 +237,7 @@ ADMIN_USER_IDS=github:your-github-login
 | POST/GET/PATCH | `/cases` | 合规案件和状态机 |
 | POST/GET | `/cases/{case_id}/documents` | 案件材料、版本和处理任务 |
 | GET | `/cases/{case_id}/evidence/search` | Case 范围混合检索 |
+| POST/GET | `/cases/{case_id}/visual-assets` | Chinese-CLIP 图片上传与文本搜图 |
 | POST/GET | `/cases/{case_id}/facts` | 事实候选、版本、证据和确认 |
 | POST/GET | `/workspaces/{workspace_id}/policy-rules` | 版本化规则创建与发布 |
 | POST/GET | `/cases/{case_id}/assessments` | 确定性 Assessment 生成与版本查询 |
@@ -239,15 +257,17 @@ ADMIN_USER_IDS=github:your-github-login
 ## 技术栈
 
 - **后端**：FastAPI + Pydantic v2
-- **架构**：DDD 4 层 + 36 Port + Container DI + WorkflowRuntimePort
-- **工作流**：LangGraph 1.x + SQLite checkpointer + interrupt/resume
+- **架构**：DDD 4 层 + 39 Port + Container DI + WorkflowRuntimePort
+- **Agent**：LangChain 1.3 `create_agent` + OpenAI-compatible `ChatOpenAI`
+- **工作流**：LangGraph 1.2 + SQLite checkpointer + interrupt/resume
 - **存储**：SQLite（业务对象 / Run / Event）+ 独立 LangGraph checkpoint SQLite + ChromaDB
 - **鉴权**：GitHub OAuth + JWT（HS256）+ admin 白名单
 - **LLM**：OpenAI 兼容接口（默认智谱 GLM，可换 Ollama / vLLM）
 - **检索**：ChromaDB + jieba BM25 + RRF 融合 + bge-reranker-base 重排
+- **多模态**：Chinese-CLIP + Pillow + Case-scoped SQLite visual index
 - **记忆**：4 层分层记忆 + 逐字接地提取 + TTL + 语义去重 + 被遗忘权
 - **前端**：原生 HTML + ES module（无构建依赖），含对话 / 案件 / 知识库 / 审计视图
-- **质量**：离线 pytest（1273 passed）+ Ruff + GitHub Actions CI
+- **质量**：离线 pytest + Ruff + GitHub Actions；版本化 Evidence/Memory/Visual 评测
 
 ## 文档
 

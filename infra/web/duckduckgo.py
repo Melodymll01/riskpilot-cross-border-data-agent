@@ -1,4 +1,4 @@
-"""`WebSearchPort` 实现：包装 retrieval/agent/web_searcher.WebSearcher。
+"""`WebSearchPort` 实现：包装基础设施层 WebSearcher。
 
 虽然命名为 DuckDuckGo，实际后端按既有实现优先使用 Bing 国内可达性更好。
 """
@@ -19,7 +19,7 @@ class DuckDuckGoAdapter:
 
     def __init__(self, searcher: _WebSearcherLike | None = None) -> None:
         if searcher is None:
-            from retrieval.agent.web_searcher import WebSearcher
+            from infra.web.searcher import WebSearcher
 
             searcher = WebSearcher()
         self._searcher = searcher

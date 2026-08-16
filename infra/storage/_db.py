@@ -166,6 +166,26 @@ CREATE TABLE IF NOT EXISTS evidence_chunks (
 CREATE INDEX IF NOT EXISTS idx_evidence_chunks_scope
     ON evidence_chunks(workspace_id, case_id, document_version_id);
 
+CREATE TABLE IF NOT EXISTS visual_assets (
+    asset_id        TEXT PRIMARY KEY,
+    workspace_id    TEXT NOT NULL,
+    case_id         TEXT NOT NULL,
+    object_key      TEXT NOT NULL UNIQUE,
+    filename        TEXT NOT NULL,
+    mime_type       TEXT NOT NULL,
+    sha256          TEXT NOT NULL,
+    width           INTEGER NOT NULL,
+    height          INTEGER NOT NULL,
+    caption         TEXT NOT NULL DEFAULT '',
+    embedding_json  TEXT NOT NULL,
+    created_by      TEXT NOT NULL,
+    created_at      REAL NOT NULL,
+    FOREIGN KEY (case_id) REFERENCES compliance_cases(case_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_visual_assets_scope
+    ON visual_assets(workspace_id, case_id, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS case_facts (
     fact_id        TEXT PRIMARY KEY,
     case_id        TEXT NOT NULL,

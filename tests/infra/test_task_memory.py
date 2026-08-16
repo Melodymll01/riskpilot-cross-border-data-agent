@@ -475,6 +475,46 @@ class TestL4RecallSemantic:
 
         assert mem.recall_semantic("anon:owner_b", "事实", 3) == []
 
+    def test_explain_recall_uses_expanded_candidate_pool_and_scores(self) -> None:
+        class RecordingFactStore(FakeFactStore):
+            def __init__(self) -> None:
+                super().__init__()
+                self.query_k: list[int] = []
+
+            def query(self, owner_id, embedding, k):  # type: ignore[no-untyped-def]
+                self.query_k.append(k)
+                return super().query(owner_id, embedding, k)
+
+        store = RecordingFactStore()
+        embed = FakeEmbed()
+        fact = self._fact("anon:o1", "用户在跨境电商行业")
+        store.add(fact, embed.embed([fact.text])[0])
+        mem = TaskBackedMemory(
+            InMemoryTaskRepo(),
+            fact_store=store,
+            embedder=embed,
+            recall_candidate_multiplier=4,
+        )
+
+        trace = mem.explain_recall("anon:o1", "用户在跨境电商行业", 2)
+
+        assert store.query_k == [8]
+        assert trace.strategy_version == "hybrid_v1"
+        assert trace.candidate_count == 1
+        assert trace.hits[0].fact.fact_id == fact.fact_id
+        assert trace.hits[0].semantic_score == pytest.approx(1.0)
+        assert trace.hits[0].final_score >= trace.hits[0].semantic_score * 0.65
+
+    def test_explain_recall_degrades_to_empty_trace(self) -> None:
+        mem = TaskBackedMemory(InMemoryTaskRepo())
+
+        trace = mem.explain_recall("anon:o1", "行业", 3)
+
+        assert trace.owner_id == "anon:o1"
+        assert trace.strategy_version == "hybrid_v1"
+        assert trace.candidate_count == 0
+        assert trace.hits == []
+
 
 class TestL4ListFacts:
     @staticmethod

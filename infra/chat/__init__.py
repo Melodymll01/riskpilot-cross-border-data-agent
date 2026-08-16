@@ -1,4 +1,4 @@
-"""ChatPort 适配器：包装 retrieval/generation/chat_client.ChatClient。"""
+"""ChatPort 适配器：统一使用 LangChain BaseChatModel。"""
 
 from infra.chat.openai_chat import OpenAIChatAdapter
 

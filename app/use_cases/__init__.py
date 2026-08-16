@@ -22,8 +22,8 @@ from app.use_cases.fact_management import (
 from app.use_cases.ingest import IngestionUseCase
 from app.use_cases.kb_management import KbIngestResult, KbManagementUseCase
 from app.use_cases.policy_management import PolicyManagementUseCase
-from app.use_cases.run_query import RunQueryUseCase
 from app.use_cases.task_management import TaskManagementUseCase
+from app.use_cases.visual_evidence import VisualEvidenceUseCase
 from app.use_cases.workspace_management import WorkspaceManagementUseCase
 
 __all__ = [
@@ -46,7 +46,7 @@ __all__ = [
     "KbIngestResult",
     "KbManagementUseCase",
     "PolicyManagementUseCase",
-    "RunQueryUseCase",
     "TaskManagementUseCase",
+    "VisualEvidenceUseCase",
     "WorkspaceManagementUseCase",
 ]

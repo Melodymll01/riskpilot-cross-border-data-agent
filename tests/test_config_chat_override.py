@@ -118,31 +118,20 @@ class TestEmbedNotAffected:
         assert s.effective_embed_base_url == "https://zhipu.example/v1"
 
 
-class TestChatClientUsesEffective:
-    """``ChatClient`` 改用 effective_chat_* 后真的拿到了覆盖值（防回归）。"""
+class TestLangChainModelUsesEffective:
+    """LangChain ChatModel 工厂读取 chat 通道覆盖值。"""
 
     def test_chat_client_reads_overridden_base_url(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # 直接 patch 模块级 settings 属性（最少侵入；ChatClient 在 __init__
-        # 里读 settings.effective_chat_*）
-        from retrieval.generation import chat_client as cc
+        from infra.agents.model import build_langchain_chat_model
 
-        monkeypatch.setattr(cc.settings, "openai_api_key", "sk-zhipu", raising=False)
-        monkeypatch.setattr(
-            cc.settings, "openai_api_base", "https://zhipu.example/v1", raising=False
+        model = build_langchain_chat_model(
+            model="glm-5",
+            api_key="sk-bailian",
+            base_url="https://bailian.example/compatible/v1",
+            temperature=0.1,
+            max_tokens=1024,
         )
-        monkeypatch.setattr(cc.settings, "chat_api_key", "sk-bailian", raising=False)
-        monkeypatch.setattr(
-            cc.settings,
-            "chat_api_base",
-            "https://bailian.example/compatible/v1",
-            raising=False,
-        )
-        monkeypatch.setattr(cc.settings, "chat_model", "glm-5", raising=False)
-        monkeypatch.setattr(cc.settings, "llm_provider", "api", raising=False)
-
-        client = cc.ChatClient()
-        # OpenAI SDK 把 base_url 标准化为带末尾 / 的 httpx URL 对象
-        assert "bailian.example" in str(client.client.base_url)
-        assert client.model == "glm-5"
+        assert "bailian.example" in str(model.root_client.base_url)
+        assert model.model_name == "glm-5"

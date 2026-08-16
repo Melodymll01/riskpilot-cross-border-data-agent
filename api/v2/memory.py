@@ -1,14 +1,15 @@
 """``/api/v2/memory/*`` 路由：L3 用户画像查询 + 主动遗忘（被遗忘权，Step 030d）
-+ 每用户记忆开关读写 + 长期事实清单（Step 031a）。
++ 每用户记忆开关读写 + 长期事实清单（Step 031a）+ 召回解释。
 
 设计要点：
 - 全部端点过 ``require_owner``，只能读/改**自己**的记忆（owner 隔离，合规底线）。
 - ``GET /memory/profile``：返回当前 owner 的稳定偏好画像；记忆禁用时返回空画像。
 - ``POST /memory/forget``：级联清除记忆（``scope`` 控制是否连带 L1 原始 task），
   返回各层删除计数；业务层 ``ForgetMemoryUseCase`` 同步落审计。
-- ``GET/PUT /memory/settings``：读/改两个开关（参考保存的记忆 / 参考会话上下文），
+- ``GET/PUT /memory/settings``：读/改保存记忆开关，
   ``PUT`` 部分更新并落同意变更审计（``MemorySettingsUseCase``）。
 - ``GET /memory/facts``：列当前生效的长期事实 + 容量上限，供管理面板渲染。
+- ``POST /memory/recall/explain``：解释 hybrid_v1 命中和过滤原因，不返回向量或 Prompt。
 - ``DELETE /memory/facts/{id}``：删当前 owner 的单条事实（被遗忘权细粒度，Step 034），
   成功 204；事实不存在 / 不属于该 owner → 404；删除落 ``MEMORY_FACT_DELETE`` 审计。
 - 记忆系统禁用（``container.memory is None``）时读端点优雅降级（空/默认值，200）；
@@ -27,6 +28,9 @@ from api.v2.schemas import (
     ForgetResponse,
     MemoryFactItem,
     MemoryFactsResponse,
+    MemoryRecallExplainRequest,
+    MemoryRecallExplainResponse,
+    MemoryRecallHitResponse,
     MemorySettingsResponse,
     ProfileResponse,
     UpdateMemorySettingsRequest,
@@ -130,6 +134,46 @@ def build_memory_routes(container: AppContainer) -> APIRouter:
             for f in facts
         ]
         return MemoryFactsResponse(facts=items, count=len(items), cap=cap)
+
+    @router.post(
+        "/recall/explain",
+        response_model=MemoryRecallExplainResponse,
+        summary="解释当前 owner 的长期记忆召回排序",
+    )
+    def explain_recall(
+        body: MemoryRecallExplainRequest,
+        owner_id: str = Depends(require_owner),
+    ) -> MemoryRecallExplainResponse:
+        memory = container.memory
+        if memory is None:
+            return MemoryRecallExplainResponse(
+                strategy_version="hybrid_v1",
+                candidate_count=0,
+                eligible_count=0,
+            )
+        trace = memory.explain_recall(owner_id, body.query, body.k)
+        return MemoryRecallExplainResponse(
+            strategy_version=trace.strategy_version,
+            candidate_count=trace.candidate_count,
+            eligible_count=trace.eligible_count,
+            rejected_counts=dict(trace.rejected_counts),
+            hits=[
+                MemoryRecallHitResponse(
+                    rank=hit.rank,
+                    fact_id=hit.fact.fact_id,
+                    text=hit.fact.text,
+                    tags=list(hit.fact.tags),
+                    source_message_id=hit.fact.source_message_id,
+                    source_quote=hit.fact.source_quote,
+                    semantic_score=hit.semantic_score,
+                    confidence_score=hit.confidence_score,
+                    salience_score=hit.salience_score,
+                    freshness_score=hit.freshness_score,
+                    final_score=hit.final_score,
+                )
+                for hit in trace.hits
+            ],
+        )
 
     @router.delete(
         "/facts/{fact_id}",

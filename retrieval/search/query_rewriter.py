@@ -11,12 +11,17 @@
 - 保留原始查询：与改写结果一起做多路召回
 """
 
+from __future__ import annotations
+
 import logging
 import re
 from collections import OrderedDict
+from typing import TYPE_CHECKING
 
 from config import settings
-from retrieval.generation.chat_client import ChatClient, RETRYABLE_ERRORS
+
+if TYPE_CHECKING:
+    from langchain_core.language_models.chat_models import BaseChatModel
 
 logger = logging.getLogger(__name__)
 
@@ -63,8 +68,18 @@ _CACHE_MAX_SIZE = 256
 class QueryRewriter:
     """查询改写器：规则预处理 → LLM 改写 → 后处理校验，三段式管线。"""
 
-    def __init__(self):
-        self.chat_client = ChatClient()
+    def __init__(self, model: BaseChatModel | None = None):
+        if model is None:
+            from infra.agents.model import build_langchain_chat_model
+
+            model = build_langchain_chat_model(
+                model=settings.effective_chat_model,
+                api_key=settings.effective_chat_api_key,
+                base_url=settings.effective_chat_base_url,
+                temperature=0.0,
+                max_tokens=1000,
+            )
+        self._model = model
         self.enabled = settings.enable_query_rewrite
         # LRU 缓存：OrderedDict 实现，存在进程内存中，进程重启即清空
         self._cache: OrderedDict[str, list[str]] = OrderedDict()
@@ -96,12 +111,22 @@ class QueryRewriter:
 
         # ③ LLM 改写
         try:
-            rewritten = self.chat_client.complete(
-                messages=[
-                    {"role": "user", "content": REWRITE_PROMPT.format(query=normalized)},
+            response = self._model.invoke(
+                [
+                    {
+                        "role": "user",
+                        "content": REWRITE_PROMPT.format(query=normalized),
+                    },
                 ],
-                temperature=0.0,
-                max_tokens=1000,
+            )
+            rewritten = (
+                response.content
+                if isinstance(response.content, str)
+                else "\n".join(
+                    str(item.get("text") or "")
+                    for item in response.content
+                    if isinstance(item, dict) and item.get("type") == "text"
+                )
             )
 
             # ④ 后处理：清洗 + 校验

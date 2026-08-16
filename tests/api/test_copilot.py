@@ -5,33 +5,34 @@ SSE 流式端点见 ``test_copilot_sse.py``。
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from langchain_core.messages import AIMessage
 
 from tests.fakes.fake_research import FakeResearch
 
-_FINAL = json.dumps({"thought": "ok", "action": "final_answer", "answer": "回答完毕"})
-_ASK = json.dumps({"thought": "缺信息", "action": "ask_user", "question": "用户量？"})
 _TOOL_THEN_FINAL = [
-    json.dumps(
-        {
-            "thought": "查法条",
-            "action": "tool",
-            "tool_name": "search_law",
-            "tool_args": {"query": "PIPL"},
-        }
+    AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": "search_law",
+                "args": {"query": "PIPL"},
+                "id": "call_search_law",
+                "type": "tool_call",
+            }
+        ],
     ),
-    json.dumps({"thought": "结论", "action": "final_answer", "answer": "依据 PIPL..."}),
+    AIMessage(content="依据 [PIPL] 第38条……"),
 ]
 
 
 class TestChatSyncSimple:
     @pytest.fixture
-    def chat_script(self) -> list[str]:
-        return [_FINAL]
+    def agent_script(self) -> list[AIMessage]:
+        return [AIMessage(content="回答完毕")]
 
     def test_creates_task_and_returns_events(
         self, authed_client: tuple[TestClient, dict[str, Any]]
@@ -46,7 +47,7 @@ class TestChatSyncSimple:
         assert body["task_id"].startswith("task_")
         events = body["events"]
         types = [e["event_type"] for e in events]
-        assert types == ["task_created", "thought", "answer"]
+        assert types == ["task_created", "answer"]
         assert events[-1]["payload"]["text"] == "回答完毕"
 
     def test_reuses_existing_task_id(
@@ -100,28 +101,9 @@ class TestChatValidation:
         assert resp.status_code == 422
 
 
-class TestChatAskUser:
-    @pytest.fixture
-    def chat_script(self) -> list[str]:
-        return [_ASK]
-
-    def test_ask_user_event_terminates(
-        self, authed_client: tuple[TestClient, dict[str, Any]]
-    ) -> None:
-        client, _ = authed_client
-        resp = client.post(
-            "/api/v2/copilot/chat",
-            json={"message": "评估我的隐私政策"},
-        )
-        assert resp.status_code == 200
-        types = [e["event_type"] for e in resp.json()["events"]]
-        assert "ask_user" in types
-        assert "answer" not in types  # ask_user 模式不出 answer
-
-
 class TestChatToolLoop:
     @pytest.fixture
-    def chat_script(self) -> list[str]:
+    def agent_script(self) -> list[AIMessage]:
         return _TOOL_THEN_FINAL
 
     def test_tool_call_then_answer(
@@ -136,10 +118,8 @@ class TestChatToolLoop:
         types = [e["event_type"] for e in resp.json()["events"]]
         assert types == [
             "task_created",
-            "thought",
             "tool_call",
             "tool_result",
-            "thought",
             "answer",
         ]
 
@@ -151,8 +131,8 @@ class TestChatMode:
     """ChatRequest.mode 应在新建 Task 时被持久化。"""
 
     @pytest.fixture
-    def chat_script(self) -> list[str]:
-        return [_FINAL]
+    def agent_script(self) -> list[AIMessage]:
+        return [AIMessage(content="回答完毕")]
 
     def test_default_mode_is_qa(
         self, authed_client: tuple[TestClient, dict[str, Any]]
@@ -170,7 +150,7 @@ class TestChatMode:
     def test_explicit_research_mode_persisted(
         self, authed_client: tuple[TestClient, dict[str, Any]]
     ) -> None:
-        client, _ = authed_client
+        client, user = authed_client
         resp = client.post(
             "/api/v2/copilot/chat",
             json={"message": "分析中美数据出境监管差异", "mode": "research"},
@@ -186,6 +166,7 @@ class TestChatMode:
         assert container.research.calls == [
             {
                 "query": "分析中美数据出境监管差异",
+                "owner_id": user["user_id"],
                 "top_k": 8,
                 "enable_web_search": True,
             }

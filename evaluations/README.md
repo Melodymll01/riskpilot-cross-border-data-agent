@@ -4,21 +4,9 @@
 
 ```
 evaluations/
-├── ood/                          # OOD 分类器评测
-│   ├── datasets/                 # 评测集（JSON 格式，版本化管理）
-│   │   └── eval_dataset_v1.json
-│   └── reports/                  # 历次评测报告
-│       ├── ood_eval_<时间戳>.txt
-│       ├── ood_eval_<时间戳>.json
-│       └── ood_eval_latest.md    # 最新一次（固定文件名，便于 README 引用）
-│
 ├── chunk_params/                 # 切块参数调优
 │   ├── reports/
 │   └── run.py                    # 入口: python evaluations/chunk_params/run.py
-│
-├── benchmark/                    # 端到端 RAG 评测
-│   ├── reports/
-│   └── run.py                    # 入口: python evaluations/benchmark/run.py
 │
 ├── evidence_qa/                  # V3 Claim-Citation 与安全拒答评测
 │   ├── datasets/
@@ -33,6 +21,15 @@ evaluations/
 │   │   └── memory_extraction_eval_v1.json
 │   ├── evaluator.py
 │   └── run.py
+├── memory_recall/                # AI 长期记忆混合排序与安全过滤门禁
+│   ├── datasets/
+│   │   └── memory_recall_eval_v1.json
+│   ├── evaluator.py
+│   └── run.py
+├── visual_retrieval/             # Chinese-CLIP 小规模图片召回
+│   ├── generate_dataset.py       # 生成 12 张合成图片
+│   ├── evaluator.py
+│   └── run.py                    # --live 才下载并运行模型
 │
 └── README.md                     # 本文件
 ```
@@ -48,11 +45,11 @@ evaluations/
 
 | 评测 | 脚本 | 数据集 | 最新报告 |
 | --- | --- | --- | --- |
-| OOD 分类 | [tests/eval_ood.py](../tests/eval_ood.py) | [ood/datasets/eval_dataset_v1.json](ood/datasets/eval_dataset_v1.json) | [ood/reports/ood_eval_latest.md](ood/reports/ood_eval_latest.md) |
 | 切块参数 | [chunk_params/run.py](chunk_params/run.py) | — | [chunk_params/reports/chunk_eval_latest.json](chunk_params/reports/chunk_eval_latest.json) |
-| 端到端基准 | [benchmark/run.py](benchmark/run.py) | — | `logs/benchmark_report.json` |
 | V3 Evidence QA | [evidence_qa/run.py](evidence_qa/run.py) | [evidence_qa/datasets/claim_citation_eval_v1.json](evidence_qa/datasets/claim_citation_eval_v1.json) | `evidence_qa/reports/evidence_qa_eval_latest.md` |
 | AI 记忆提取协议 | [memory_extraction/run.py](memory_extraction/run.py) | [memory_extraction/datasets/memory_extraction_eval_v1.json](memory_extraction/datasets/memory_extraction_eval_v1.json) | 标准输出 |
+| AI 记忆召回协议 | [memory_recall/run.py](memory_recall/run.py) | [memory_recall/datasets/memory_recall_eval_v1.json](memory_recall/datasets/memory_recall_eval_v1.json) | 标准输出 |
+| 图片召回 | [visual_retrieval/run.py](visual_retrieval/run.py) | 运行生成 12 张合成图片 | 标准输出 |
 
 ## 跑评测
 
@@ -60,14 +57,8 @@ evaluations/
 # 激活 venv
 & .\.venv\Scripts\Activate.ps1
 
-# OOD 评测
-python -m tests.eval_ood
-
 # 切块参数评测
 python evaluations/chunk_params/run.py
-
-# 端到端基准
-python evaluations/benchmark/run.py
 
 # V3 Evidence QA 评测协议自检（不调用模型，不构成生产效果证据）
 python evaluations/evidence_qa/run.py --oracle-self-check
@@ -80,6 +71,13 @@ python evaluations/evidence_qa/run_verifier.py --live
 
 # AI 长期记忆确定性协议自检（零模型调用、零密钥）
 python evaluations/memory_extraction/run.py
+
+# AI 长期记忆召回排序自检（零模型调用、零密钥）
+python evaluations/memory_recall/run.py
+
+# 生成小规模合成图片，并实测 Chinese-CLIP（首次会下载模型）
+python evaluations/visual_retrieval/generate_dataset.py
+python evaluations/visual_retrieval/run.py --live
 ```
 
 报告会自动写到 `evaluations/<name>/reports/`。
@@ -89,6 +87,18 @@ python evaluations/memory_extraction/run.py
 `memory_extraction/run.py` 覆盖用户来源过滤、逐字 quote 接地、助手污染、伪造引用、
 提示注入、API Key、个人标识符、高敏属性和一次性请求。该入口直接调用生产确定性
 校验器，验证 fail-closed 门禁，不调用模型，也不构成生产模型抽取准确率证据。
+
+### AI 长期记忆召回协议
+
+`memory_recall/run.py` 直接调用生产 `hybrid_v1` 排序策略，覆盖语义相关性、可信事实
+重排、低相关拒绝、TTL、冲突遗忘和 owner 隔离。数据集给定语义候选分数，因此该入口
+证明的是确定性排序与过滤门禁，不构成真实 embedding 的端到端召回准确率证据。
+
+### Chinese-CLIP 图片召回
+
+默认数据集只有 12 张程序生成的示意图和 12 个中文查询，不含真实企业信息。
+CI 验证数据生成、Schema、Recall@1/3 指标计算和门禁；只有显式 `--live` 才下载
+`OFA-Sys/chinese-clip-vit-base-patch16` 并产出真实图片召回指标。
 
 ### Evidence QA 预测文件
 

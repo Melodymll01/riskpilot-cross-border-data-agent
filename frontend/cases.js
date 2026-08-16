@@ -16,6 +16,7 @@ const state = {
   caseData: null,
   documents: [],
   facts: [],
+  visualHits: [],
   factDetails: new Map(),
   runs: [],
   activeRun: null,
@@ -39,6 +40,8 @@ export function mount() {
   $("#case-btn-propose")?.addEventListener("click", proposeFacts);
   $("#case-btn-continue")?.addEventListener("click", continueRun);
   $("#case-upload-form")?.addEventListener("submit", uploadDocument);
+  $("#case-visual-upload-form")?.addEventListener("submit", uploadVisual);
+  $("#case-visual-search-form")?.addEventListener("submit", searchVisual);
   $("#case-documents")?.addEventListener("click", onDocumentAction);
   $("#case-facts")?.addEventListener("click", onFactAction);
   loadWorkspaces();
@@ -282,6 +285,52 @@ async function uploadDocument(event) {
   }
 }
 
+async function uploadVisual(event) {
+  event.preventDefault();
+  if (!state.caseId) {
+    setStatus("error", "请先选择 Case");
+    return;
+  }
+  const file = $("#case-visual-file")?.files?.[0];
+  if (!file) {
+    setStatus("error", "请选择 PNG/JPEG/WebP 图片");
+    return;
+  }
+  const caption = String($("#case-visual-caption")?.value || "").trim();
+  setVisualControlsBusy(true);
+  setStatus("loading", `正在为 ${file.name} 计算 Chinese-CLIP 向量…`);
+  try {
+    const asset = await casesV3.uploadVisual(state.caseId, file, caption);
+    event.target.reset();
+    setStatus("ok", `图片 “${asset.filename}” 已入库，可使用文本搜图`);
+    const queryInput = $("#case-visual-query");
+    if (queryInput && caption) queryInput.value = caption;
+  } catch (error) {
+    setStatus("error", `图片上传失败：${errorMessage(error)}`);
+  } finally {
+    setVisualControlsBusy(false);
+  }
+}
+
+async function searchVisual(event) {
+  event.preventDefault();
+  if (!state.caseId) return;
+  const query = String($("#case-visual-query")?.value || "").trim();
+  if (!query) return;
+  setVisualControlsBusy(true);
+  setStatus("loading", "正在当前 Case 中执行文本搜图…");
+  try {
+    const response = await casesV3.searchVisual(state.caseId, query, 6);
+    state.visualHits = response?.hits || [];
+    renderVisualHits();
+    setStatus("ok", `找到 ${state.visualHits.length} 张相关图片`);
+  } catch (error) {
+    setStatus("error", `图片检索失败：${errorMessage(error)}`);
+  } finally {
+    setVisualControlsBusy(false);
+  }
+}
+
 async function onDocumentAction(event) {
   const button = event.target.closest("[data-document-action]");
   if (!button) return;
@@ -436,6 +485,7 @@ function render() {
   renderRun();
   renderMissingFields();
   renderFacts();
+  renderVisualHits();
 }
 
 function renderWorkspaceSelect() {
@@ -646,6 +696,31 @@ function renderFacts() {
   }
 }
 
+function renderVisualHits() {
+  const root = $("#case-visual-results");
+  if (!root) return;
+  root.replaceChildren();
+  if (!state.visualHits.length) {
+    root.appendChild(emptyNode("上传图片后输入自然语言进行检索"));
+    return;
+  }
+  for (const hit of state.visualHits) {
+    const card = element("article", "case-visual-hit");
+    const image = document.createElement("img");
+    image.loading = "lazy";
+    image.alt = hit.asset.caption || hit.asset.filename;
+    image.src = casesV3.visualContentUrl(state.caseId, hit.asset.asset_id);
+    const meta = element("div", "case-visual-meta");
+    meta.append(
+      element("strong", "", hit.asset.caption || hit.asset.filename),
+      element("span", "case-visual-score", `相似度 ${Number(hit.score).toFixed(3)}`),
+      element("span", "case-muted", `${hit.asset.width}×${hit.asset.height}`)
+    );
+    card.append(image, meta);
+    root.appendChild(card);
+  }
+}
+
 function selectedFieldNames() {
   return [...document.querySelectorAll("#case-missing-fields input:checked")]
     .map((input) => input.value)
@@ -738,6 +813,7 @@ function setBusy(busy) {
     }
   }
   setDocumentControlsBusy(busy);
+  setVisualControlsBusy(busy);
 }
 
 function setManagerBusy(busy) {
@@ -758,6 +834,19 @@ function setCreateBusy(busy) {
 
 function setDocumentControlsBusy(busy) {
   for (const selector of ["#case-upload-file", "#case-upload-purpose", "#case-upload-submit"]) {
+    const node = $(selector);
+    if (node) node.disabled = busy;
+  }
+}
+
+function setVisualControlsBusy(busy) {
+  for (const selector of [
+    "#case-visual-file",
+    "#case-visual-caption",
+    "#case-visual-query",
+    "#case-visual-upload-form button",
+    "#case-visual-search-form button",
+  ]) {
     const node = $(selector);
     if (node) node.disabled = busy;
   }

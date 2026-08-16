@@ -30,16 +30,37 @@ class FakeResearch:
         )
         self.calls: list[dict] = []
 
+    def research_stream(
+        self,
+        query: str,
+        *,
+        owner_id: str | None = None,
+        top_k: int = 8,
+        enable_web_search: bool = True,
+    ):
+        self.calls.append(
+            {
+                "query": query,
+                "owner_id": owner_id,
+                "top_k": top_k,
+                "enable_web_search": enable_web_search,
+            }
+        )
+        yield from self._report.steps
+        yield self._report
+
     def research(
         self,
         query: str,
         *,
+        owner_id: str | None = None,
         top_k: int = 8,
         enable_web_search: bool = True,
     ) -> ResearchReport:
         self.calls.append(
             {
                 "query": query,
+                "owner_id": owner_id,
                 "top_k": top_k,
                 "enable_web_search": enable_web_search,
             }

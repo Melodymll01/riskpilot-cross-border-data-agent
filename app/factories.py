@@ -13,6 +13,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from langchain_core.language_models.chat_models import BaseChatModel
+
+from domain.memory import MemoryRecallPolicy
 from domain.ports import (
     AgentRunRepoPort,
     AssessmentRepoPort,
@@ -51,6 +54,7 @@ from domain.ports import (
     WorkflowRuntimePort,
     WorkspaceRepoPort,
 )
+from infra.agents.model import build_langchain_chat_model
 from infra.audit import SqliteAuditLogRepo
 from infra.auth import AnonymousProvider, AuthService, GitHubOAuthProvider, JwtIssuer
 from infra.chat import OpenAIChatAdapter
@@ -69,7 +73,7 @@ from infra.qa import (
     StructuredEvidenceQAGenerator,
     StructuredFactProposalGenerator,
 )
-from infra.research import AgenticResearchAdapter
+from infra.research import LangGraphResearchAdapter
 from infra.risk_profile import StubRiskProfileService
 from infra.search import EmbedderAdapter, HybridRetrieverAdapter
 from infra.storage import (
@@ -86,9 +90,11 @@ from infra.storage import (
     SqliteSummaryStore,
     SqliteTaskRepo,
     SqliteUserRepo,
+    SqliteVisualIndex,
     SqliteWorkspaceRepo,
 )
 from infra.storage._db import SqliteConnectionPool
+from infra.visual import ChineseCLIPEmbedder
 from infra.web import DuckDuckGoAdapter
 from infra.workflows import LangGraphWorkflowRuntime
 
@@ -159,6 +165,16 @@ def build_object_store(settings: Settings) -> ObjectStorePort:
     return LocalObjectStore(settings.object_store_dir)
 
 
+def build_visual_index(
+    settings: Settings, *, pool: SqliteConnectionPool | None = None
+):
+    return SqliteVisualIndex(pool or build_sqlite_pool(settings))
+
+
+def build_visual_embedder(settings: Settings):
+    return ChineseCLIPEmbedder(settings.visual_model_name)
+
+
 def build_document_parser(_settings: Settings) -> DocumentParserPort:
     import time
 
@@ -200,7 +216,18 @@ def build_embedder(_settings: Settings) -> EmbedPort:
 
 
 def build_chat(_settings: Settings) -> ChatPort:
-    return OpenAIChatAdapter()
+    return OpenAIChatAdapter(build_agent_model(_settings))
+
+
+def build_agent_model(settings: Settings) -> BaseChatModel:
+    """构造 LangChain 标准 ChatModel；只供 tool-calling Agent 使用。"""
+    return build_langchain_chat_model(
+        model=settings.effective_chat_model,
+        api_key=settings.effective_chat_api_key,
+        base_url=settings.effective_chat_base_url,
+        temperature=0.1,
+        max_tokens=settings.chat_max_tokens,
+    )
 
 
 def build_evidence_qa_generator(
@@ -293,6 +320,18 @@ def build_memory(
         l2_ttl_days=settings.memory_l2_ttl_days,
         l4_ttl_days=settings.memory_l4_ttl_days,
         summary_threshold=settings.memory_summary_threshold,
+        recall_policy=MemoryRecallPolicy(
+            semantic_weight=settings.memory_recall_semantic_weight,
+            confidence_weight=settings.memory_recall_confidence_weight,
+            salience_weight=settings.memory_recall_salience_weight,
+            freshness_weight=settings.memory_recall_freshness_weight,
+            min_semantic_score=settings.memory_recall_min_semantic_score,
+            min_final_score=settings.memory_recall_min_final_score,
+            freshness_half_life_days=(
+                settings.memory_recall_freshness_half_life_days
+            ),
+        ),
+        recall_candidate_multiplier=settings.memory_recall_candidate_multiplier,
     )
 
 
@@ -413,13 +452,19 @@ def build_consolidation_worker(
     )
 
 
-def build_research(_settings: Settings) -> ResearchPort:
-    """构造 ``ResearchPort`` 实现：默认 ``AgenticResearchAdapter``（包 v1 引擎）。
-
-    适配器内部懒加载 v1 ``AgenticRAGAgent``（含 CrossEncoder 等重型组件），
-    故工厂调用安全（无真实网络 / 模型加载）。
-    """
-    return AgenticResearchAdapter()
+def build_research(
+    _settings: Settings,
+    *,
+    retriever: RetrievePort,
+    web_search: WebSearchPort,
+    chat: ChatPort,
+) -> ResearchPort:
+    """构造显式 LangGraph Deep Research。"""
+    return LangGraphResearchAdapter(
+        retriever=retriever,
+        web_search=web_search,
+        chat=chat,
+    )
 
 
 def build_kb_repo(_settings: Settings) -> KbDocumentRepoPort:
