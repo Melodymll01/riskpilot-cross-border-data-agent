@@ -30,6 +30,7 @@ JSON:
 }
 """
 
+EVIDENCE_PLAN_PROMPT_VERSION = "evidence-plan-function-calling-v1"
 _MANDATORY_TOOLS = {
     "retrieve_regulations",
     "evaluate_deterministic_rules",

@@ -30,6 +30,16 @@ evaluations/
 │   ├── generate_dataset.py       # 生成 12 张合成图片
 │   ├── evaluator.py
 │   └── run.py                    # --live 才下载并运行模型
+├── agent_runs/                   # Case Assessment Agent 完整轨迹评测
+│   ├── datasets/
+│   │   └── agent_runs_eval_v1.json
+│   ├── reports/
+│   │   ├── latest.json
+│   │   └── latest.md
+│   ├── models.py
+│   ├── executor.py
+│   ├── evaluator.py
+│   └── run.py                    # 默认 offline；--live 才调用模型
 │
 └── README.md                     # 本文件
 ```
@@ -50,6 +60,7 @@ evaluations/
 | AI 记忆提取协议 | [memory_extraction/run.py](memory_extraction/run.py) | [memory_extraction/datasets/memory_extraction_eval_v1.json](memory_extraction/datasets/memory_extraction_eval_v1.json) | 标准输出 |
 | AI 记忆召回协议 | [memory_recall/run.py](memory_recall/run.py) | [memory_recall/datasets/memory_recall_eval_v1.json](memory_recall/datasets/memory_recall_eval_v1.json) | 标准输出 |
 | 图片召回 | [visual_retrieval/run.py](visual_retrieval/run.py) | 运行生成 12 张合成图片 | 标准输出 |
+| Agent Run | [agent_runs/run.py](agent_runs/run.py) | [agent_runs/datasets/agent_runs_eval_v1.json](agent_runs/datasets/agent_runs_eval_v1.json) | [agent_runs/reports/latest.md](agent_runs/reports/latest.md) |
 
 ## 跑评测
 
@@ -78,9 +89,27 @@ python evaluations/memory_recall/run.py
 # 生成小规模合成图片，并实测 Chinese-CLIP（首次会下载模型）
 python evaluations/visual_retrieval/generate_dataset.py
 python evaluations/visual_retrieval/run.py --live
+
+# Case Assessment Agent 39 案件离线轨迹评测
+python -m evaluations.agent_runs.run
+
+# 显式真实模型 Planner 评测（会产生费用）
+python -m evaluations.agent_runs.run --live
 ```
 
 报告会自动写到 `evaluations/<name>/reports/`。
+
+### Case Assessment Agent 轨迹评测
+
+`agent_runs` 使用 39 个合成案件覆盖完整材料、材料/事实缺失、冲突、引用漂移、规则版本、
+工具失败、非法 Schema、Prompt Injection、跨 Workspace、Reviewer 拒绝、Worker retry 和
+checkpoint 恢复。Offline runner 真实执行 16 节点 LangGraph、interrupt/resume、SQLite
+checkpoint 重建以及 Typed Tool Registry/Pydantic/Tool Policy，但不调用模型或网络。
+
+数据集将 `scenario` 和 `gold` 分离；executor 只接收 `expand_scenario()`，测试会篡改 Gold
+并验证 prediction 不变。报告记录 dataset、model、prompt、tool schema 和 evaluator 版本。
+`--live` 或 `RUN_LIVE=1` 才使用生产 LangChain Planner；普通 CI 只跑 offline，并在任何安全
+门禁失败时返回非零退出码。
 
 ### AI 长期记忆提取协议
 

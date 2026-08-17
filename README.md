@@ -62,10 +62,11 @@
 
 | 维度 | 数值 |
 | --- | --- |
-| 离线回归 | **1318 passed · 4 skipped · 5 warnings**（`make ci`，2026-08-17） |
+| 离线回归 | **1324 passed · 4 skipped · 5 warnings**（`make ci`，2026-08-17） |
 | 架构规模 | **45 Port + 17 Use Case** · DDD 4 层 |
 | V3 资源接口 | **48 个路由** · Workspace → Visual Evidence / Evidence QA / Assessment Run |
 | Agent/Graph | LangChain Tool Calling + 2 张 LangGraph（Research / Assessment） |
+| Agent Eval | **39 个案件 · 13 类场景**；Offline Task/Tool/Argument/Missing-Fact/Citation/Recovery 均 **1.0**；Unsafe/Cross-tenant/False Accept 均 **0.0** |
 | 记忆系统 | **4 层**（L1 最近消息 → L4 语义事实）+ `hybrid_v1` 可解释召回 |
 | Top-K=2 检索命中率 | **93.3%**（chunk_size=300, overlap=60） |
 | 图片评测 | **12 张合成图片** + 12 个文本查询，Recall@1/3 门禁 |
@@ -174,7 +175,8 @@ Prompt 或其他用户数据。`evaluations/memory_recall` 以版本化数据集
 - **可替换可观测性**：`TracePort` 隔离 LangSmith，默认无网络；启用后强制客户端脱敏，
   不把案件正文、记忆原文、Prompt、回答或异常栈上传第三方
 - **CI 守护**：GitHub Actions 全量 Ruff + format + mypy + 零密钥 pytest；
-  research 等外部能力全部注入 Fake，不访问网络、不下载模型、不产生费用
+  research 等外部能力全部注入 Fake，不访问网络、不下载模型、不产生费用；另跑 39 案件
+  Offline Agent 轨迹评测，安全门禁失败直接阻断 CI
 
 ## 快速开始
 
@@ -314,6 +316,7 @@ ADMIN_USER_IDS=github:your-github-login
 6. **Assessment Run 演示**：[docs/guides/v3-assessment-run.md](docs/guides/v3-assessment-run.md)
 7. **Evidence QA 演示**：[docs/guides/v3-evidence-qa.md](docs/guides/v3-evidence-qa.md)
 8. **LangSmith 可观测性**：[docs/guides/langsmith-observability.md](docs/guides/langsmith-observability.md)
+9. **Agent Eval 报告**：[evaluations/agent_runs/reports/latest.md](evaluations/agent_runs/reports/latest.md)
 
 ## 协议
 

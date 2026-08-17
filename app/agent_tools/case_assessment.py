@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from domain.agent_workflow import AgentRuntimeContext
 
 _AGENT_ROLES = frozenset({"editor", "reviewer", "admin"})
+CASE_ASSESSMENT_TOOL_SCHEMA_VERSION = "case-assessment-tools-v1"
 
 
 class RetrieveCaseEvidenceInput(BaseModel):

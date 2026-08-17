@@ -67,6 +67,8 @@ jobs:
           pip install -r requirements-dev.txt
       - name: Run pytest
         run: pytest -q
+      - name: Run offline Agent trajectory evaluation
+        run: python -m evaluations.agent_runs.run --no-write
 
   postgres:
     name: PostgreSQL (migration · repository contracts)

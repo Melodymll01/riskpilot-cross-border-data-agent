@@ -6,7 +6,7 @@ PY ?= python
 PIP ?= pip
 PORT ?= 8000
 
-.PHONY: help install install-dev lint format type-check test test-cov \
+.PHONY: help install install-dev lint format type-check test test-cov agent-eval \
         serve clean docker-build docker-up docker-down hooks ci
 
 help:
@@ -18,6 +18,7 @@ help:
 	@echo "  type-check    - mypy on domain/app/infra"
 	@echo "  test          - run pytest (offline)"
 	@echo "  test-cov      - run pytest with coverage"
+	@echo "  agent-eval    - run offline Agent trajectory evaluation"
 	@echo "  serve         - uvicorn dev server on :$(PORT)"
 	@echo "  hooks         - install pre-commit hooks"
 	@echo "  ci            - lint + type-check + test (mirrors GitHub Actions)"
@@ -49,13 +50,16 @@ test:
 test-cov:
 	pytest -ra --cov --cov-report=term-missing
 
+agent-eval:
+	python -m evaluations.agent_runs.run --no-write
+
 serve:
 	uvicorn main:app --reload --port $(PORT)
 
 hooks:
 	pre-commit install
 
-ci: lint type-check test
+ci: lint type-check test agent-eval
 
 docker-build:
 	docker compose build
