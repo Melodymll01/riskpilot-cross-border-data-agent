@@ -95,6 +95,8 @@ class StructuredFactProposalGenerator:
             raise ValueError("Fact proposal generator 同一字段只能返回一个候选")
         return FactProposalResult(
             proposals=proposals,
+            input_tokens=response.input_tokens,
+            output_tokens=response.output_tokens,
             token_usage=response.token_usage,
         )
 

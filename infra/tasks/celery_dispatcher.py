@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from infra.observability import inject_trace_headers
 from infra.tasks.celery_app import DOCUMENT_TASK_NAME
 
 if TYPE_CHECKING:
@@ -22,6 +23,7 @@ class CeleryJobDispatcher:
             DOCUMENT_TASK_NAME,
             args=[job_id],
             task_id=task_id,
+            headers=inject_trace_headers(),
         )
         return task_id
 

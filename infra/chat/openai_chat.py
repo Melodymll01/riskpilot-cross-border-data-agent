@@ -50,7 +50,7 @@ class OpenAIChatAdapter:
         )
         return ChatResponse(
             content=_message_text(response).strip(),
-            token_usage=_token_usage(response),
+            **_token_usage(response),
         )
 
 
@@ -66,8 +66,17 @@ def _message_text(message: BaseMessage) -> str:
     return "\n".join(part for part in parts if part)
 
 
-def _token_usage(message: BaseMessage) -> int:
+def _token_usage(message: BaseMessage) -> dict[str, int]:
     if not isinstance(message, AIMessage) or message.usage_metadata is None:
-        return 0
-    value = message.usage_metadata.get("total_tokens", 0)
-    return value if isinstance(value, int) and value >= 0 else 0
+        return {"input_tokens": 0, "output_tokens": 0, "token_usage": 0}
+    input_value = message.usage_metadata.get("input_tokens", 0)
+    output_value = message.usage_metadata.get("output_tokens", 0)
+    total_value = message.usage_metadata.get("total_tokens", 0)
+    input_tokens = input_value if isinstance(input_value, int) and input_value >= 0 else 0
+    output_tokens = output_value if isinstance(output_value, int) and output_value >= 0 else 0
+    total_tokens = total_value if isinstance(total_value, int) and total_value >= 0 else 0
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "token_usage": max(total_tokens, input_tokens + output_tokens),
+    }

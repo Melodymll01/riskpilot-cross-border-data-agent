@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.agent_tools import RegisteredTool, TypedToolRegistry
 from domain import AgentRuntimeContext, CaseAssessmentToolPort
+from infra.observability import PrometheusMetricsAdapter
 
 
 class SearchInput(BaseModel):
@@ -21,6 +22,13 @@ class SearchInput(BaseModel):
 class SearchOutput(BaseModel):
     document_ids: list[str]
     injected_case_id: str
+
+
+class UsageOutput(BaseModel):
+    fact_ids: list[str]
+    input_tokens: int
+    output_tokens: int
+    token_usage: int
 
 
 def _context(*, role: str = "editor", stage: str = "retrieve_case_evidence") -> AgentRuntimeContext:
@@ -167,3 +175,51 @@ def test_registry_timeout_fails_closed() -> None:
             {"query": "重要数据"},
             context=_context(),
         )
+
+
+def test_tool_llm_usage_reaches_metrics_with_explicit_cost() -> None:
+    metrics = PrometheusMetricsAdapter(cost_currency="CNY")
+    registry = TypedToolRegistry(
+        metrics=metrics,
+        model_name="fact-test-model",
+        input_cost_per_1m_tokens=2.0,
+        output_cost_per_1m_tokens=8.0,
+    )
+    registry.register(
+        RegisteredTool(
+            name="extract_fact_candidates",
+            description="提取事实候选",
+            input_model=SearchInput,
+            output_model=UsageOutput,
+            executor=lambda args, context: UsageOutput(
+                fact_ids=[context.case_id],
+                input_tokens=100,
+                output_tokens=20,
+                token_usage=120,
+            ),
+            timeout_seconds=1.0,
+            max_retries=0,
+            required_roles=frozenset({"editor"}),
+            allowed_stages=frozenset({"extract_fact_candidates"}),
+            side_effect_level="reversible_write",
+        )
+    )
+
+    result = registry.execute(
+        "extract_fact_candidates",
+        {"query": "重要数据"},
+        context=_context(stage="extract_fact_candidates"),
+    )
+
+    assert result.input_tokens == 100
+    assert result.output_tokens == 20
+    assert result.token_usage == 120
+    payload = metrics.render().decode()
+    assert (
+        'riskpilot_llm_tokens_total{model="fact-test-model",'
+        'operation="extract_fact_candidates",token_type="input"} 100.0'
+    ) in payload
+    assert (
+        'riskpilot_llm_estimated_cost_total{currency="CNY",model="fact-test-model",'
+        'operation="extract_fact_candidates"} 0.00036'
+    ) in payload

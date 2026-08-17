@@ -24,7 +24,19 @@ import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
+
+from observability_context import (
+    case_id_var,
+    node_var,
+    run_id_var,
+    tool_var,
+    workspace_id_var,
+)
+from observability_context import (
+    observability_context as observability_context,
+)
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -32,6 +44,17 @@ if TYPE_CHECKING:
 # 默认 None：在 middleware 之外的调用方（命令行、后台任务、单测）不会拿到陈旧值。
 request_id_var: ContextVar[str | None] = ContextVar("request_id_var", default=None)
 user_id_var: ContextVar[str | None] = ContextVar("user_id_var", default=None)
+
+
+@dataclass(frozen=True)
+class ObservabilityContext:
+    request_id: str | None
+    user_id: str | None
+    run_id: str | None
+    workspace_id: str | None
+    case_id: str | None
+    node: str | None
+    tool: str | None
 
 
 def get_request_id() -> str | None:
@@ -65,6 +88,18 @@ def set_user_id(value: str | None) -> object:
 def reset_user_id(token: object) -> None:
     """根据 ``set_user_id`` 返回的 token 还原上一层值。"""
     user_id_var.reset(token)  # type: ignore[arg-type]
+
+
+def get_observability_context() -> ObservabilityContext:
+    return ObservabilityContext(
+        request_id=request_id_var.get(),
+        user_id=user_id_var.get(),
+        run_id=run_id_var.get(),
+        workspace_id=workspace_id_var.get(),
+        case_id=case_id_var.get(),
+        node=node_var.get(),
+        tool=tool_var.get(),
+    )
 
 
 @contextmanager

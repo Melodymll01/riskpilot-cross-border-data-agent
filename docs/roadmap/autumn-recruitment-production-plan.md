@@ -1,7 +1,7 @@
 # RiskPilot 2026 秋招生产化路线
 
 - 状态：执行中
-- 当前进度：Phase 0～7 已完成；下一阶段为 Phase 8 可观测性和成本
+- 当前进度：Phase 0～8 已完成；下一阶段为 Phase 9 Compose 和部署
 - 基线日期：2026-08-17
 - 基线提交：`50272310957467bb21eee8d7ca525e4b3ac71c6c`
 - 主分支：`main`
@@ -212,7 +212,7 @@ flowchart TB
 | 5 | 核心 Agent Graph | EvidencePlan、Typed Tools、HITL、预算 | Happy/HITL/恢复三路径通过 |
 | 6 | 安全与权限 | Tool Policy、SSRF/注入/越权测试 | 跨租户泄漏与 unsafe action 为 0 |
 | 7 | Agent 评测 | 30～50 版本化案件、轨迹指标 | CI 跑离线协议评测，报告可复现 |
-| 8 | 可观测性和成本 | JSON Log、OTel、Prometheus、usage/cost | run_id 可串完整链路且无正文泄漏 |
+| 8 | 可观测性和成本（已完成） | JSON Log、OTel、Prometheus、usage/cost | run_id 可串完整链路且无正文泄漏 |
 | 9 | Compose 和部署 | api/worker/postgres/redis/minio | 新机器只用 Docker 可跑 seed Demo |
 | 10 | Run Detail 和面试材料 | 时间线、工具、HITL、成本、三 Demo | 2～3 分钟固定演示可重复 |
 

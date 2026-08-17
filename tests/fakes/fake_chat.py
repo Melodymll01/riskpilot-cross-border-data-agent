@@ -13,9 +13,13 @@ class FakeChat:
         responses: list[str] | None = None,
         *,
         token_usages: list[int] | None = None,
+        input_token_usages: list[int] | None = None,
+        output_token_usages: list[int] | None = None,
     ) -> None:
         self._responses = list(responses) if responses else ["fake-response"]
         self._token_usages = list(token_usages) if token_usages else [0]
+        self._input_token_usages = list(input_token_usages) if input_token_usages else [0]
+        self._output_token_usages = list(output_token_usages) if output_token_usages else [0]
         self.calls: list[dict] = []
 
     def chat(
@@ -51,7 +55,16 @@ class FakeChat:
         )
         idx = min(len(self.calls) - 1, len(self._responses) - 1)
         usage_idx = min(len(self.calls) - 1, len(self._token_usages) - 1)
+        input_idx = min(len(self.calls) - 1, len(self._input_token_usages) - 1)
+        output_idx = min(len(self.calls) - 1, len(self._output_token_usages) - 1)
+        input_tokens = self._input_token_usages[input_idx]
+        output_tokens = self._output_token_usages[output_idx]
         return ChatResponse(
             content=self._responses[idx],
-            token_usage=self._token_usages[usage_idx],
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            token_usage=max(
+                self._token_usages[usage_idx],
+                input_tokens + output_tokens,
+            ),
         )

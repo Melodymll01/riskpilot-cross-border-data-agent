@@ -42,7 +42,7 @@ format:
 	ruff format .
 
 type-check:
-	mypy domain app infra
+	mypy domain app infra observability_context.py
 
 test:
 	pytest -q

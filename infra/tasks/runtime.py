@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from app.factories import (
     build_document_parser,
     build_embedder,
     build_evidence_chunker,
     build_evidence_index,
+    build_metrics,
     build_object_store,
     build_sqlalchemy_database,
+    build_trace,
 )
 from app.workers import (
     DocumentOcrWorker,
@@ -23,17 +26,25 @@ from config import Settings
 from infra.document_processing import RapidOcrDocumentAdapter
 from infra.storage.sqlalchemy import SqlAlchemyDocumentRepo
 
+if TYPE_CHECKING:
+    from domain.ports import MetricsPort, TracePort
+
 
 @dataclass
 class WorkerRuntime:
     pipeline: DocumentPipelineWorker
     document_repo: SqlAlchemyDocumentRepo
     database: object
+    trace: TracePort
+    metrics: MetricsPort
 
     def close(self) -> None:
         dispose = getattr(self.database, "dispose", None)
         if callable(dispose):
             dispose()
+        shutdown = getattr(self.trace, "shutdown", None)
+        if callable(shutdown):
+            shutdown()
 
 
 def build_worker_runtime(settings: Settings | None = None) -> WorkerRuntime:
@@ -44,6 +55,8 @@ def build_worker_runtime(settings: Settings | None = None) -> WorkerRuntime:
     document_repo = SqlAlchemyDocumentRepo(database)
     object_store = build_object_store(settings)
     evidence_index = build_evidence_index(settings, database=database)
+    trace = build_trace(settings)
+    metrics = build_metrics(settings)
     pipeline = DocumentPipelineWorker(
         document_repo=document_repo,
         parser=DocumentProcessingWorker(
@@ -70,4 +83,6 @@ def build_worker_runtime(settings: Settings | None = None) -> WorkerRuntime:
         pipeline=pipeline,
         document_repo=document_repo,
         database=database,
+        trace=trace,
+        metrics=metrics,
     )

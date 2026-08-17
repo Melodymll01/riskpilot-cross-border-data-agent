@@ -47,7 +47,15 @@ class EvidencePlan(BaseDomainModel):
 
 class EvidencePlanResult(BaseDomainModel):
     plan: EvidencePlan
+    input_tokens: int = Field(default=0, ge=0)
+    output_tokens: int = Field(default=0, ge=0)
     token_usage: int = Field(default=0, ge=0)
+
+    @model_validator(mode="after")
+    def validate_usage(self) -> EvidencePlanResult:
+        if self.token_usage < self.input_tokens + self.output_tokens:
+            raise ValueError("token_usage 不能小于 input_tokens + output_tokens")
+        return self
 
 
 class AgentRuntimeContext(BaseDomainModel):
@@ -79,6 +87,8 @@ class ToolExecutionResult(BaseDomainModel):
     result_summary: str = Field(default="", max_length=1000)
     duration_ms: int = Field(ge=0)
     retry_count: int = Field(default=0, ge=0)
+    input_tokens: int = Field(default=0, ge=0)
+    output_tokens: int = Field(default=0, ge=0)
     token_usage: int = Field(default=0, ge=0)
 
 
@@ -88,7 +98,15 @@ class AgentBudget(BaseDomainModel):
     max_tokens: int = Field(default=12000, ge=100, le=1_000_000)
     loop_count: int = Field(default=0, ge=0)
     tool_calls: int = Field(default=0, ge=0)
+    input_tokens: int = Field(default=0, ge=0)
+    output_tokens: int = Field(default=0, ge=0)
     token_usage: int = Field(default=0, ge=0)
+
+    @model_validator(mode="after")
+    def validate_usage(self) -> AgentBudget:
+        if self.token_usage < self.input_tokens + self.output_tokens:
+            raise ValueError("token_usage 不能小于 input_tokens + output_tokens")
+        return self
 
     @property
     def exhausted(self) -> bool:
@@ -115,10 +133,24 @@ class AgentBudget(BaseDomainModel):
             }
         )
 
-    def consume_tokens(self, tokens: int) -> AgentBudget:
+    def consume_tokens(
+        self,
+        tokens: int,
+        *,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+    ) -> AgentBudget:
         if self.token_usage + tokens > self.max_tokens:
             raise ValueError("Agent token budget 已耗尽")
-        return self.model_copy(update={"token_usage": self.token_usage + tokens})
+        if tokens < input_tokens + output_tokens:
+            raise ValueError("tokens 不能小于 input_tokens + output_tokens")
+        return self.model_copy(
+            update={
+                "input_tokens": self.input_tokens + input_tokens,
+                "output_tokens": self.output_tokens + output_tokens,
+                "token_usage": self.token_usage + tokens,
+            }
+        )
 
 
 class EvidencePlanRequest(BaseDomainModel):

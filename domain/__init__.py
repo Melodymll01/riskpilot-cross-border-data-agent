@@ -156,6 +156,7 @@ from domain.ports import (
     FactProposalGeneratorPort,
     KbDocumentRepoPort,
     MemoryPort,
+    MetricsPort,
     ObjectStorePort,
     PolicyRuleRepoPort,
     ReadinessPort,
@@ -380,5 +381,6 @@ __all__ = [
     "DocumentLoaderPort",
     "WebSearchPort",
     "MemoryPort",
+    "MetricsPort",
     "WorkflowRuntimePort",
 ]

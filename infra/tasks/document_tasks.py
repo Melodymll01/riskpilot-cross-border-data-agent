@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+import time
 from functools import lru_cache
 from typing import Any
 
@@ -15,8 +16,10 @@ from domain.errors import (
     ProcessingJobNotFound,
     UnsupportedDocumentType,
 )
+from infra.observability import attached_trace_context, extract_trace_context
 from infra.tasks.celery_app import DOCUMENT_TASK_NAME, build_celery_app
 from infra.tasks.runtime import WorkerRuntime, build_worker_runtime
+from infra.tasks.worker_observability import sample_queue_depth
 
 settings = Settings()
 celery_app = build_celery_app(settings)
@@ -35,13 +38,39 @@ def _runtime() -> WorkerRuntime:
 )
 def process_document(self: Any, job_id: str) -> dict[str, str]:
     runtime = _runtime()
+    headers = getattr(self.request, "headers", {}) or {}
+    trace_context = extract_trace_context(headers)
+    started = time.perf_counter()
+    retries = int(getattr(self.request, "retries", 0))
+    metric_retry_count = retries
+    status = "failed"
+    sample_queue_depth(metrics=runtime.metrics, settings=settings)
     try:
-        result = runtime.pipeline.run(job_id)
-        return {
-            "job_id": result.job_id,
-            "outcome": result.outcome,
-            "stage": result.stage,
-        }
+        with (
+            attached_trace_context(trace_context),
+            runtime.trace.span(
+                "riskpilot.document.process",
+                metadata={
+                    "operation": DOCUMENT_TASK_NAME,
+                    "task_id": getattr(self.request, "id", ""),
+                    "retry_count": retries,
+                },
+            ) as span,
+        ):
+            result = runtime.pipeline.run(job_id)
+            status = result.outcome
+            span.add_metadata(
+                {
+                    "status": result.outcome,
+                    "stage": result.stage,
+                    "duration_ms": (time.perf_counter() - started) * 1000,
+                }
+            )
+            return {
+                "job_id": result.job_id,
+                "outcome": result.outcome,
+                "stage": result.stage,
+            }
     except ProcessingJobConflict:
         latest = runtime.document_repo.get_job(job_id)
         if latest is None:
@@ -51,6 +80,7 @@ def process_document(self: Any, job_id: str) -> dict[str, str]:
             if latest.status in {"completed", "cancelled", "failed"}
             else "in_progress"
         )
+        status = outcome
         return {
             "job_id": job_id,
             "outcome": outcome,
@@ -69,10 +99,11 @@ def process_document(self: Any, job_id: str) -> dict[str, str]:
         _mark_exhausted_failure(runtime, job_id, exc)
         raise
     except Exception as exc:
-        retries = int(getattr(self.request, "retries", 0))
         if retries >= settings.celery_max_retries:
             _mark_exhausted_failure(runtime, job_id, exc)
             raise
+        status = "retrying"
+        metric_retry_count = retries + 1
         delay = min(
             settings.celery_retry_backoff_max_seconds,
             2**retries + random.randint(0, 2),
@@ -82,6 +113,14 @@ def process_document(self: Any, job_id: str) -> dict[str, str]:
             countdown=delay,
             max_retries=settings.celery_max_retries,
         ) from exc
+    finally:
+        runtime.metrics.observe_worker_task(
+            task=DOCUMENT_TASK_NAME,
+            status=status,
+            duration_seconds=time.perf_counter() - started,
+            retry_count=metric_retry_count,
+        )
+        sample_queue_depth(metrics=runtime.metrics, settings=settings)
 
 
 def _mark_exhausted_failure(

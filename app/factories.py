@@ -44,6 +44,7 @@ from domain.ports import (
     MemoryJobSchedulerPort,
     MemoryPort,
     MemorySettingsStorePort,
+    MetricsPort,
     ObjectStorePort,
     PolicyRuleRepoPort,
     ProfileStorePort,
@@ -77,7 +78,14 @@ from infra.memory import (
     ThreadPoolMemoryScheduler,
 )
 from infra.object_store import LocalObjectStore, S3ObjectStore
-from infra.observability import LangSmithTraceAdapter, NoopTraceAdapter
+from infra.observability import (
+    CompositeTraceAdapter,
+    LangSmithTraceAdapter,
+    NoopMetricsAdapter,
+    NoopTraceAdapter,
+    OpenTelemetryTraceAdapter,
+    PrometheusMetricsAdapter,
+)
 from infra.qa import (
     StructuredClaimSupportVerifier,
     StructuredEvidenceQAGenerator,
@@ -368,6 +376,7 @@ def build_workflow_runtime(
     settings: Settings,
     *,
     trace: TracePort | None = None,
+    metrics: MetricsPort | None = None,
     planner: EvidencePlannerPort | None = None,
     tools: CaseAssessmentToolPort | None = None,
 ) -> WorkflowRuntimePort:
@@ -378,6 +387,10 @@ def build_workflow_runtime(
         trace=trace,
         planner=planner or build_evidence_planner(settings),
         tools=tools,
+        metrics=metrics,
+        model_name=settings.effective_chat_model,
+        input_cost_per_1m_tokens=settings.llm_input_cost_per_1m_tokens,
+        output_cost_per_1m_tokens=settings.llm_output_cost_per_1m_tokens,
         budget=AgentBudget(
             max_loop_count=settings.agent_max_loop_count,
             max_tool_calls=settings.agent_max_tool_calls,
@@ -425,15 +438,37 @@ def build_trace(settings: Settings) -> TracePort:
             f"{', '.join(enabled_switches)}；请改用 RISK_PILOT_LANGSMITH_ENABLED，"
             "确保 Trace 经过隐私 Adapter"
         )
-    if not settings.risk_pilot_langsmith_enabled:
+    adapters: list[TracePort] = []
+    if settings.otel_enabled:
+        adapters.append(
+            OpenTelemetryTraceAdapter(
+                service_name=settings.otel_service_name,
+                endpoint=settings.otel_exporter_otlp_endpoint,
+                sampling_rate=settings.otel_sampling_rate,
+                hash_salt=settings.observability_hash_salt,
+            )
+        )
+    if settings.risk_pilot_langsmith_enabled:
+        adapters.append(
+            LangSmithTraceAdapter(
+                api_key=settings.langsmith_api_key or "",
+                endpoint=settings.langsmith_endpoint,
+                project=settings.langsmith_project,
+                sampling_rate=settings.langsmith_sampling_rate,
+                hash_salt=settings.langsmith_hash_salt or "",
+            )
+        )
+    if not adapters:
         return NoopTraceAdapter()
-    return LangSmithTraceAdapter(
-        api_key=settings.langsmith_api_key or "",
-        endpoint=settings.langsmith_endpoint,
-        project=settings.langsmith_project,
-        sampling_rate=settings.langsmith_sampling_rate,
-        hash_salt=settings.langsmith_hash_salt or "",
-    )
+    if len(adapters) == 1:
+        return adapters[0]
+    return CompositeTraceAdapter(*adapters)
+
+
+def build_metrics(settings: Settings) -> MetricsPort:
+    if not settings.prometheus_enabled:
+        return NoopMetricsAdapter()
+    return PrometheusMetricsAdapter(cost_currency=settings.llm_cost_currency)
 
 
 def build_memory(

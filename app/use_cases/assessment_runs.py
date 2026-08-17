@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from app.use_cases.case_management import CaseManagementUseCase
     from app.use_cases.policy_management import PolicyManagementUseCase
     from app.use_cases.workspace_management import WorkspaceManagementUseCase
+    from config import Settings
     from domain.assessments import AssessmentStatus
     from domain.ports import (
         AgentRunRepoPort,
@@ -67,6 +68,7 @@ class AssessmentRunUseCase:
         workspace_management: WorkspaceManagementUseCase,
         policy_management: PolicyManagementUseCase,
         assessment_management: AssessmentManagementUseCase,
+        settings: Settings | None = None,
     ) -> None:
         self._runs = run_repo
         self._runtime = workflow_runtime
@@ -76,6 +78,7 @@ class AssessmentRunUseCase:
         self._workspace_management = workspace_management
         self._policies = policy_management
         self._assessments = assessment_management
+        self._settings = settings
 
     def start(
         self,
@@ -119,6 +122,10 @@ class AssessmentRunUseCase:
         run_id = _new_id("run")
         thread_id = f"case-assessment:{run_id}"
         initial_checkpoint_id = _new_id("run_checkpoint")
+        runtime_snapshot = {
+            **(model_config_snapshot or {}),
+            **self._runtime_model_config_snapshot(),
+        }
         run = AgentRun(
             run_id=run_id,
             workspace_id=case.workspace_id,
@@ -127,7 +134,7 @@ class AssessmentRunUseCase:
             thread_id=thread_id,
             checkpoint_id=initial_checkpoint_id,
             current_stage="queued",
-            model_config_snapshot=model_config_snapshot or {},
+            model_config_snapshot=runtime_snapshot,
             created_by=actor_id,
             created_at=now,
             updated_at=now,
@@ -176,6 +183,17 @@ class AssessmentRunUseCase:
         except Exception as exc:
             self._persist_failure(running, exc)
             raise
+
+    def _runtime_model_config_snapshot(self) -> dict[str, Any]:
+        if self._settings is None:
+            return {}
+        return {
+            "model": self._settings.effective_chat_model,
+            "provider": self._settings.llm_provider,
+            "input_cost_per_1m_tokens": self._settings.llm_input_cost_per_1m_tokens,
+            "output_cost_per_1m_tokens": self._settings.llm_output_cost_per_1m_tokens,
+            "cost_currency": self._settings.llm_cost_currency,
+        }
 
     def continue_run(self, run_id: str, actor_id: str) -> AgentRun:
         run = self._get_authorized_run(run_id, actor_id, write=True)
@@ -547,10 +565,13 @@ class AssessmentRunUseCase:
             state=_checkpoint_state(result),
             created_at=now,
         )
+        token_usage = max(run.token_usage, _token_usage(result))
+        cost = max(run.cost, _estimated_cost(result, self._settings))
         updated = updated.model_copy(
             update={
                 "checkpoint_id": checkpoint.checkpoint_id,
-                "token_usage": max(run.token_usage, _token_usage(result)),
+                "token_usage": token_usage,
+                "cost": cost,
             }
         )
         events = _events_for_result(
@@ -984,6 +1005,22 @@ def _token_usage(result: WorkflowExecutionResult) -> int:
         return 0
     value = budget.get("token_usage", 0)
     return value if isinstance(value, int) and value >= 0 else 0
+
+
+def _estimated_cost(result: WorkflowExecutionResult, settings: Settings | None) -> float:
+    if settings is None:
+        return 0.0
+    budget = result.state.get("budget", {})
+    if not isinstance(budget, dict):
+        return 0.0
+    input_tokens = budget.get("input_tokens", 0)
+    output_tokens = budget.get("output_tokens", 0)
+    if not isinstance(input_tokens, int) or not isinstance(output_tokens, int):
+        return 0.0
+    return (
+        input_tokens * settings.llm_input_cost_per_1m_tokens
+        + output_tokens * settings.llm_output_cost_per_1m_tokens
+    ) / 1_000_000
 
 
 def _optional_string(value: Any) -> str | None:

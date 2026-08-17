@@ -13,6 +13,7 @@ from domain import (
     EvidencePlanResult,
     WorkflowRuntimePort,
 )
+from infra.observability import PrometheusMetricsAdapter
 from infra.workflows import LangGraphWorkflowRuntime
 from tests.fakes import FakeTrace
 
@@ -36,6 +37,8 @@ class _TokenHeavyPlanner:
                 evidence_gaps=[],
                 completion_criteria=["完成规则和引用校验"],
             ),
+            input_tokens=120,
+            output_tokens=40,
             token_usage=160,
         )
 
@@ -71,16 +74,27 @@ class TestLangGraphInterruptResume:
 
         assert started.stage == "inspect_documents"
         assert resumed.stage == "human_fact_confirmation"
-        assert [span["name"] for span in trace.spans] == [
-            "riskpilot.case_assessment.start",
-            "riskpilot.case_assessment.resume",
-        ]
-        start_metadata = trace.spans[0]["metadata"]
+        span_names = [span["name"] for span in trace.spans]
+        assert span_names[0] == "riskpilot.case_assessment.start"
+        assert "riskpilot.graph.load_case" in span_names
+        assert "riskpilot.graph.inspect_documents" in span_names
+        assert "riskpilot.case_assessment.resume" in span_names
+        assert "riskpilot.graph.build_evidence_plan" in span_names
+        assert "riskpilot.graph.detect_missing_facts" in span_names
+        start_metadata = next(
+            span["metadata"]
+            for span in trace.spans
+            if span["name"] == "riskpilot.case_assessment.start"
+        )
         assert start_metadata["pending_document_count"] == 1
         assert start_metadata["missing_fact_count"] == 1
         assert start_metadata["status"] == "interrupted"
         assert "document_sensitive" not in str(start_metadata)
-        resume_metadata = trace.spans[1]["metadata"]
+        resume_metadata = next(
+            span["metadata"]
+            for span in trace.spans
+            if span["name"] == "riskpilot.case_assessment.resume"
+        )
         assert resume_metadata["resumed"] is True
         assert resume_metadata["interrupt_kind"] == "fact_confirmation"
 
@@ -214,6 +228,47 @@ class TestLangGraphInterruptResume:
                 missing_fact_fields=[],
                 max_tokens=100,
             )
+
+    def test_planner_usage_reaches_metrics_with_explicit_cost(
+        self,
+        checkpoint_path: str,
+    ) -> None:
+        metrics = PrometheusMetricsAdapter(cost_currency="CNY")
+        runtime = LangGraphWorkflowRuntime(
+            checkpoint_path,
+            planner=_TokenHeavyPlanner(),
+            metrics=metrics,
+            model_name="planner-test-model",
+            input_cost_per_1m_tokens=2.0,
+            output_cost_per_1m_tokens=8.0,
+        )
+
+        result = runtime.start_case_assessment(
+            thread_id="thread_planner_metrics",
+            case_id="case_001",
+            workspace_id="ws_001",
+            actor_id="github:alice",
+            ruleset_version="synthetic-v1",
+            document_readiness=CaseDocumentReadiness(ready_document_ids=["document_001"]),
+            missing_fact_fields=[],
+        )
+
+        assert result.state["budget"]["input_tokens"] == 120
+        assert result.state["budget"]["output_tokens"] == 40
+        assert result.state["budget"]["token_usage"] == 160
+        payload = metrics.render().decode()
+        assert (
+            'riskpilot_llm_tokens_total{model="planner-test-model",'
+            'operation="build_evidence_plan",token_type="input"} 120.0'
+        ) in payload
+        assert (
+            'riskpilot_llm_tokens_total{model="planner-test-model",'
+            'operation="build_evidence_plan",token_type="output"} 40.0'
+        ) in payload
+        assert (
+            'riskpilot_llm_estimated_cost_total{currency="CNY",'
+            'model="planner-test-model",operation="build_evidence_plan"} 0.00056'
+        ) in payload
 
     def test_checkpoint_state_only_contains_lightweight_safe_fields(
         self,

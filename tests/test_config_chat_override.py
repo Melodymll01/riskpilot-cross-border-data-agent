@@ -157,6 +157,27 @@ class TestRuntimeConfiguration:
 
         settings.validate_runtime_configuration()
 
+    def test_nonzero_price_requires_explicit_currency(self) -> None:
+        settings = _mk(
+            llm_provider="local",
+            embed_provider="local",
+            llm_input_cost_per_1m_tokens=2.0,
+        )
+
+        assert settings.runtime_configuration_errors() == [
+            "配置非零 LLM token 价格时必须显式配置 LLM_COST_CURRENCY"
+        ]
+
+    def test_nonzero_price_accepts_three_letter_currency(self) -> None:
+        settings = _mk(
+            llm_provider="local",
+            embed_provider="local",
+            llm_input_cost_per_1m_tokens=2.0,
+            llm_cost_currency="CNY",
+        )
+
+        settings.validate_runtime_configuration()
+
     def test_split_api_credentials_validate_independently(self) -> None:
         settings = _mk(
             llm_provider="api",

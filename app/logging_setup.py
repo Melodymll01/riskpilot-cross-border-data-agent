@@ -20,10 +20,20 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
 import logging
+import re
 from collections.abc import Iterable
+from datetime import UTC, datetime
 
-from app.request_context import get_request_id, get_user_id
+from app.request_context import (
+    get_observability_context,
+    get_request_id,
+    get_user_id,
+)
+from infra.observability.otel import current_trace_ids
 
 DEFAULT_FORMAT = (
     "%(asctime)s [%(levelname)s] [%(request_id)s] [uid:%(user_id)s] %(name)s: %(message)s"
@@ -33,6 +43,11 @@ DEFAULT_FORMAT = (
 
 _FILTER_MARKER = "_step025f_request_id_filter"
 """handler 上挂的属性名，用于幂等检测（同一 handler 不重复加 filter）。"""
+
+_AUTHORIZATION_PATTERN = re.compile(r"(?i)\bauthorization\s*[:=]\s*[^\s,;]+(?:\s+[^\s,;]+)?")
+_SENSITIVE_VALUE_PATTERN = re.compile(
+    r"(?i)\b(cookie|api[_ -]?key|password|secret|prompt)\s*[:=]\s*[^\s,;]+"
+)
 
 
 class RequestIdLogFilter(logging.Filter):
@@ -53,6 +68,57 @@ class RequestIdLogFilter(logging.Filter):
         return True
 
 
+class JsonLogFormatter(logging.Formatter):
+    _SAFE_EXTRA_FIELDS = {
+        "cost",
+        "duration_ms",
+        "retry_count",
+        "status",
+        "token_usage",
+    }
+
+    def __init__(self, *, hash_salt: str) -> None:
+        super().__init__()
+        if len(hash_salt) < 16:
+            raise ValueError("JSON log hash_salt 至少需要 16 个字符")
+        self._hash_salt = hash_salt
+
+    def format(self, record: logging.LogRecord) -> str:
+        context = get_observability_context()
+        trace_id, span_id = current_trace_ids()
+        payload: dict[str, object] = {
+            "timestamp": datetime.fromtimestamp(record.created, UTC).isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": _safe_log_message(record.msg),
+            "request_id": context.request_id or "-",
+            "trace_id": trace_id or "-",
+            "span_id": span_id or "-",
+        }
+        if context.run_id:
+            payload["run_id"] = context.run_id
+        if context.node:
+            payload["node"] = context.node
+        if context.tool:
+            payload["tool"] = context.tool
+        for field_name, value in (
+            ("user_id_hash", context.user_id),
+            ("workspace_id_hash", context.workspace_id),
+            ("case_id_hash", context.case_id),
+        ):
+            if value:
+                payload[field_name] = _hash_identifier(value, self._hash_salt)
+        for field_name in self._SAFE_EXTRA_FIELDS:
+            value = getattr(record, field_name, None)
+            if isinstance(value, (bool, int, float)) or (
+                isinstance(value, str) and len(value) <= 120
+            ):
+                payload[field_name] = value
+        if record.exc_info and record.exc_info[0] is not None:
+            payload["error_type"] = record.exc_info[0].__name__
+        return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
 def _attach_filter_to_handler(handler: logging.Handler) -> None:
     """在 handler 上挂 ``RequestIdLogFilter``；幂等。"""
     if getattr(handler, _FILTER_MARKER, False):
@@ -67,6 +133,8 @@ def configure_logging(
     log_file: str | None = "logs/app.log",
     fmt: str = DEFAULT_FORMAT,
     extra_handlers: Iterable[logging.Handler] | None = None,
+    json_logs: bool = False,
+    hash_salt: str = "dev-observability-salt-change-me",
 ) -> None:
     """安装带 ``request_id`` 字段的 logging 配置；幂等。
 
@@ -86,7 +154,9 @@ def configure_logging(
     root = logging.getLogger()
     root.setLevel(level)
 
-    formatter = logging.Formatter(fmt)
+    formatter: logging.Formatter = (
+        JsonLogFormatter(hash_salt=hash_salt) if json_logs else logging.Formatter(fmt)
+    )
     handlers: list[logging.Handler] = [logging.StreamHandler()]
     if log_file:
         handlers.append(logging.FileHandler(log_file, encoding="utf-8"))
@@ -104,3 +174,18 @@ def configure_logging(
         ):
             h._step025f_owned = True  # type: ignore[attr-defined]
             root.addHandler(h)
+
+
+def _hash_identifier(value: str, hash_salt: str) -> str:
+    return hmac.new(
+        hash_salt.encode("utf-8"),
+        value.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()[:24]
+
+
+def _safe_log_message(value: object) -> str:
+    message = str(value)
+    message = _AUTHORIZATION_PATTERN.sub("authorization=[redacted]", message)
+    message = _SENSITIVE_VALUE_PATTERN.sub(r"\1=[redacted]", message)
+    return message[:500]

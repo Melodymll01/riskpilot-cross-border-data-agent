@@ -682,6 +682,68 @@ class TracePort(Protocol):
 
 
 @runtime_checkable
+class MetricsPort(Protocol):
+    """框架无关的聚合指标端口。"""
+
+    def observe_http(
+        self,
+        *,
+        method: str,
+        route: str,
+        status_code: int,
+        duration_seconds: float,
+    ) -> None: ...
+
+    def observe_agent_run(
+        self,
+        *,
+        workflow: str,
+        status: str,
+        duration_seconds: float,
+        token_usage: int,
+        cost: float,
+        refused: bool,
+    ) -> None: ...
+
+    def observe_tool(
+        self,
+        *,
+        tool: str,
+        status: str,
+        duration_seconds: float,
+        retry_count: int,
+    ) -> None: ...
+
+    def observe_worker_task(
+        self,
+        *,
+        task: str,
+        status: str,
+        duration_seconds: float,
+        retry_count: int,
+    ) -> None: ...
+
+    def set_worker_queue_depth(self, *, queue: str, depth: int) -> None: ...
+
+    def record_llm_usage(
+        self,
+        *,
+        operation: str,
+        model: str,
+        input_tokens: int,
+        output_tokens: int,
+        cost: float,
+    ) -> None: ...
+
+    def record_citation_failure(self, *, workflow: str) -> None: ...
+
+    def render(self) -> bytes: ...
+
+    @property
+    def content_type(self) -> str: ...
+
+
+@runtime_checkable
 class ReadinessPort(Protocol):
     """应用必需依赖的就绪检查；不得检查可选 LLM 或外部搜索服务。"""
 

@@ -14,7 +14,7 @@ from domain.runs import (
     WorkflowInterruptKind,
 )
 from infra.agents import DeterministicEvidencePlanner
-from infra.observability import NoopTraceAdapter
+from infra.observability import NoopMetricsAdapter, NoopTraceAdapter
 from infra.workflows.case_assessment_graph import (
     GRAPH_STAGES,
     CaseAssessmentState,
@@ -24,7 +24,12 @@ from infra.workflows.case_assessment_graph import (
 from infra.workflows.checkpoint_store import CheckpointBackend, CheckpointStore
 
 if TYPE_CHECKING:
-    from domain.ports import CaseAssessmentToolPort, EvidencePlannerPort, TracePort
+    from domain.ports import (
+        CaseAssessmentToolPort,
+        EvidencePlannerPort,
+        MetricsPort,
+        TracePort,
+    )
 
 _GRAPH_STAGES = GRAPH_STAGES
 
@@ -42,6 +47,10 @@ class LangGraphWorkflowRuntime:
         planner: EvidencePlannerPort | None = None,
         tools: CaseAssessmentToolPort | None = None,
         budget: AgentBudget | None = None,
+        metrics: MetricsPort | None = None,
+        model_name: str = "unconfigured",
+        input_cost_per_1m_tokens: float = 0.0,
+        output_cost_per_1m_tokens: float = 0.0,
     ) -> None:
         self._checkpoint_store = CheckpointStore(
             backend=checkpoint_backend,
@@ -53,9 +62,15 @@ class LangGraphWorkflowRuntime:
             planner=planner or DeterministicEvidencePlanner(),
             tools=tools,
             budget=self._default_budget,
+            trace=trace,
+            metrics=metrics,
+            model_name=model_name,
+            input_cost_per_1m_tokens=input_cost_per_1m_tokens,
+            output_cost_per_1m_tokens=output_cost_per_1m_tokens,
         )
         self._compiled_graph: Any | None = None
         self._trace = trace or NoopTraceAdapter()
+        self._metrics = metrics or NoopMetricsAdapter()
 
     def close(self) -> None:
         self._checkpoint_store.close()
@@ -116,6 +131,7 @@ class LangGraphWorkflowRuntime:
                 "workspace_id": workspace_id,
             },
         ) as span:
+            started = __import__("time").perf_counter()
             try:
                 result = self._start_case_assessment(
                     thread_id=thread_id,
@@ -135,8 +151,28 @@ class LangGraphWorkflowRuntime:
                 )
             except Exception as exc:
                 span.add_metadata({"error_type": type(exc).__name__, "status": "failed"})
+                self._metrics.observe_agent_run(
+                    workflow="case_assessment",
+                    status="failed",
+                    duration_seconds=__import__("time").perf_counter() - started,
+                    token_usage=0,
+                    cost=0.0,
+                    refused=False,
+                )
                 raise
             span.add_metadata(_result_metadata(result))
+            budget_state = result.state.get("budget", {})
+            token_usage = (
+                int(budget_state.get("token_usage", 0)) if isinstance(budget_state, dict) else 0
+            )
+            self._metrics.observe_agent_run(
+                workflow="case_assessment",
+                status=result.status,
+                duration_seconds=__import__("time").perf_counter() - started,
+                token_usage=token_usage,
+                cost=0.0,
+                refused=bool(result.state.get("refusal_reason")),
+            )
             return result
 
     def _start_case_assessment(
@@ -223,6 +259,7 @@ class LangGraphWorkflowRuntime:
                 "workflow": "case_assessment",
             },
         ) as span:
+            started = __import__("time").perf_counter()
             try:
                 result = self._resume_case_assessment(
                     thread_id=thread_id,
@@ -233,8 +270,28 @@ class LangGraphWorkflowRuntime:
                 )
             except Exception as exc:
                 span.add_metadata({"error_type": type(exc).__name__, "status": "failed"})
+                self._metrics.observe_agent_run(
+                    workflow="case_assessment",
+                    status="failed",
+                    duration_seconds=__import__("time").perf_counter() - started,
+                    token_usage=0,
+                    cost=0.0,
+                    refused=False,
+                )
                 raise
             span.add_metadata(_result_metadata(result))
+            budget_state = result.state.get("budget", {})
+            token_usage = (
+                int(budget_state.get("token_usage", 0)) if isinstance(budget_state, dict) else 0
+            )
+            self._metrics.observe_agent_run(
+                workflow="case_assessment",
+                status=result.status,
+                duration_seconds=__import__("time").perf_counter() - started,
+                token_usage=token_usage,
+                cost=0.0,
+                refused=bool(result.state.get("refusal_reason")),
+            )
             return result
 
     def _resume_case_assessment(

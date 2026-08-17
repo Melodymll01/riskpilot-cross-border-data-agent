@@ -17,6 +17,7 @@ from api.v2.documents import build_documents_routes
 from api.v2.feedback import build_feedback_routes
 from api.v2.health import build_health_routes
 from api.v2.memory import build_memory_routes
+from api.v2.metrics import build_metrics_routes
 from api.v2.tasks import build_task_routes
 
 if TYPE_CHECKING:
@@ -38,4 +39,5 @@ def build_v2_router(container: AppContainer, *, limiter: RateLimiter | None = No
     root.include_router(build_memory_routes(container))
     root.include_router(build_copilot_routes(container, limiter=limiter))
     root.include_router(build_health_routes(container))
+    root.include_router(build_metrics_routes(container))
     return root

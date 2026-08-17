@@ -14,7 +14,7 @@
 > 将案件材料、confirmed facts、版本化规则、不可变 Assessment 和 Reviewer 审批串成
 > 可暂停、恢复、重试、取消和审计的闭环。工程上保留 DDD 4 层与 Port 边界，
 > `/api/v2` 提供通用 Copilot，`/api/v3` 提供案件工作台；可选 LangSmith 只承接
-> 隐私脱敏后的 AI Trace，不进入领域逻辑。
+> 隐私脱敏后的 AI Trace，不进入领域逻辑；OpenTelemetry 和 Prometheus 负责本地可观测性。
 
 ---
 
@@ -32,8 +32,8 @@
 | :---: | :---: |
 | ![审计日记](screenshots/05-审计日记.png) | |
 
-> Compose 已定义 API、Worker、PostgreSQL、Redis 与 MinIO；完整新机一键启动验收按路线在
-> Phase 9 完成，当前推荐先使用本地 Python Quick Start。
+> Compose 已定义 API、Worker、PostgreSQL、Redis 与 MinIO；完整新机一键启动将在
+> Phase 9 验收，当前推荐先使用本地 Python Quick Start。
 
 ---
 
@@ -55,6 +55,8 @@
 | **Assessment 引用闭包** | Finding 关联 Fact / Evidence / Clause 快照，生成和批准前重验版本、SHA 与原文漂移 | [assessment_management.py](app/use_cases/assessment_management.py) |
 | **核心案件 Agent** | LangChain function calling 制定 EvidencePlan，LangGraph 编排 Typed Tools、缺口/冲突 HITL、规则与引用门禁 | [case_assessment_graph.py](infra/workflows/case_assessment_graph.py) |
 | **可恢复案件工作流** | local SQLite / production PostgreSQL checkpointer，支持 interrupt/resume、失败重试、取消和人工审批 | [assessment_runs.py](app/use_cases/assessment_runs.py) |
+| **OpenTelemetry 链路** | HTTP → Agent → Graph Node → Tool → Celery W3C Trace；业务 ID HMAC，异常正文不进入 span | [otel.py](infra/observability/otel.py) |
+| **Prometheus 指标** | HTTP、Agent、Tool、Worker、队列、LLM token/cost、拒答和 Citation failure；Worker 支持 prefork 聚合 | [metrics.py](infra/observability/metrics.py) |
 | **V3 案件工作台** | Workspace/Case 创建与导航、材料上传/解析/索引/失败重试、Fact Confirmation 与继续运行 | [cases.js](frontend/cases.js) |
 | **V3 Evidence QA** | 四类授权检索；结构/语义双校验；有限 Claim 过滤修复，全部失败仍安全拒答 | [evidence_qa.py](app/use_cases/evidence_qa.py) |
 
@@ -62,8 +64,8 @@
 
 | 维度 | 数值 |
 | --- | --- |
-| 离线回归 | **1324 passed · 4 skipped · 5 warnings**（`make ci`，2026-08-17） |
-| 架构规模 | **45 Port + 17 Use Case** · DDD 4 层 |
+| 离线回归 | **1344 passed · 4 skipped · 5 warnings**（`make ci`，2026-08-17） |
+| 架构规模 | **46 Port + 17 Use Case** · DDD 4 层 |
 | V3 资源接口 | **48 个路由** · Workspace → Visual Evidence / Evidence QA / Assessment Run |
 | Agent/Graph | LangChain Tool Calling + 2 张 LangGraph（Research / Assessment） |
 | Agent Eval | **39 个案件 · 13 类场景**；Offline Task/Tool/Argument/Missing-Fact/Citation/Recovery 均 **1.0**；Unsafe/Cross-tenant/False Accept 均 **0.0** |
@@ -99,9 +101,12 @@ flowchart TB
   EvidencePlan；
   LangGraph 通过 Typed Tool Registry 执行案件证据、法规、候选事实、确定性规则和引用验证，
   缺失事实或冲突时分别进入 Human-in-the-loop；
-- **AI 可观测性**：通过 `TracePort` 接入 LangSmith；默认 `NoopTraceAdapter`，启用时
-  只记录哈希业务 ID、节点/工具路径、计数、状态和错误类型，案件正文、Prompt、模型
-  回答、异常文本、事件和附件均在客户端出站前移除；
+- **AI 可观测性**：`TracePort` 可组合 OpenTelemetry 和可选 LangSmith；HTTP、Agent、
+  Graph Node、Tool 与 Celery 使用同一 W3C Trace。业务 ID 先 HMAC，元数据采用白名单，
+  案件正文、Prompt、模型回答、异常文本、事件和附件不会进入 Trace；
+- **指标与成本**：`/api/v2/metrics` 暴露低基数 Prometheus 指标；Celery prefork Worker
+  在独立 `9101` 端口聚合子进程指标。Planner 与 Fact Proposal 读取 Provider
+  `input/output/total_tokens`，只有显式配置模型单价时才估算 cost；
 - **确定性边界**：LangGraph 负责流程状态，`PolicyRuleEngine` 负责门槛计算，
   `AssessmentManagementUseCase` 负责最终快照与审批；
 - **检查点边界**：只保存对象 ID 和轻量状态，不保存文档正文、凭证、原始 prompt 或思维链。
@@ -172,8 +177,9 @@ Prompt 或其他用户数据。`evaluations/memory_recall` 以版本化数据集
   offset 和 SHA；Finding 的 Fact/Evidence/Clause 引用必须闭包，漂移即拒绝批准
 - **混合检索**：向量 + BM25 + RRF 融合 + Cross-Encoder 重排
 - **全链路审计**：admin 写操作全部落审计日志，可合规追责
-- **可替换可观测性**：`TracePort` 隔离 LangSmith，默认无网络；启用后强制客户端脱敏，
-  不把案件正文、记忆原文、Prompt、回答或异常栈上传第三方
+- **可替换可观测性**：JSON Log + OpenTelemetry + Prometheus 均经过框架无关 Port；
+  `run_id` 串联 Agent，Workspace/Case/User 只记录 HMAC。LangSmith 默认关闭且强制客户端
+  脱敏，不把案件正文、记忆原文、Prompt、回答或异常栈上传第三方
 - **CI 守护**：GitHub Actions 全量 Ruff + format + mypy + 零密钥 pytest；
   research 等外部能力全部注入 Fake，不访问网络、不下载模型、不产生费用；另跑 39 案件
   Offline Agent 轨迹评测，安全门禁失败直接阻断 CI
@@ -292,10 +298,12 @@ ADMIN_USER_IDS=github:your-github-login
 ## 技术栈
 
 - **后端**：FastAPI + Pydantic v2
-- **架构**：DDD 4 层 + 45 Port + Container DI + WorkflowRuntimePort + TracePort
+- **架构**：DDD 4 层 + Port/Adapter + Container DI + WorkflowRuntimePort + TracePort +
+  MetricsPort
 - **Agent**：LangChain 1.3 `create_agent` / function calling + OpenAI-compatible `ChatOpenAI`
 - **工作流**：LangGraph 1.2 + SQLite/PostgreSQL checkpointer + interrupt/resume
-- **可观测性**：可选 LangSmith + 客户端白名单/HMAC 脱敏；默认关闭
+- **可观测性**：JSON Log + OpenTelemetry + Prometheus；可选 LangSmith 经过客户端
+  白名单/HMAC 脱敏且默认关闭
 - **存储**：SQLite + Chroma local profile；PostgreSQL + pgvector + SQLAlchemy 2.x +
   Alembic production profile；LangGraph checkpoint 跟随 local/production Profile
 - **鉴权**：GitHub OAuth + JWT（HS256）+ admin 白名单

@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from logging.handlers import MemoryHandler
 
@@ -21,10 +22,11 @@ import pytest
 
 from app.logging_setup import (
     DEFAULT_FORMAT,
+    JsonLogFormatter,
     RequestIdLogFilter,
     configure_logging,
 )
-from app.request_context import request_context
+from app.request_context import observability_context, request_context
 
 
 @pytest.fixture
@@ -201,3 +203,62 @@ class TestConfigureLogging:
             "u-inner",
             "u-outer",
         ]
+
+
+class TestJsonLogFormatter:
+    def test_json_contains_safe_context_and_hashes_business_ids(self) -> None:
+        formatter = JsonLogFormatter(hash_salt="test-json-log-hash-salt")
+        record = _make_record(
+            "Authorization: Bearer super-secret cookie=session-secret prompt=malicious-instruction"
+        )
+        record.duration_ms = 12.5
+        record.status = "completed"
+        record.token_usage = 80
+        record.cost = 0.001
+
+        with (
+            request_context("request-001", user_id="github:sensitive"),
+            observability_context(
+                run_id="run_001",
+                workspace_id="workspace_sensitive",
+                case_id="case_sensitive",
+                node="extract_fact_candidates",
+                tool="extract_fact_candidates",
+            ),
+        ):
+            payload = json.loads(formatter.format(record))
+
+        assert payload["request_id"] == "request-001"
+        assert payload["run_id"] == "run_001"
+        assert payload["node"] == "extract_fact_candidates"
+        assert payload["tool"] == "extract_fact_candidates"
+        assert payload["status"] == "completed"
+        assert payload["token_usage"] == 80
+        assert payload["cost"] == 0.001
+        assert payload["user_id_hash"] != "github:sensitive"
+        assert payload["workspace_id_hash"] != "workspace_sensitive"
+        assert payload["case_id_hash"] != "case_sensitive"
+        assert "super-secret" not in payload["message"]
+        assert "session-secret" not in payload["message"]
+        assert "malicious-instruction" not in payload["message"]
+        assert payload["message"].count("[redacted]") == 3
+        assert "user_id" not in payload
+        assert "workspace_id" not in payload
+        assert "case_id" not in payload
+
+    def test_log_arguments_are_not_interpolated_into_json_message(self) -> None:
+        formatter = JsonLogFormatter(hash_salt="test-json-log-hash-salt")
+        record = logging.LogRecord(
+            name="test",
+            level=logging.ERROR,
+            pathname=__file__,
+            lineno=1,
+            msg="请求失败: %s",
+            args=("Authorization: Bearer raw-secret",),
+            exc_info=None,
+        )
+
+        payload = json.loads(formatter.format(record))
+
+        assert payload["message"] == "请求失败: %s"
+        assert "raw-secret" not in formatter.format(record)

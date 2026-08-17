@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from app.use_cases.fact_management import FactManagementUseCase
     from app.use_cases.policy_management import PolicyManagementUseCase
     from domain.agent_workflow import AgentRuntimeContext
+    from domain.ports import MetricsPort, TracePort
 
 _AGENT_ROLES = frozenset({"editor", "reviewer", "admin"})
 CASE_ASSESSMENT_TOOL_SCHEMA_VERSION = "case-assessment-tools-v1"
@@ -57,6 +58,8 @@ class ExtractFactCandidatesOutput(BaseModel):
     fact_ids: list[str]
     proposed_field_names: list[str]
     conflict_field_names: list[str]
+    input_tokens: int = Field(default=0, ge=0, exclude=True)
+    output_tokens: int = Field(default=0, ge=0, exclude=True)
     token_usage: int = Field(default=0, ge=0, exclude=True)
 
 
@@ -91,8 +94,19 @@ def build_case_assessment_tool_registry(
     policy_management: PolicyManagementUseCase,
     fact_management: FactManagementUseCase,
     assessment_management: AssessmentManagementUseCase,
+    trace: TracePort | None = None,
+    metrics: MetricsPort | None = None,
+    model_name: str = "unconfigured",
+    input_cost_per_1m_tokens: float = 0.0,
+    output_cost_per_1m_tokens: float = 0.0,
 ) -> TypedToolRegistry:
-    registry = TypedToolRegistry()
+    registry = TypedToolRegistry(
+        trace=trace,
+        metrics=metrics,
+        model_name=model_name,
+        input_cost_per_1m_tokens=input_cost_per_1m_tokens,
+        output_cost_per_1m_tokens=output_cost_per_1m_tokens,
+    )
 
     def retrieve_case(
         args: RetrieveCaseEvidenceInput,
@@ -176,6 +190,8 @@ def build_case_assessment_tool_registry(
             fact_ids=[detail.fact.fact_id for detail in batch.facts],
             proposed_field_names=[detail.fact.field_name for detail in batch.facts],
             conflict_field_names=list(batch.conflict_field_names),
+            input_tokens=batch.input_tokens,
+            output_tokens=batch.output_tokens,
             token_usage=batch.token_usage,
         )
 

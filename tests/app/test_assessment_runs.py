@@ -16,6 +16,7 @@ from app.use_cases import (
     WorkspaceManagementUseCase,
 )
 from app.use_cases.assessment_runs import AssessmentRunUseCase
+from config import Settings
 from domain import (
     AgentRunAlreadyActive,
     AgentRunNotFound,
@@ -23,10 +24,13 @@ from domain import (
     CaseFact,
     Document,
     DocumentVersion,
+    EvidencePlanRequest,
+    EvidencePlanResult,
     PolicyRule,
     ProcessingJob,
     WorkspaceAccessDenied,
 )
+from infra.agents import DeterministicEvidencePlanner
 from infra.workflows import LangGraphWorkflowRuntime
 from tests.fakes import (
     InMemoryAgentRunRepo,
@@ -102,7 +106,12 @@ class _Setup:
         )
         self.publish_rule()
 
-    def build_run_use_case(self, runtime: Any) -> AssessmentRunUseCase:
+    def build_run_use_case(
+        self,
+        runtime: Any,
+        *,
+        settings: Settings | None = None,
+    ) -> AssessmentRunUseCase:
         return AssessmentRunUseCase(
             run_repo=self.run_repo,
             workflow_runtime=runtime,
@@ -112,6 +121,7 @@ class _Setup:
             workspace_management=self.workspace_uc,
             policy_management=self.policy_uc,
             assessment_management=self.assessment_uc,
+            settings=settings,
         )
 
     def publish_rule(self) -> None:
@@ -315,6 +325,94 @@ class TestAssessmentRunLifecycle:
         assert setup.run_uc.list_events(run.run_id, "github:reviewer")[-1].event_type == (
             "run_completed"
         )
+
+    def test_real_token_usage_and_explicit_price_are_persisted(
+        self,
+        setup: _Setup,
+    ) -> None:
+        class _UsagePlanner:
+            def build_plan(self, request: EvidencePlanRequest) -> EvidencePlanResult:
+                planned = DeterministicEvidencePlanner().build_plan(request)
+                return planned.model_copy(
+                    update={
+                        "input_tokens": 100,
+                        "output_tokens": 20,
+                        "token_usage": 120,
+                    }
+                )
+
+        setup.seed_document()
+        setup.confirm_fact()
+        settings = Settings(  # type: ignore[call-arg]
+            _env_file=None,
+            llm_provider="local",
+            embed_provider="local",
+            local_chat_model="test-cost-model",
+            llm_input_cost_per_1m_tokens=2.0,
+            llm_output_cost_per_1m_tokens=8.0,
+            llm_cost_currency="CNY",
+        )
+        runtime = LangGraphWorkflowRuntime(
+            ":memory:",
+            planner=_UsagePlanner(),
+            model_name=settings.effective_chat_model,
+            input_cost_per_1m_tokens=settings.llm_input_cost_per_1m_tokens,
+            output_cost_per_1m_tokens=settings.llm_output_cost_per_1m_tokens,
+        )
+        run_uc = setup.build_run_use_case(runtime, settings=settings)
+
+        run = run_uc.start(
+            setup.case_id,
+            "github:editor",
+            ruleset_version="synthetic-v1",
+            model_config_snapshot={"model": "client-must-not-override"},
+        )
+
+        assert run.status == "waiting_for_review"
+        assert run.token_usage == 120
+        assert run.cost == pytest.approx(0.00036)
+        assert run.model_config_snapshot == {
+            "model": "test-cost-model",
+            "provider": "local",
+            "input_cost_per_1m_tokens": 2.0,
+            "output_cost_per_1m_tokens": 8.0,
+            "cost_currency": "CNY",
+        }
+
+    def test_unconfigured_price_keeps_cost_zero(self, setup: _Setup) -> None:
+        class _UsagePlanner:
+            def build_plan(self, request: EvidencePlanRequest) -> EvidencePlanResult:
+                planned = DeterministicEvidencePlanner().build_plan(request)
+                return planned.model_copy(
+                    update={
+                        "input_tokens": 60,
+                        "output_tokens": 20,
+                        "token_usage": 80,
+                    }
+                )
+
+        setup.seed_document()
+        setup.confirm_fact()
+        settings = Settings(  # type: ignore[call-arg]
+            _env_file=None,
+            llm_provider="local",
+            embed_provider="local",
+        )
+        run_uc = setup.build_run_use_case(
+            LangGraphWorkflowRuntime(":memory:", planner=_UsagePlanner()),
+            settings=settings,
+        )
+
+        run = run_uc.start(
+            setup.case_id,
+            "github:editor",
+            ruleset_version="synthetic-v1",
+        )
+
+        assert run.token_usage == 80
+        assert run.cost == 0.0
+        assert run.model_config_snapshot["input_cost_per_1m_tokens"] == 0.0
+        assert run.model_config_snapshot["output_cost_per_1m_tokens"] == 0.0
 
     def test_reviewer_rejection_completes_run_and_returns_case_for_reassessment(
         self,

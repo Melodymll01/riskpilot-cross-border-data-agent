@@ -49,6 +49,7 @@ from app.factories import (
     build_memory,
     build_memory_scheduler,
     build_memory_settings_store,
+    build_metrics,
     build_object_store,
     build_policy_rule_repo,
     build_profile_store,
@@ -117,6 +118,7 @@ if TYPE_CHECKING:
         MemoryJobSchedulerPort,
         MemoryPort,
         MemorySettingsStorePort,
+        MetricsPort,
         ObjectStorePort,
         PolicyRuleRepoPort,
         ProfileStorePort,
@@ -176,11 +178,13 @@ class AppContainer:
         auth: AuthPort | None = None,
         memory: MemoryPort | None = None,
         trace: TracePort | None = None,
+        metrics: MetricsPort | None = None,
         readiness: ReadinessPort | None = None,
         agent_model: Any | None = None,
     ) -> None:
         self.settings = settings
         self.trace: TracePort = trace or build_trace(settings)
+        self.metrics: MetricsPort = metrics or build_metrics(settings)
 
         # ── 存储层：SQLite 单连接池给三个 repo 共享 ─────────────────────
         pool = (
@@ -414,6 +418,11 @@ class AppContainer:
                 policy_management=self.policy_management,
                 fact_management=self.fact_management,
                 assessment_management=self.assessment_management,
+                trace=self.trace,
+                metrics=self.metrics,
+                model_name=settings.effective_chat_model,
+                input_cost_per_1m_tokens=settings.llm_input_cost_per_1m_tokens,
+                output_cost_per_1m_tokens=settings.llm_output_cost_per_1m_tokens,
             )
         )
         self.evidence_planner: EvidencePlannerPort = evidence_planner or build_evidence_planner(
@@ -424,6 +433,7 @@ class AppContainer:
             trace=self.trace,
             planner=self.evidence_planner,
             tools=self.case_assessment_tools,
+            metrics=self.metrics,
         )
         self.evidence_qa = EvidenceQAUseCase(
             retriever=self.retriever,
@@ -445,6 +455,7 @@ class AppContainer:
             workspace_management=self.workspace_management,
             policy_management=self.policy_management,
             assessment_management=self.assessment_management,
+            settings=settings,
         )
         self.feedback = FeedbackUseCase(self.feedback_repo)
         self.forget_memory = ForgetMemoryUseCase(self.memory, audit_log=self.audit_log)

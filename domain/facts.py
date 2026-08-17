@@ -92,7 +92,15 @@ class FactProposal(BaseDomainModel):
 
 class FactProposalResult(BaseDomainModel):
     proposals: list[FactProposal]
+    input_tokens: int = Field(default=0, ge=0)
+    output_tokens: int = Field(default=0, ge=0)
     token_usage: int = Field(default=0, ge=0)
+
+    @model_validator(mode="after")
+    def validate_usage(self) -> FactProposalResult:
+        if self.token_usage < self.input_tokens + self.output_tokens:
+            raise ValueError("token_usage 不能小于 input_tokens + output_tokens")
+        return self
 
 
 class CaseFactEvidence(BaseDomainModel):

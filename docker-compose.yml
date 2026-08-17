@@ -74,6 +74,11 @@ services:
       EMBED_PROVIDER: ${WORKER_EMBED_PROVIDER:-api}
       EMBEDDING_DIMENSIONS: "2048"
       LLM_PROVIDER: ${LLM_PROVIDER:-api}
+      PROMETHEUS_ENABLED: "true"
+      PROMETHEUS_WORKER_PORT: "9101"
+      PROMETHEUS_MULTIPROC_DIR: /tmp/riskpilot-prometheus
+    ports:
+      - "${PROMETHEUS_WORKER_PORT:-9101}:9101"
     depends_on:
       migrate:
         condition: service_completed_successfully

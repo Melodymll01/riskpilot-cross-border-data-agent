@@ -38,7 +38,7 @@ jobs:
       - name: Ruff format check
         run: ruff format --check .
       - name: Mypy
-        run: mypy domain app infra
+        run: mypy domain app infra observability_context.py
 
   test:
     name: Tests (pytest · offline fakes)

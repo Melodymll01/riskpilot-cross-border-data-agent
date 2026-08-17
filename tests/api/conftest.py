@@ -23,6 +23,7 @@ from api.v2 import build_v2_router
 from api.v2.errors import install_exception_handlers
 from api.v3 import build_v3_router
 from app.container import AppContainer
+from app.observability_middleware import install_observability_middleware
 from app.request_context import install_request_id_middleware
 from config import Settings
 from infra.agents import DeterministicEvidencePlanner
@@ -142,6 +143,7 @@ def app(container: AppContainer) -> FastAPI:
     install_exception_handlers(fastapi_app)
     # 暴露 container，方便测试里直接读 repo / fakes 验证副作用
     fastapi_app.state.container = container
+    install_observability_middleware(fastapi_app)
     return fastapi_app
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypedDict
 
@@ -15,9 +16,15 @@ from domain.agent_workflow import (
     EvidencePlanRequest,
     ToolExecutionResult,
 )
+from observability_context import observability_context
 
 if TYPE_CHECKING:
-    from domain.ports import CaseAssessmentToolPort, EvidencePlannerPort
+    from domain.ports import (
+        CaseAssessmentToolPort,
+        EvidencePlannerPort,
+        MetricsPort,
+        TracePort,
+    )
 
 GRAPH_STAGES = (
     "load_case",
@@ -78,44 +85,94 @@ class GraphDependencies:
     planner: EvidencePlannerPort
     tools: CaseAssessmentToolPort | None
     budget: AgentBudget
+    trace: TracePort | None = None
+    metrics: MetricsPort | None = None
+    model_name: str = "unconfigured"
+    input_cost_per_1m_tokens: float = 0.0
+    output_cost_per_1m_tokens: float = 0.0
 
 
 def build_case_assessment_graph(saver: Any, dependencies: GraphDependencies) -> Any:
     builder = StateGraph(CaseAssessmentState)
-    builder.add_node("load_case", _load_case)
-    builder.add_node("authorize", _authorize)
-    builder.add_node("inspect_documents", _inspect_documents)
+    builder.add_node("load_case", _node("load_case", _load_case, dependencies))
+    builder.add_node("authorize", _node("authorize", _authorize, dependencies))
+    builder.add_node(
+        "inspect_documents",
+        _node("inspect_documents", _inspect_documents, dependencies),
+    )
     builder.add_node(
         "build_evidence_plan",
-        lambda state: _build_evidence_plan(state, dependencies),
+        _node(
+            "build_evidence_plan",
+            lambda state: _build_evidence_plan(state, dependencies),
+            dependencies,
+        ),
     )
     builder.add_node(
         "retrieve_case_evidence",
-        lambda state: _retrieve_case_evidence(state, dependencies),
+        _node(
+            "retrieve_case_evidence",
+            lambda state: _retrieve_case_evidence(state, dependencies),
+            dependencies,
+        ),
     )
     builder.add_node(
         "retrieve_regulations",
-        lambda state: _retrieve_regulations(state, dependencies),
+        _node(
+            "retrieve_regulations",
+            lambda state: _retrieve_regulations(state, dependencies),
+            dependencies,
+        ),
     )
     builder.add_node(
         "extract_fact_candidates",
-        lambda state: _extract_fact_candidates(state, dependencies),
+        _node(
+            "extract_fact_candidates",
+            lambda state: _extract_fact_candidates(state, dependencies),
+            dependencies,
+        ),
     )
-    builder.add_node("detect_missing_facts", _detect_missing_facts)
-    builder.add_node("detect_fact_conflicts", _detect_fact_conflicts)
-    builder.add_node("human_fact_confirmation", _human_fact_confirmation)
-    builder.add_node("select_policy_snapshot", _select_policy_snapshot)
+    builder.add_node(
+        "detect_missing_facts",
+        _node("detect_missing_facts", _detect_missing_facts, dependencies),
+    )
+    builder.add_node(
+        "detect_fact_conflicts",
+        _node("detect_fact_conflicts", _detect_fact_conflicts, dependencies),
+    )
+    builder.add_node(
+        "human_fact_confirmation",
+        _node("human_fact_confirmation", _human_fact_confirmation, dependencies),
+    )
+    builder.add_node(
+        "select_policy_snapshot",
+        _node("select_policy_snapshot", _select_policy_snapshot, dependencies),
+    )
     builder.add_node(
         "evaluate_deterministic_rules",
-        lambda state: _evaluate_deterministic_rules(state, dependencies),
+        _node(
+            "evaluate_deterministic_rules",
+            lambda state: _evaluate_deterministic_rules(state, dependencies),
+            dependencies,
+        ),
     )
-    builder.add_node("draft_findings", _draft_findings)
+    builder.add_node(
+        "draft_findings",
+        _node("draft_findings", _draft_findings, dependencies),
+    )
     builder.add_node(
         "verify_claim_citations",
-        lambda state: _verify_claim_citations(state, dependencies),
+        _node(
+            "verify_claim_citations",
+            lambda state: _verify_claim_citations(state, dependencies),
+            dependencies,
+        ),
     )
-    builder.add_node("human_review", _human_review)
-    builder.add_node("finalize_assessment", _finalize_assessment)
+    builder.add_node("human_review", _node("human_review", _human_review, dependencies))
+    builder.add_node(
+        "finalize_assessment",
+        _node("finalize_assessment", _finalize_assessment, dependencies),
+    )
     builder.add_edge(START, "load_case")
     for source, target in zip(GRAPH_STAGES[:4], GRAPH_STAGES[1:5], strict=False):
         builder.add_edge(source, target)
@@ -131,6 +188,59 @@ def build_case_assessment_graph(saver: Any, dependencies: GraphDependencies) -> 
         builder.add_edge(source, target)
     builder.add_edge("finalize_assessment", END)
     return builder.compile(checkpointer=saver, name="riskpilot_case_assessment")
+
+
+def _node(
+    name: str,
+    invoke: Any,
+    dependencies: GraphDependencies,
+) -> Any:
+    def wrapped(state: CaseAssessmentState) -> dict[str, Any]:
+        started = __import__("time").perf_counter()
+        span_manager = (
+            dependencies.trace.span(
+                f"riskpilot.graph.{name}",
+                metadata={
+                    "run_id": state.get("run_id", ""),
+                    "workspace_id": state.get("workspace_id", ""),
+                    "case_id": state.get("case_id", ""),
+                    "langgraph_node": name,
+                },
+            )
+            if dependencies.trace is not None
+            else nullcontext(None)
+        )
+        with (
+            observability_context(
+                run_id=state.get("run_id"),
+                workspace_id=state.get("workspace_id"),
+                case_id=state.get("case_id"),
+                node=name,
+            ),
+            span_manager as span,
+        ):
+            try:
+                result = invoke(state)
+            except Exception as exc:
+                if span is not None:
+                    span.add_metadata(
+                        {
+                            "status": "failed",
+                            "error_type": type(exc).__name__,
+                            "duration_ms": (__import__("time").perf_counter() - started) * 1000,
+                        }
+                    )
+                raise
+            if span is not None:
+                span.add_metadata(
+                    {
+                        "status": "completed",
+                        "duration_ms": (__import__("time").perf_counter() - started) * 1000,
+                    }
+                )
+            return result
+
+    return wrapped
 
 
 def _load_case(state: CaseAssessmentState) -> dict[str, Any]:
@@ -179,7 +289,23 @@ def _build_evidence_plan(
     budget = _budget(state, dependencies)
     if budget.token_usage + planned.token_usage > budget.max_tokens:
         raise ValueError("EvidencePlan 已超过 Agent token budget，安全停止")
-    budget = budget.model_copy(update={"token_usage": budget.token_usage + planned.token_usage})
+    budget = budget.consume_tokens(
+        planned.token_usage,
+        input_tokens=planned.input_tokens,
+        output_tokens=planned.output_tokens,
+    )
+    if dependencies.metrics is not None and planned.token_usage:
+        dependencies.metrics.record_llm_usage(
+            operation="build_evidence_plan",
+            model=dependencies.model_name,
+            input_tokens=planned.input_tokens,
+            output_tokens=planned.output_tokens,
+            cost=_estimated_cost(
+                input_tokens=planned.input_tokens,
+                output_tokens=planned.output_tokens,
+                dependencies=dependencies,
+            ),
+        )
     return {
         "evidence_plan": plan.model_dump(mode="json"),
         "evidence_query_count": 0,
@@ -295,7 +421,11 @@ def _extract_fact_candidates(
     )
     if result is None:
         return {"budget": budget.model_dump()}
-    budget = budget.consume_tokens(result.token_usage)
+    budget = budget.consume_tokens(
+        result.token_usage,
+        input_tokens=result.input_tokens,
+        output_tokens=result.output_tokens,
+    )
     candidate_ids = _string_output(result, "fact_ids")
     if not candidate_ids:
         refusal = "当前材料未能形成可验证事实候选，拒绝猜测事实；请补充材料或人工事实。"
@@ -405,6 +535,8 @@ def _verify_claim_citations(
         return {"citations_valid": True, "budget": budget.model_dump()}
     valid = bool(result.output.get("valid"))
     if not valid:
+        if dependencies.metrics is not None:
+            dependencies.metrics.record_citation_failure(workflow="case_assessment")
         raise ValueError("Assessment Claim-Citation 校验失败")
     return {
         "citations_valid": valid,
@@ -481,6 +613,8 @@ def _append_trace(
             "result_summary": result.result_summary,
             "duration_ms": result.duration_ms,
             "retry_count": result.retry_count,
+            "input_tokens": result.input_tokens,
+            "output_tokens": result.output_tokens,
             "token_usage": result.token_usage,
             "output": result.output,
         },
@@ -502,3 +636,15 @@ def _require(state: CaseAssessmentState, *fields: str) -> None:
     missing = [field for field in fields if not state.get(field)]
     if missing:
         raise ValueError("LangGraph state 缺少字段: " + ", ".join(missing))
+
+
+def _estimated_cost(
+    *,
+    input_tokens: int,
+    output_tokens: int,
+    dependencies: GraphDependencies,
+) -> float:
+    return (
+        input_tokens * dependencies.input_cost_per_1m_tokens
+        + output_tokens * dependencies.output_cost_per_1m_tokens
+    ) / 1_000_000

@@ -13,7 +13,7 @@ from __future__ import annotations
 import time
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # === 公共类型别名 ===
 
@@ -43,7 +43,15 @@ class BaseDomainModel(BaseModel):
 
 class ChatResponse(BaseDomainModel):
     content: str
+    input_tokens: int = Field(default=0, ge=0)
+    output_tokens: int = Field(default=0, ge=0)
     token_usage: int = Field(default=0, ge=0)
+
+    @model_validator(mode="after")
+    def validate_usage(self) -> ChatResponse:
+        if self.token_usage < self.input_tokens + self.output_tokens:
+            raise ValueError("token_usage 不能小于 input_tokens + output_tokens")
+        return self
 
 
 # === 身份 ===

@@ -132,6 +132,21 @@ class Settings(BaseSettings):
     langsmith_sampling_rate: float = Field(0.1, ge=0.0, le=1.0)
     langsmith_hash_salt: str | None = None
 
+    # OpenTelemetry 默认关闭；只有显式启用且配置 OTLP endpoint 才会联网。
+    otel_enabled: bool = False
+    otel_service_name: str = "riskpilot-api"
+    otel_exporter_otlp_endpoint: str | None = None
+    otel_sampling_rate: float = Field(1.0, ge=0.0, le=1.0)
+    observability_hash_salt: str = "dev-observability-salt-change-me"
+    json_logs_enabled: bool = True
+    prometheus_enabled: bool = True
+    prometheus_worker_port: int = Field(9101, ge=1024, le=65535)
+
+    # 仅按显式价格表估算；默认 0 表示“未配置价格”，不伪造成本。
+    llm_input_cost_per_1m_tokens: float = Field(0.0, ge=0.0)
+    llm_output_cost_per_1m_tokens: float = Field(0.0, ge=0.0)
+    llm_cost_currency: str = Field("unspecified", pattern=r"^(unspecified|[A-Z]{3})$")
+
     # Redis 在 Phase 4 引入 Celery 后成为生产必需依赖；未配置时 readiness 标记 disabled。
     redis_url: str | None = None
     celery_broker_url: str | None = None
@@ -336,6 +351,14 @@ class Settings(BaseSettings):
                 errors.append("启用 LangSmith 时必须配置 LANGSMITH_API_KEY")
             if not self.langsmith_hash_salt or len(self.langsmith_hash_salt) < 16:
                 errors.append("启用 LangSmith 时 LANGSMITH_HASH_SALT 至少需要 16 个字符")
+        if self.otel_enabled and not self.otel_exporter_otlp_endpoint:
+            errors.append("启用 OpenTelemetry 时必须配置 OTEL_EXPORTER_OTLP_ENDPOINT")
+        if len(self.observability_hash_salt) < 16:
+            errors.append("OBSERVABILITY_HASH_SALT 至少需要 16 个字符")
+        if (
+            self.llm_input_cost_per_1m_tokens > 0 or self.llm_output_cost_per_1m_tokens > 0
+        ) and self.llm_cost_currency == "unspecified":
+            errors.append("配置非零 LLM token 价格时必须显式配置 LLM_COST_CURRENCY")
         return errors
 
     def validate_runtime_configuration(self) -> None:

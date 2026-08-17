@@ -59,6 +59,8 @@ class FactProposalBatch:
     requested_field_names: list[str]
     source_document_ids: list[str]
     conflict_field_names: list[str]
+    input_tokens: int = 0
+    output_tokens: int = 0
     token_usage: int = 0
 
 
@@ -332,6 +334,8 @@ class FactManagementUseCase:
             requested_field_names=normalized_fields,
             source_document_ids=[document.document_id for document in documents],
             conflict_field_names=conflicts,
+            input_tokens=generated.input_tokens,
+            output_tokens=generated.output_tokens,
             token_usage=generated.token_usage,
         )
 

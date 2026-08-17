@@ -26,6 +26,7 @@ from api.v2.ratelimit import build_limiter
 from api.v3 import build_v3_router
 from app.container import AppContainer
 from app.logging_setup import configure_logging
+from app.observability_middleware import install_observability_middleware
 from app.request_context import (
     reset_request_id,
     reset_user_id,
@@ -41,6 +42,8 @@ from config import settings
 configure_logging(
     level=getattr(logging, settings.log_level.upper(), logging.INFO),
     log_file="logs/app.log",
+    json_logs=settings.json_logs_enabled,
+    hash_salt=settings.observability_hash_salt,
 )
 
 logger = logging.getLogger(__name__)
@@ -105,6 +108,12 @@ async def lifespan(app: FastAPI):
                 close_workflow()
             except Exception:  # noqa: BLE001 — 关闭期异常仅记录
                 logger.warning("LangGraph checkpoint 连接关闭异常（已吞掉）", exc_info=True)
+        shutdown_trace = getattr(container_ref.trace, "shutdown", None)
+        if callable(shutdown_trace):
+            try:
+                shutdown_trace()
+            except Exception:  # noqa: BLE001
+                logger.warning("Trace Provider 关闭异常（已吞掉）", exc_info=True)
         storage_database = getattr(container_ref, "storage_database", None)
         if storage_database is not None:
             try:
@@ -196,6 +205,10 @@ async def request_context_middleware(request: Request, call_next):
                 request.url.path,
                 response.status_code,
                 elapsed_ms,
+                extra={
+                    "duration_ms": elapsed_ms,
+                    "status": str(response.status_code),
+                },
             )
         return response
     finally:
@@ -221,6 +234,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 # 不要放进 lifespan：include_router 在 app 创建时就要拿到 router。
 container = AppContainer(settings)
 app.state.container = container
+install_observability_middleware(app)
 
 # Step（v2 限流）：构造限流器并注入 v2 router；limiter 为 None（rate_limit_enabled=False）
 # 时所有限流依赖退化为无操作。限流以 FastAPI 依赖实现，超额时直接抛 HTTPException(429)，

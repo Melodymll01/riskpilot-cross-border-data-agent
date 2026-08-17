@@ -76,6 +76,8 @@ class DeterministicEvidencePlanner:
                     "确定性规则评估已完成",
                 ],
             ),
+            input_tokens=0,
+            output_tokens=0,
             token_usage=0,
         )
 
@@ -112,9 +114,10 @@ class LangChainEvidencePlanner:
             )
         except ValidationError as exc:
             raise ValueError("LangChain Evidence planner 返回非法结构") from exc
+        usage = _token_usage(raw)
         return EvidencePlanResult(
             plan=_validate_scope(plan, request),
-            token_usage=_token_usage(raw),
+            **usage,
         )
 
 
@@ -137,8 +140,17 @@ def _validate_scope(
     return plan
 
 
-def _token_usage(raw: object) -> int:
+def _token_usage(raw: object) -> dict[str, int]:
     if not isinstance(raw, AIMessage) or raw.usage_metadata is None:
-        return 0
-    value = raw.usage_metadata.get("total_tokens", 0)
-    return value if isinstance(value, int) and value >= 0 else 0
+        return {"input_tokens": 0, "output_tokens": 0, "token_usage": 0}
+    input_value = raw.usage_metadata.get("input_tokens", 0)
+    output_value = raw.usage_metadata.get("output_tokens", 0)
+    total_value = raw.usage_metadata.get("total_tokens", 0)
+    input_tokens = input_value if isinstance(input_value, int) and input_value >= 0 else 0
+    output_tokens = output_value if isinstance(output_value, int) and output_value >= 0 else 0
+    total_tokens = total_value if isinstance(total_value, int) and total_value >= 0 else 0
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "token_usage": max(total_tokens, input_tokens + output_tokens),
+    }
