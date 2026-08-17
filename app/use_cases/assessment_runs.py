@@ -46,6 +46,7 @@ _ACTIVE_STATUSES = {
     "waiting_for_review",
     "retrying",
 }
+_SAFE_RUN_FAILURE_MESSAGE = "Agent Run 执行失败；详细原因仅记录于受控服务日志。"
 
 
 def _new_id(prefix: str) -> str:
@@ -615,7 +616,7 @@ class AssessmentRunUseCase:
             checkpoint_id=current.checkpoint_id or _new_id("run_checkpoint"),
             stage=current.current_stage,
             error_code=type(exc).__name__.upper(),
-            error_message=str(exc)[:2000],
+            error_message=_SAFE_RUN_FAILURE_MESSAGE,
             at=now,
         )
         checkpoint = RunCheckpoint(

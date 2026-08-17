@@ -231,14 +231,18 @@ STORAGE_BACKEND=postgres
 
 ### 当前边界
 
-已实现 Evidence QA、显式文档 Fact 提议与 Case Assessment 的工程骨架和确定性闭环。
-Fact 提议具备字段白名单、当前版本原文复核、冲突检测和 Reviewer 唯一确认，但尚未
-内联到 LangGraph `fact_confirmation` 节点；原生案件工作台通过 Run 事件完成候选生成、
-证据展示、Reviewer 确认和继续运行，并支持 Workspace / Case 创建与多 Case 导航。
+已实现 Evidence QA、图内文档 Fact 提议与 Case Assessment 的证据驱动闭环。
+Fact 提议具备字段白名单、当前版本原文复核、冲突检测和 Reviewer 唯一确认，并已通过
+Typed Tool Registry 接入 LangGraph；原生案件工作台通过 Run 事件完成候选生成、证据展示、
+Reviewer 确认和继续运行，并支持 Workspace / Case 创建与多 Case 导航。
 案件材料支持浏览器上传、解析、索引、进度展示和失败重试；材料列表同时返回当前版本
 最新 ProcessingJob，因此页面刷新后仍可恢复 job_id 和处理状态。Assessment 已实现
 Fact / Evidence / Clause 不可变引用快照和审批前漂移校验；Deep Research Graph 与
 Case 图片检索已落地，图片暂作为检索辅助证据，尚未进入正式 Assessment 引用闭包。
+
+核心 Agent 工具执行经过统一 Tool Policy：高权限工具不能注册，运行时 scope 不能由模型
+传入，可逆写工具必须显式 allowlist 且禁止自动重试。网页正文和用户提交 URL 使用
+SSRF-safe Client，逐跳校验 DNS/IP、重定向、Content-Type 与响应体大小。
 
 完整产品和技术设计见：
 

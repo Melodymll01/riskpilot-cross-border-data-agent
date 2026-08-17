@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 
 import pytest
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.agent_tools import RegisteredTool, TypedToolRegistry
 from domain import AgentRuntimeContext, CaseAssessmentToolPort
@@ -67,13 +67,17 @@ def test_registry_satisfies_port_and_injects_scope() -> None:
 
     assert isinstance(registry, CaseAssessmentToolPort)
     assert result.output["injected_case_id"] == "case_001"
-    assert result.arguments == {"query": "重要数据", "top_k": 3}
+    assert result.arguments == {
+        "query": "[redacted]",
+        "query_length": 4,
+        "top_k": 3,
+    }
     assert "case_id" not in result.arguments
     assert registry.definitions()[0].side_effect_level == "read_only"
 
 
 def test_model_cannot_supply_case_scope_field() -> None:
-    with pytest.raises(ValidationError, match="case_id"):
+    with pytest.raises(PermissionError, match="scope"):
         _registry().execute(
             "retrieve_case_evidence",
             {"query": "重要数据", "case_id": "case_other"},

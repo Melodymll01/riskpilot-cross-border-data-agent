@@ -1,11 +1,10 @@
 """网页加载器：抓取单个 URL 的正文内容，输出统一的 RawDocument。"""
 
 import logging
-from urllib.parse import urlparse
 
-import requests
 from bs4 import BeautifulSoup
 
+from infra.web.safe_http import SafeHttpClient
 from ingestion.unified_loader import RawDocument
 
 logger = logging.getLogger(__name__)
@@ -17,6 +16,13 @@ REQUEST_TIMEOUT = 30
 class WebLoader:
     """抓取单个网页正文并返回统一文档对象。"""
 
+    def __init__(self, *, safe_http: SafeHttpClient | None = None) -> None:
+        self._safe_http = safe_http or SafeHttpClient(
+            timeout_seconds=REQUEST_TIMEOUT,
+            max_redirects=3,
+            max_response_bytes=5 * 1024 * 1024,
+        )
+
     def load(self, url: str) -> RawDocument:
         """
         抓取指定 URL 的网页正文。
@@ -24,11 +30,6 @@ class WebLoader:
         Args:
             url: 要抓取的网页地址
         """
-        # 安全校验：只允许 http / https 协议
-        parsed = urlparse(url)
-        if parsed.scheme not in ("http", "https"):
-            raise ValueError(f"仅支持 http/https 协议，收到: {parsed.scheme}")
-
         logger.info(f"正在抓取网页: {url}")
 
         headers = {
@@ -39,16 +40,11 @@ class WebLoader:
             )
         }
 
-        resp = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
-        resp.raise_for_status()
-
-        # 尝试自动检测编码
-        resp.encoding = resp.apparent_encoding or "utf-8"
-
+        resp = self._safe_http.get(url, headers=headers)
         soup = BeautifulSoup(resp.text, "html.parser")
 
         # 提取标题
-        title = soup.title.string.strip() if soup.title and soup.title.string else parsed.netloc
+        title = soup.title.string.strip() if soup.title and soup.title.string else resp.url
 
         # 移除 script / style 等无关标签
         for tag in soup(["script", "style", "nav", "footer", "header", "aside"]):
@@ -71,5 +67,5 @@ class WebLoader:
             source_type="web",
             source_name=title,
             title=title,
-            source_url=url,
+            source_url=resp.url,
         )

@@ -39,6 +39,14 @@ def _docx_bytes() -> bytes:
     return buffer.getvalue()
 
 
+def _compressed_docx_bytes(*, text_size: int) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("[Content_Types].xml", "<Types/>")
+        archive.writestr("word/document.xml", "A" * text_size)
+    return buffer.getvalue()
+
+
 def _setup(
     *,
     max_upload_bytes: int = 1024 * 1024,
@@ -232,6 +240,40 @@ class TestUpload:
                 filename="broken.docx",
                 content=b"not-a-zip",
             )
+
+    def test_docx_zip_bomb_compression_ratio_rejected(self) -> None:
+        _, _, uc, repo, objects, case_id = _setup(max_upload_bytes=1024 * 1024)
+
+        with pytest.raises(InvalidDocumentContent, match="压缩比"):
+            uc.upload(
+                "github:alice",
+                case_id=case_id,
+                filename="bomb.docx",
+                content=_compressed_docx_bytes(text_size=200_000),
+            )
+
+        assert repo.list_for_case(case_id) == []
+        assert objects.objects == {}
+
+    def test_docx_excessive_entry_count_rejected(self) -> None:
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            archive.writestr("[Content_Types].xml", "<Types/>")
+            archive.writestr("word/document.xml", "<document/>")
+            for index in range(2_001):
+                archive.writestr(f"word/media/item_{index}.txt", "x")
+        _, _, uc, repo, objects, case_id = _setup(max_upload_bytes=1024 * 1024)
+
+        with pytest.raises(InvalidDocumentContent, match="条目数量"):
+            uc.upload(
+                "github:alice",
+                case_id=case_id,
+                filename="many.docx",
+                content=buffer.getvalue(),
+            )
+
+        assert repo.list_for_case(case_id) == []
+        assert objects.objects == {}
 
     def test_binary_text_rejected(self) -> None:
         _, _, uc, _, _, case_id = _setup()

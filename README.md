@@ -62,7 +62,7 @@
 
 | 维度 | 数值 |
 | --- | --- |
-| 离线回归 | **1291 passed · 4 skipped · 5 warnings**（`make ci`，2026-08-17） |
+| 离线回归 | **1318 passed · 4 skipped · 5 warnings**（`make ci`，2026-08-17） |
 | 架构规模 | **45 Port + 17 Use Case** · DDD 4 层 |
 | V3 资源接口 | **48 个路由** · Workspace → Visual Evidence / Evidence QA / Assessment Run |
 | Agent/Graph | LangChain Tool Calling + 2 张 LangGraph（Research / Assessment） |
@@ -163,6 +163,10 @@ Prompt 或其他用户数据。`evaluations/memory_recall` 以版本化数据集
   乐观锁 + 连续事件 + Reviewer/Admin 审批
 - **真实预算门禁**：Planner 与 Fact Proposal 使用 Provider usage metadata；剩余 token
   预算由服务端注入，超限候选在写入前拒绝
+- **Agent 安全策略**：Tool Policy 禁止高权限工具和 scope 注入；query/工具输出脱敏；
+  Prompt Injection 不能改变角色、Case 或规则门禁
+- **SSRF 与文件防护**：任意 URL 逐跳校验公网 IP、固定已验证 IP 连接、限制重定向/
+  响应体；DOCX 校验 ZIP 条目、加密、压缩比和解压体积
 - **不可变引用快照**：Assessment 冻结 Fact Evidence、DocumentVersion、页码、quote、
   offset 和 SHA；Finding 的 Fact/Evidence/Clause 引用必须闭包，漂移即拒绝批准
 - **混合检索**：向量 + BM25 + RRF 融合 + Cross-Encoder 重排

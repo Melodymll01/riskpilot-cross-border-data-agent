@@ -9,8 +9,9 @@ from concurrent.futures import TimeoutError as FutureTimeoutError
 from dataclasses import dataclass
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
+from app.agent_tools.policy import AgentToolPolicy
 from domain.agent_workflow import (
     AgentRuntimeContext,
     ToolDefinition,
@@ -47,14 +48,16 @@ class RegisteredTool[InputModel: BaseModel, OutputModel: BaseModel]:
 
 
 class TypedToolRegistry:
-    def __init__(self) -> None:
+    def __init__(self, *, policy: AgentToolPolicy | None = None) -> None:
         self._tools: dict[str, RegisteredTool[Any, Any]] = {}
+        self._policy = policy or AgentToolPolicy()
 
     def register(self, tool: RegisteredTool[Any, Any]) -> None:
         if tool.name in self._tools:
             raise ValueError(f"工具 {tool.name!r} 已注册")
         if not tool.required_roles or not tool.allowed_stages:
             raise ValueError("工具必须声明 required_roles 和 allowed_stages")
+        self._policy.validate_registration(tool)
         self._tools[tool.name] = tool
 
     def definitions(self) -> list[ToolDefinition]:
@@ -70,13 +73,12 @@ class TypedToolRegistry:
         tool = self._tools.get(tool_name)
         if tool is None:
             raise ValueError(f"工具 {tool_name!r} 未注册")
-        if context.actor_role not in tool.required_roles:
-            raise PermissionError(f"角色 {context.actor_role!r} 无权调用工具 {tool_name!r}")
-        if context.workflow_stage not in tool.allowed_stages:
-            raise PermissionError(
-                f"工具 {tool_name!r} 不允许在阶段 {context.workflow_stage!r} 调用"
-            )
-        validated = tool.input_model.model_validate(arguments)
+        self._policy.authorize(tool, context)
+        self._policy.validate_arguments(arguments)
+        try:
+            validated = tool.input_model.model_validate(arguments)
+        except ValidationError as exc:
+            raise ValueError(f"工具 {tool_name!r} 参数结构非法") from exc
         started = time.perf_counter()
         retry_count = 0
         while True:
@@ -99,7 +101,10 @@ class TypedToolRegistry:
                 raise error
             retry_count += 1
         duration_ms = max(0, int((time.perf_counter() - started) * 1000))
-        validated_output = tool.output_model.model_validate(output)
+        try:
+            validated_output = tool.output_model.model_validate(output)
+        except ValidationError as exc:
+            raise ValueError(f"工具 {tool_name!r} 返回结构非法") from exc
         payload = validated_output.model_dump(mode="json")
         token_usage_value = getattr(validated_output, "token_usage", 0)
         token_usage = (
@@ -107,9 +112,10 @@ class TypedToolRegistry:
             if isinstance(token_usage_value, int) and token_usage_value >= 0
             else 0
         )
+        self._policy.validate_output(payload)
         return ToolExecutionResult(
             tool_name=tool.name,
-            arguments=validated.model_dump(mode="json"),
+            arguments=_sanitize_arguments(validated.model_dump(mode="json")),
             output=payload,
             result_summary=_summary(payload),
             duration_ms=duration_ms,
@@ -121,3 +127,16 @@ class TypedToolRegistry:
 def _summary(payload: dict[str, Any]) -> str:
     keys = ", ".join(sorted(payload))
     return f"返回字段: {keys}" if keys else "工具执行完成"
+
+
+def _sanitize_arguments(arguments: dict[str, Any]) -> dict[str, Any]:
+    sanitized: dict[str, Any] = {}
+    for key, value in arguments.items():
+        if key == "query" and isinstance(value, str):
+            sanitized["query"] = "[redacted]"
+            sanitized["query_length"] = len(value)
+        elif isinstance(value, str) and (len(value) > 200 or "\n" in value):
+            sanitized[key] = "[redacted]"
+        else:
+            sanitized[key] = value
+    return sanitized

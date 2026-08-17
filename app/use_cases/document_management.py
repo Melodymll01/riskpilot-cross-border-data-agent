@@ -38,6 +38,8 @@ if TYPE_CHECKING:
 _SUPPORTED_SUFFIXES = {".pdf", ".docx", ".txt", ".md", ".markdown"}
 _WRITE_ROLES: set[WorkspaceRole] = {"editor", "reviewer", "admin"}
 _DOCX_REQUIRED_ENTRIES = {"[Content_Types].xml", "word/document.xml"}
+_DOCX_MAX_ENTRIES = 2_000
+_DOCX_MAX_COMPRESSION_RATIO = 100
 logger = logging.getLogger(__name__)
 
 
@@ -421,12 +423,28 @@ def _validate_content(
 def _validate_docx(content: bytes, *, max_upload_bytes: int) -> str:
     try:
         with zipfile.ZipFile(io.BytesIO(content)) as archive:
-            names = set(archive.namelist())
+            entries = archive.infolist()
+            if len(entries) > _DOCX_MAX_ENTRIES:
+                raise InvalidDocumentContent("DOCX ZIP 条目数量异常")
+            if any(info.flag_bits & 0x1 for info in entries):
+                raise InvalidDocumentContent("DOCX 不允许包含加密 ZIP 条目")
+            names = {info.filename for info in entries}
             if not _DOCX_REQUIRED_ENTRIES.issubset(names):
                 raise InvalidDocumentContent("DOCX 缺少必要结构")
             if archive.testzip() is not None:
                 raise InvalidDocumentContent("DOCX 压缩内容损坏")
-            total_uncompressed = sum(info.file_size for info in archive.infolist())
+            total_uncompressed = 0
+            for info in entries:
+                total_uncompressed += info.file_size
+                if info.file_size > max_upload_bytes * 20:
+                    raise InvalidDocumentContent("DOCX 单个 ZIP 条目解压体积异常")
+                if info.file_size and info.compress_size == 0:
+                    raise InvalidDocumentContent("DOCX ZIP 压缩信息异常")
+                if (
+                    info.compress_size > 0
+                    and info.file_size / info.compress_size > _DOCX_MAX_COMPRESSION_RATIO
+                ):
+                    raise InvalidDocumentContent("DOCX ZIP 压缩比异常")
     except (zipfile.BadZipFile, OSError) as exc:
         raise InvalidDocumentContent("DOCX 文件结构无效") from exc
     if total_uncompressed > max_upload_bytes * 20:

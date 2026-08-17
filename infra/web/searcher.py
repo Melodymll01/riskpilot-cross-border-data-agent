@@ -9,6 +9,8 @@ from urllib.parse import parse_qs, unquote, urlparse
 import requests
 from bs4 import BeautifulSoup
 
+from infra.web.safe_http import SafeHttpClient
+
 logger = logging.getLogger(__name__)
 
 _REQUEST_TIMEOUT_SECONDS = 15
@@ -32,6 +34,13 @@ class WebSearcher:
             "Chrome/120.0.0.0 Safari/537.36"
         )
     }
+
+    def __init__(self, *, safe_http: SafeHttpClient | None = None) -> None:
+        self._safe_http = safe_http or SafeHttpClient(
+            timeout_seconds=_REQUEST_TIMEOUT_SECONDS,
+            max_redirects=3,
+            max_response_bytes=2 * 1024 * 1024,
+        )
 
     def search(self, query: str, max_results: int = 3) -> list[WebSearchResult]:
         if not query.strip() or max_results < 1:
@@ -140,17 +149,10 @@ class WebSearcher:
         return results
 
     def _fetch_page_text(self, url: str, max_chars: int = 2000) -> str:
-        parsed = urlparse(url)
-        if parsed.scheme not in {"http", "https"}:
-            return ""
-        response = requests.get(
+        response = self._safe_http.get(
             url,
             headers=self._HEADERS,
-            timeout=_REQUEST_TIMEOUT_SECONDS,
-            allow_redirects=True,
         )
-        response.raise_for_status()
-        response.encoding = response.apparent_encoding or "utf-8"
         soup = BeautifulSoup(response.text, "html.parser")
         for tag in soup(["script", "style", "nav", "footer", "header", "aside"]):
             tag.decompose()

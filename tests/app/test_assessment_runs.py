@@ -461,6 +461,8 @@ class TestAssessmentRunRecovery:
 
         failed = setup.run_repo.list_for_case(setup.case_id)[0]
         assert failed.status == "failed"
+        assert failed.error_message is not None
+        assert "simulated crash" not in failed.error_message
         first_assessment = setup.assessment_uc.get_active(
             setup.case_id,
             "github:editor",

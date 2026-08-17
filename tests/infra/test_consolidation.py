@@ -287,6 +287,7 @@ class TestExtractAndValidate:
         "secret",
         [
             "我的 API Key 是 sk-abcdefghijklmnop",
+            "password: CorrectHorseBatteryStaple",
             "我的手机号是 13800138000",
             "联系邮箱是 alice@example.com",
             "身份证号是 11010519491231002X",

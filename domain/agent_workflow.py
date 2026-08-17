@@ -8,7 +8,12 @@ from pydantic import ConfigDict, Field, StringConstraints, model_validator
 
 from domain.models import BaseDomainModel
 
-ToolSideEffectLevel = Literal["read_only", "reversible_write", "privileged_write"]
+ToolSideEffectLevel = Literal[
+    "read_only",
+    "reversible_write",
+    "privileged_write",
+    "forbidden_for_agent",
+]
 PlanText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
 FactFieldName = Annotated[
     str,
