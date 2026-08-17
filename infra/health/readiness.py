@@ -51,12 +51,15 @@ class ApplicationReadiness:
             return False
 
     def _build_redis_client(self) -> Any:
+        redis_url = self._redis_url
+        if not redis_url:
+            raise RuntimeError("REDIS_URL 未配置")
         try:
             import redis
         except ImportError as exc:
             raise RuntimeError("配置 REDIS_URL 后必须安装 redis 依赖") from exc
         return redis.Redis.from_url(
-            self._redis_url,
+            redis_url,
             socket_connect_timeout=1,
             socket_timeout=1,
         )

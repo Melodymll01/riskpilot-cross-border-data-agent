@@ -40,6 +40,7 @@ from domain import (
     PolicyRule,
     PolicyRuleRepoPort,
     ProcessingJob,
+    ProcessingJobConflict,
     RunCheckpoint,
     RunEvent,
     Workspace,
@@ -334,6 +335,8 @@ def test_workspace_case_document_fact_round_trip(repos) -> None:
     repos["document"].create_upload(*graph)
     assert repos["document"].get("doc_001") == graph[0]
     assert repos["document"].get_version("ver_001") == graph[1]
+    assert repos["document"].list_jobs_for_case("case_001") == [graph[3]]
+    assert repos["document"].list_jobs_for_case("case_001", statuses={"failed"}) == []
 
     fact = _fact()
     repos["fact"].create(fact, [_evidence(fact)])
@@ -347,6 +350,32 @@ def test_workspace_case_document_fact_round_trip(repos) -> None:
     repos["fact"].save_revision(revised, [_evidence(revised)])
     assert repos["fact"].get_version(fact.fact_id, 1) == fact
     assert repos["fact"].get_version(fact.fact_id, 2) == revised
+
+
+def test_processing_job_revision_cas_rolls_back_document_update(repos) -> None:
+    _seed_case(repos)
+    document, version, binding, job = _upload_graph()
+    queued_document = document.model_copy(update={"status": "queued"})
+    repos["document"].create_upload(queued_document, version, binding, job)
+    running = job.start(at=101.0)
+    parsing = queued_document.transition_to("parsing", at=101.0)
+    repos["document"].update_processing_state(
+        parsing,
+        running,
+        expected_revision=job.revision,
+    )
+
+    stale_failed = job.start(at=102.0).fail(error_code="STALE", at=103.0)
+    stale_document = queued_document.transition_to("failed", at=103.0)
+    with pytest.raises(ProcessingJobConflict):
+        repos["document"].update_processing_state(
+            stale_document,
+            stale_failed,
+            expected_revision=job.revision,
+        )
+
+    assert repos["document"].get(queued_document.document_id) == parsing
+    assert repos["document"].get_job(job.job_id) == running
 
 
 def test_evidence_index_enforces_case_scope(database, repos) -> None:

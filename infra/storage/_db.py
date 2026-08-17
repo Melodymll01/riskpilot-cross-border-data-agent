@@ -127,6 +127,7 @@ CREATE TABLE IF NOT EXISTS processing_jobs (
     error_code           TEXT,
     error_message        TEXT,
     retry_count          INTEGER NOT NULL DEFAULT 0,
+    revision             INTEGER NOT NULL DEFAULT 0,
     created_at           REAL NOT NULL,
     updated_at           REAL NOT NULL,
     started_at           REAL,
@@ -566,3 +567,6 @@ def _apply_incremental_migrations(conn: sqlite3.Connection) -> None:
     cols = {row[1] for row in conn.execute("PRAGMA table_info(tasks)").fetchall()}
     if "mode" not in cols:
         conn.execute("ALTER TABLE tasks ADD COLUMN mode TEXT NOT NULL DEFAULT 'qa'")
+    job_cols = {row[1] for row in conn.execute("PRAGMA table_info(processing_jobs)").fetchall()}
+    if "revision" not in job_cols:
+        conn.execute("ALTER TABLE processing_jobs ADD COLUMN revision INTEGER NOT NULL DEFAULT 0")

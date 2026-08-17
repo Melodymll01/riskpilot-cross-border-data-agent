@@ -247,21 +247,61 @@ class InMemoryDocumentRepo:
         ]
         return max(jobs, key=lambda job: (job.created_at, job.job_id), default=None)
 
+    def list_jobs_for_case(
+        self,
+        case_id: str,
+        *,
+        statuses: set[str] | None = None,
+        limit: int = 50,
+    ) -> list[ProcessingJob]:
+        document_ids = {
+            document_id
+            for binding_case_id, document_id in self._bindings
+            if binding_case_id == case_id
+        }
+        version_ids = {
+            version.version_id
+            for version in self._versions.values()
+            if version.document_id in document_ids
+        }
+        jobs = [
+            job
+            for job in self._jobs.values()
+            if job.document_version_id in version_ids and (not statuses or job.status in statuses)
+        ]
+        jobs.sort(key=lambda job: (job.created_at, job.job_id), reverse=True)
+        return jobs[:limit]
+
     def update_document(self, document: Document) -> None:
         if document.document_id in self._documents:
             self._documents[document.document_id] = document
 
-    def update_job(self, job: ProcessingJob) -> None:
-        if job.job_id in self._jobs:
-            self._jobs[job.job_id] = job
+    def update_job(
+        self,
+        job: ProcessingJob,
+        *,
+        expected_revision: int,
+    ) -> None:
+        from domain.errors import ProcessingJobConflict
+
+        current = self._jobs.get(job.job_id)
+        if (
+            current is None
+            or current.revision != expected_revision
+            or job.revision <= expected_revision
+        ):
+            raise ProcessingJobConflict(job.job_id)
+        self._jobs[job.job_id] = job
 
     def update_processing_state(
         self,
         document: Document,
         job: ProcessingJob,
+        *,
+        expected_revision: int,
     ) -> None:
+        self.update_job(job, expected_revision=expected_revision)
         self.update_document(document)
-        self.update_job(job)
 
     def save_parse_result(
         self,
@@ -269,11 +309,13 @@ class InMemoryDocumentRepo:
         snapshot: DocumentParseSnapshot,
         document: Document,
         job: ProcessingJob,
+        *,
+        expected_job_revision: int,
     ) -> None:
+        self.update_job(job, expected_revision=expected_job_revision)
         self._versions[version.version_id] = version
         self._snapshots[version.version_id] = snapshot
         self.update_document(document)
-        self.update_job(job)
 
     def get_parse_snapshot(self, document_version_id: str) -> DocumentParseSnapshot | None:
         return self._snapshots.get(document_version_id)

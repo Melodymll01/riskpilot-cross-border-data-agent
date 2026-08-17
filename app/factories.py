@@ -22,6 +22,7 @@ from domain.ports import (
     AssessmentRepoPort,
     AuditLogPort,
     AuthPort,
+    BackgroundJobDispatcherPort,
     CaseFactRepoPort,
     CaseRepoPort,
     ChatPort,
@@ -81,7 +82,7 @@ from infra.qa import (
 )
 from infra.research import LangGraphResearchAdapter
 from infra.risk_profile import HttpRiskProfileClient
-from infra.search import EmbedderAdapter, HybridRetrieverAdapter
+from infra.search import DeterministicEmbedder, EmbedderAdapter, HybridRetrieverAdapter
 from infra.storage import (
     SqliteAgentRunRepo,
     SqliteAssessmentRepo,
@@ -111,6 +112,7 @@ from infra.storage.sqlalchemy import (
     SqlAlchemyPolicyRuleRepo,
     SqlAlchemyWorkspaceRepo,
 )
+from infra.tasks import CeleryJobDispatcher, ManualJobDispatcher, build_celery_app
 from infra.visual import ChineseCLIPEmbedder
 from infra.web import DuckDuckGoAdapter
 from infra.workflows import LangGraphWorkflowRuntime
@@ -135,7 +137,7 @@ def build_readiness(
 ) -> ReadinessPort:
     return ApplicationReadiness(
         database=database,
-        redis_url=settings.redis_url,
+        redis_url=settings.redis_url or settings.celery_broker_url,
     )
 
 
@@ -240,6 +242,12 @@ def build_object_store(settings: Settings) -> ObjectStorePort:
     return LocalObjectStore(settings.object_store_dir)
 
 
+def build_job_dispatcher(settings: Settings) -> BackgroundJobDispatcherPort:
+    if settings.task_backend == "celery":
+        return CeleryJobDispatcher(build_celery_app(settings))
+    return ManualJobDispatcher()
+
+
 def build_visual_index(
     settings: Settings, *, pool: SqliteConnectionPool | None = None
 ) -> VisualIndexPort:
@@ -294,7 +302,11 @@ def build_feedback_repo(
     return SqliteFeedbackRepo(pool or build_sqlite_pool(settings))
 
 
-def build_embedder(_settings: Settings) -> EmbedPort:
+def build_embedder(settings: Settings) -> EmbedPort:
+    if settings.embed_provider == "deterministic":
+        if settings.embedding_dimensions is None:
+            raise ValueError("deterministic embedding 必须配置 EMBEDDING_DIMENSIONS")
+        return DeterministicEmbedder(settings.embedding_dimensions)
     return EmbedderAdapter()
 
 
@@ -645,6 +657,7 @@ __all__ = [
     "build_evidence_chunker",
     "build_evidence_index",
     "build_fact_store",
+    "build_job_dispatcher",
     "build_kb_repo",
     "build_memory",
     "build_memory_scheduler",

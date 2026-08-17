@@ -54,14 +54,14 @@ class TestDocument:
 
     def test_happy_path_to_ready(self) -> None:
         document = _document()
-        path = ["queued", "parsing", "chunking", "indexing", "ready"]
+        path = ["queued", "parsing", "chunking", "embedding", "indexing", "ready"]
         for index, status in enumerate(path, start=1):
             document = document.transition_to(status, at=100.0 + index)  # type: ignore[arg-type]
         assert document.status == "ready"
 
     def test_ocr_path_to_ready(self) -> None:
         document = _document()
-        path = ["queued", "parsing", "ocr", "chunking", "indexing", "ready"]
+        path = ["queued", "parsing", "ocr", "chunking", "embedding", "indexing", "ready"]
         for index, status in enumerate(path, start=1):
             document = document.transition_to(status, at=100.0 + index)  # type: ignore[arg-type]
         assert document.status == "ready"

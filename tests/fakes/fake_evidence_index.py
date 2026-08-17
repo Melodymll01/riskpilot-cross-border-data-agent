@@ -42,12 +42,18 @@ class FakeEvidenceIndex:
         embeddings: list[list[float]],
         document: Document,
         job: ProcessingJob,
+        *,
+        expected_job_revision: int,
     ) -> None:
         self.replace_version_chunks(document_version_id, chunks, embeddings)
         self.completed_document = document
         self.completed_job = job
         if self._document_repo is not None:
-            self._document_repo.update_processing_state(document, job)
+            self._document_repo.update_processing_state(
+                document,
+                job,
+                expected_revision=expected_job_revision,
+            )
 
     def search(
         self,

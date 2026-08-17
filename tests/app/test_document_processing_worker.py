@@ -124,6 +124,25 @@ class TestParseStage:
         assert second == first
         assert len(parser.calls) == 1
 
+    def test_replay_after_crash_in_running_parse_stage_resumes(self) -> None:
+        parser = FakeDocumentParser()
+        worker, repo, _, job = _seed(parser=parser)
+        document = repo.get("doc_001")
+        assert document is not None
+        running = job.start(stage="extract_structure", at=101.0)
+        parsing = document.transition_to("parsing", at=101.0)
+        repo.update_processing_state(
+            parsing,
+            running,
+            expected_revision=job.revision,
+        )
+
+        result = worker.run_parse_stage(job.job_id)
+
+        assert result.job.current_stage == "chunk"
+        assert result.document.status == "chunking"
+        assert len(parser.calls) == 1
+
 
 class TestParseFailures:
     def test_parser_failure_marks_job_and_document_failed(self) -> None:
@@ -158,3 +177,19 @@ class TestParseFailures:
         failed_job = repo.get_job(job.job_id)
         assert failed_job is not None
         assert failed_job.status == "failed"
+
+    def test_transient_parser_failure_preserves_running_stage_for_retry(self) -> None:
+        parser = FakeDocumentParser(
+            raise_error=ConnectionError("parser service unavailable"),
+        )
+        worker, repo, _, job = _seed(parser=parser)
+
+        with pytest.raises(ConnectionError, match="unavailable"):
+            worker.run_parse_stage(job.job_id)
+
+        current_job = repo.get_job(job.job_id)
+        current_document = repo.get("doc_001")
+        assert current_job is not None and current_document is not None
+        assert current_job.status == "running"
+        assert current_job.current_stage == "extract_structure"
+        assert current_document.status == "parsing"

@@ -18,6 +18,7 @@ from domain.documents import (
 )
 from domain.errors import (
     InvalidDocumentContent,
+    ProcessingJobConflict,
     ProcessingJobNotFound,
 )
 
@@ -65,15 +66,27 @@ class DocumentProcessingWorker:
                 snapshot=existing_snapshot,
                 next_stage=job.current_stage,
             )
-        if job.status != "queued":
+        if job.status == "running" and job.current_stage == "extract_structure":
+            running_job = job
+            parsing_document = document
+            if document.status != "parsing":
+                raise InvalidDocumentContent(
+                    "running/extract_structure 任务的 Document 必须处于 parsing"
+                )
+            started_at = job.started_at or job.updated_at
+        elif job.status == "queued":
+            started_at = self._clock()
+            running_job = job.start(stage="extract_structure", at=started_at)
+            parsing_document = document.transition_to("parsing", at=started_at)
+            self._repo.update_processing_state(
+                parsing_document,
+                running_job,
+                expected_revision=job.revision,
+            )
+        else:
             raise InvalidDocumentContent(
                 f"处理任务 {job.job_id!r} 当前状态 {job.status!r} 不能执行解析阶段"
             )
-
-        started_at = self._clock()
-        running_job = job.start(stage="extract_structure", at=started_at)
-        parsing_document = document.transition_to("parsing", at=started_at)
-        self._repo.update_processing_state(parsing_document, running_job)
 
         try:
             content = self._objects.read(version.object_key)
@@ -106,6 +119,7 @@ class DocumentProcessingWorker:
                 snapshot,
                 updated_document,
                 updated_job,
+                expected_job_revision=running_job.revision,
             )
             return ParseStageResult(
                 document=updated_document,
@@ -114,7 +128,11 @@ class DocumentProcessingWorker:
                 snapshot=snapshot,
                 next_stage=next_stage,
             )
+        except ProcessingJobConflict:
+            raise
         except Exception as exc:
+            if not _is_permanent_parse_error(exc):
+                raise
             failed_at = max(self._clock(), started_at)
             failed_job = running_job.fail(
                 error_code=_error_code(exc),
@@ -122,7 +140,11 @@ class DocumentProcessingWorker:
                 at=failed_at,
             )
             failed_document = parsing_document.transition_to("failed", at=failed_at)
-            self._repo.update_processing_state(failed_document, failed_job)
+            self._repo.update_processing_state(
+                failed_document,
+                failed_job,
+                expected_revision=running_job.revision,
+            )
             raise
 
     def _load_graph(
@@ -147,3 +169,7 @@ def _error_code(exc: Exception) -> str:
     if isinstance(exc, InvalidDocumentContent):
         return "PARSE_INVALID_CONTENT"
     return f"PARSE_{type(exc).__name__.upper()}"
+
+
+def _is_permanent_parse_error(exc: Exception) -> bool:
+    return isinstance(exc, (FileNotFoundError, InvalidDocumentContent, KeyError))

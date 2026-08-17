@@ -55,6 +55,7 @@ class TestDocumentUpload:
         assert body["version"]["mime_type"] == "text/plain"
         assert body["job"]["status"] == "queued"
         assert body["job"]["current_stage"] == "extract_structure"
+        assert body["job"]["revision"] == 0
         assert body["purpose"] == "内部制度"
 
     def test_fake_pdf_returns_stable_error(
@@ -231,6 +232,26 @@ class TestProcessingActions:
         assert detail.json()["document"]["status"] == "queued"
         assert detail.json()["latest_job"]["job_id"] == job_id
         assert detail.json()["latest_job"]["status"] == "queued"
+
+    def test_list_and_cancel_processing_job(
+        self, authed_client: tuple[TestClient, dict[str, Any]]
+    ) -> None:
+        client, _ = authed_client
+        _, case_id = _create_case(client)
+        uploaded = client.post(
+            f"/api/v3/cases/{case_id}/documents",
+            files={"file": ("policy.txt", b"text", "text/plain")},
+        ).json()
+        job_id = uploaded["job"]["job_id"]
+
+        listed = client.get(f"/api/v3/cases/{case_id}/processing-jobs")
+        cancelled = client.post(f"/api/v3/processing-jobs/{job_id}/cancel")
+
+        assert listed.status_code == 200
+        assert listed.json()["jobs"][0]["job_id"] == job_id
+        assert cancelled.status_code == 200
+        assert cancelled.json()["status"] == "cancelled"
+        assert cancelled.json()["revision"] == 1
 
 
 class TestEvidenceIsolation:

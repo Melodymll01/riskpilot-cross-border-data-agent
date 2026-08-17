@@ -16,7 +16,7 @@ from sqlalchemy import and_, cast, delete, func, literal_column, select
 from domain.documents import Document, ProcessingJob
 from domain.evidence import EvidenceChunk, EvidenceSearchHit
 from infra.storage.sqlalchemy.database import SqlAlchemyDatabase
-from infra.storage.sqlalchemy.document_repo import _apply_document, _apply_job
+from infra.storage.sqlalchemy.document_repo import _apply_document, _cas_job
 from infra.storage.sqlalchemy.mapping import require_datetime, require_timestamp
 from infra.storage.sqlalchemy.models import (
     CaseDocumentRow,
@@ -71,6 +71,8 @@ class SqlAlchemyEvidenceIndex:
         embeddings: list[list[float]],
         document: Document,
         job: ProcessingJob,
+        *,
+        expected_job_revision: int,
     ) -> None:
         _validate_payload(
             document_version_id,
@@ -93,7 +95,11 @@ class SqlAlchemyEvidenceIndex:
             if document_row is None or job_row is None:
                 raise ValueError("Document 或 ProcessingJob 不存在")
             _apply_document(document_row, document)
-            _apply_job(job_row, job)
+            _cas_job(
+                session,
+                job,
+                expected_revision=expected_job_revision,
+            )
 
     def search(
         self,

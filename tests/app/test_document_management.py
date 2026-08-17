@@ -20,8 +20,10 @@ from domain import (
     UnsupportedDocumentType,
     WorkspaceAccessDenied,
 )
+from infra.tasks import ManualJobDispatcher
 from tests.fakes import (
     FakeDocumentParser,
+    FakeJobDispatcher,
     FakeObjectStore,
     InMemoryCaseRepo,
     InMemoryDocumentRepo,
@@ -42,6 +44,7 @@ def _setup(
     max_upload_bytes: int = 1024 * 1024,
     document_repo: InMemoryDocumentRepo | None = None,
     bind_worker: bool = False,
+    dispatcher: FakeJobDispatcher | None = None,
 ) -> tuple[
     WorkspaceManagementUseCase,
     CaseManagementUseCase,
@@ -65,6 +68,7 @@ def _setup(
         case_management=case_uc,
         workspace_management=workspace_uc,
         max_upload_bytes=max_upload_bytes,
+        job_dispatcher=dispatcher or ManualJobDispatcher(),
     )
     if bind_worker:
         from app.workers import DocumentProcessingWorker
@@ -153,9 +157,39 @@ class TestUpload:
         assert result.version.size_bytes == len(content)
         assert result.version.sha256
         assert result.job.status == "queued"
+        assert result.job.revision == 0
         assert result.job.current_stage == "extract_structure"
         assert repo.get(result.document.document_id) == result.document
         assert objects.read(result.version.object_key) == content
+
+    def test_upload_enqueues_revision_scoped_background_job(self) -> None:
+        dispatcher = FakeJobDispatcher()
+        _, _, uc, _, _, case_id = _setup(dispatcher=dispatcher)
+
+        result = uc.upload(
+            "github:alice",
+            case_id=case_id,
+            filename="policy.txt",
+            content=b"text",
+        )
+
+        assert dispatcher.enqueued == [(result.job.job_id, 0)]
+
+    def test_dispatch_failure_is_persisted_and_returned_as_failed(self) -> None:
+        dispatcher = FakeJobDispatcher(raise_on_enqueue=ConnectionError("redis unavailable"))
+        _, _, uc, repo, _, case_id = _setup(dispatcher=dispatcher)
+
+        result = uc.upload(
+            "github:alice",
+            case_id=case_id,
+            filename="policy.txt",
+            content=b"text",
+        )
+
+        assert result.job.status == "failed"
+        assert result.job.error_code == "TASK_DISPATCH_FAILED"
+        assert result.document.status == "failed"
+        assert repo.get_job(result.job.job_id) == result.job
 
     def test_path_filename_is_reduced_to_basename(self) -> None:
         _, _, uc, _, _, case_id = _setup()
@@ -325,12 +359,55 @@ class TestProcessingActions:
             at=failed_at,
         )
         failed_document = parsed.document.transition_to("failed", at=failed_at)
-        repo.update_processing_state(failed_document, failed_job)
+        repo.update_processing_state(
+            failed_document,
+            failed_job,
+            expected_revision=parsed.job.revision,
+        )
         retried = uc.retry_job(result.job.job_id, "github:alice")
         assert retried.status == "queued"
         assert retried.retry_count == 1
         assert repo.get(result.document.document_id).status == "queued"  # type: ignore[union-attr]
         assert objects.exists(result.version.object_key)
+
+    def test_retry_enqueues_new_revision_and_cancel_revokes_previous_attempt(self) -> None:
+        dispatcher = FakeJobDispatcher()
+        _, _, uc, repo, _, case_id = _setup(bind_worker=True, dispatcher=dispatcher)
+        result = uc.upload(
+            "github:alice",
+            case_id=case_id,
+            filename="policy.txt",
+            content=b"text",
+        )
+        parsed = uc.run_parse_stage(result.job.job_id, "github:alice")
+        failed_at = max(parsed.job.updated_at, parsed.document.updated_at) + 1.0
+        failed_job = parsed.job.fail(error_code="INDEX_FAILED", at=failed_at)
+        failed_document = parsed.document.transition_to("failed", at=failed_at)
+        repo.update_processing_state(
+            failed_document,
+            failed_job,
+            expected_revision=parsed.job.revision,
+        )
+
+        retried = uc.retry_job(result.job.job_id, "github:alice")
+        cancelled = uc.cancel_job(result.job.job_id, "github:alice")
+
+        assert dispatcher.enqueued[-1] == (retried.job_id, retried.retry_count)
+        assert dispatcher.cancelled == [(retried.job_id, retried.retry_count)]
+        assert cancelled.status == "cancelled"
+        assert cancelled.revision == retried.revision + 1
+
+    def test_list_jobs_filters_by_status(self) -> None:
+        _, _, uc, _, _, case_id = _setup()
+        uploaded = uc.upload(
+            "github:alice",
+            case_id=case_id,
+            filename="policy.txt",
+            content=b"text",
+        )
+
+        assert uc.list_jobs(case_id, "github:alice") == [uploaded.job]
+        assert uc.list_jobs(case_id, "github:alice", statuses={"failed"}) == []
 
     def test_viewer_cannot_run_parse_stage(self) -> None:
         workspace_uc, case_uc, uc, _, _, case_id = _setup(bind_worker=True)

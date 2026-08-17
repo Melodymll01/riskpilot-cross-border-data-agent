@@ -6,11 +6,13 @@ from tests.fakes.fake_auth import FakeAuth, FakeOAuthProvider
 from tests.fakes.fake_chat import FakeChat
 from tests.fakes.fake_copilot_agent import FakeCopilotAgent
 from tests.fakes.fake_document_loader import FakeDocumentLoader
+from tests.fakes.fake_document_ocr import FakeDocumentOcr
 from tests.fakes.fake_document_parser import FakeDocumentParser
 from tests.fakes.fake_embed import FakeEmbed
 from tests.fakes.fake_evidence_chunker import FakeEvidenceChunker
 from tests.fakes.fake_evidence_index import FakeEvidenceIndex
 from tests.fakes.fake_fact_proposals import FakeFactProposalGenerator
+from tests.fakes.fake_job_dispatcher import FakeJobDispatcher
 from tests.fakes.fake_kb_repo import FakeKbRepo
 from tests.fakes.fake_object_store import FakeObjectStore
 from tests.fakes.fake_qa import FakeClaimSupportVerifier, FakeEvidenceQAGenerator
@@ -39,12 +41,14 @@ __all__ = [
     "FakeChat",
     "FakeCopilotAgent",
     "FakeDocumentLoader",
+    "FakeDocumentOcr",
     "FakeDocumentParser",
     "FakeEmbed",
     "FakeEvidenceChunker",
     "FakeEvidenceIndex",
     "FakeFactProposalGenerator",
     "FakeKbRepo",
+    "FakeJobDispatcher",
     "FakeObjectStore",
     "FakeClaimSupportVerifier",
     "FakeEvidenceQAGenerator",

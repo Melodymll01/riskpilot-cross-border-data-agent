@@ -8,7 +8,11 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from domain.documents import Document, ProcessingJob
-from domain.errors import InvalidDocumentContent, ProcessingJobNotFound
+from domain.errors import (
+    InvalidDocumentContent,
+    ProcessingJobConflict,
+    ProcessingJobNotFound,
+)
 from domain.evidence import EvidenceChunk
 
 if TYPE_CHECKING:
@@ -53,8 +57,14 @@ class EvidenceIndexWorker:
         existing_count = self._index.count_version(version.version_id)
         if existing_count > 0 and job.status == "completed" and document.status == "ready":
             return IndexStageResult(document=document, job=job, chunks=[])
-        if job.status != "running" or job.current_stage != "chunk":
-            raise InvalidDocumentContent("只有处于 chunk 阶段的运行中任务可以建立索引")
+        if job.status != "running" or job.current_stage not in {
+            "chunk",
+            "embedding",
+            "index_vector",
+        }:
+            raise InvalidDocumentContent(
+                "只有处于 chunk/embedding/index_vector 阶段的任务可以建立索引"
+            )
         snapshot = self._repo.get_parse_snapshot(version.version_id)
         if snapshot is None:
             raise InvalidDocumentContent("DocumentVersion 缺少解析快照")
@@ -62,17 +72,52 @@ class EvidenceIndexWorker:
 
         try:
             chunks = self._chunker.chunk(document, version, snapshot, bindings)
-            chunked_at = max(self._clock(), job.updated_at, document.updated_at)
-            indexing_job = job.advance(
-                stage="index_vector",
-                progress=0.75,
-                at=chunked_at,
-            )
-            indexing_document = document.transition_to("indexing", at=chunked_at)
-            self._repo.update_processing_state(indexing_document, indexing_job)
+            embedding_job = job
+            embedding_document = document
+            if job.current_stage == "chunk":
+                chunked_at = max(self._clock(), job.updated_at, document.updated_at)
+                embedding_job = job.advance(
+                    stage="embedding",
+                    progress=0.65,
+                    at=chunked_at,
+                )
+                embedding_document = document.transition_to("embedding", at=chunked_at)
+                self._repo.update_processing_state(
+                    embedding_document,
+                    embedding_job,
+                    expected_revision=job.revision,
+                )
 
             embeddings = self._embedder.embed([chunk.text for chunk in chunks])
-            completed_at = max(self._clock(), chunked_at)
+            _validate_embeddings(chunks, embeddings)
+            indexing_job = embedding_job
+            indexing_document = embedding_document
+            if embedding_job.current_stage == "embedding":
+                embedded_at = max(
+                    self._clock(),
+                    embedding_job.updated_at,
+                    embedding_document.updated_at,
+                )
+                indexing_job = embedding_job.advance(
+                    stage="index_vector",
+                    progress=0.85,
+                    at=embedded_at,
+                )
+                indexing_document = embedding_document.transition_to(
+                    "indexing",
+                    at=embedded_at,
+                )
+                self._repo.update_processing_state(
+                    indexing_document,
+                    indexing_job,
+                    expected_revision=embedding_job.revision,
+                )
+
+            completed_at = max(
+                self._clock(),
+                indexing_job.updated_at,
+                indexing_document.updated_at,
+            )
             completed_job = indexing_job.complete(at=completed_at)
             ready_document = indexing_document.transition_to("ready", at=completed_at)
             self._index.complete_version_indexing(
@@ -81,13 +126,18 @@ class EvidenceIndexWorker:
                 embeddings,
                 ready_document,
                 completed_job,
+                expected_job_revision=indexing_job.revision,
             )
             return IndexStageResult(
                 document=ready_document,
                 job=completed_job,
                 chunks=chunks,
             )
+        except ProcessingJobConflict:
+            raise
         except Exception as exc:
+            if not isinstance(exc, InvalidDocumentContent):
+                raise
             failed_at = max(self._clock(), job.updated_at, document.updated_at)
             latest_job = self._repo.get_job(job.job_id) or job
             latest_document = self._repo.get(document.document_id) or document
@@ -101,7 +151,11 @@ class EvidenceIndexWorker:
                     "failed",
                     at=max(failed_at, latest_document.updated_at),
                 )
-                self._repo.update_processing_state(failed_document, failed_job)
+                self._repo.update_processing_state(
+                    failed_document,
+                    failed_job,
+                    expected_revision=latest_job.revision,
+                )
             raise
 
     def _load(self, job_id: str) -> tuple[ProcessingJob, Document]:
@@ -115,3 +169,16 @@ class EvidenceIndexWorker:
         if document is None:
             raise InvalidDocumentContent("DocumentVersion 关联的 Document 不存在")
         return job, document
+
+
+def _validate_embeddings(
+    chunks: list[EvidenceChunk],
+    embeddings: list[list[float]],
+) -> None:
+    if len(embeddings) != len(chunks):
+        raise RuntimeError("Embedding 返回数量与 chunk 不一致")
+    dimensions = {len(embedding) for embedding in embeddings}
+    if not dimensions or 0 in dimensions or len(dimensions) != 1:
+        raise RuntimeError("Embedding 维度为空或不一致")
+    if any(not any(value != 0.0 for value in embedding) for embedding in embeddings):
+        raise RuntimeError("Embedding 服务降级为零向量，拒绝写入索引")

@@ -470,16 +470,25 @@ class TestEvidenceIndex:
             progress=0.5,
             at=102.0,
         )
-        document_repo.update_job(running_job)
-        ready_document = document.transition_to("indexing", at=101.0).transition_to(
-            "ready",
-            at=103.0,
+        document_repo.update_job(running_job, expected_revision=job.revision)
+        ready_document = (
+            document.transition_to("embedding", at=103.0)
+            .transition_to("indexing", at=104.0)
+            .transition_to("ready", at=105.0)
         )
-        completed_job = running_job.advance(
-            stage="index_vector",
-            progress=0.75,
-            at=103.0,
-        ).complete(at=104.0)
+        completed_job = (
+            running_job.advance(
+                stage="embedding",
+                progress=0.75,
+                at=103.0,
+            )
+            .advance(
+                stage="index_vector",
+                progress=0.85,
+                at=104.0,
+            )
+            .complete(at=105.0)
+        )
 
         index.complete_version_indexing(
             chunk.document_version_id,
@@ -487,6 +496,7 @@ class TestEvidenceIndex:
             [[1.0, 0.0]],
             ready_document,
             completed_job,
+            expected_job_revision=running_job.revision,
         )
 
         assert index.count_version(chunk.document_version_id) == 1

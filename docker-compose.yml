@@ -11,6 +11,23 @@ services:
     env_file:
       - path: .env
         required: false
+    environment:
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-sqlite}
+      VECTOR_BACKEND: ${VECTOR_BACKEND:-chroma}
+      TASK_BACKEND: ${TASK_BACKEND:-manual}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://${POSTGRES_USER:-riskpilot}:${POSTGRES_PASSWORD:-riskpilot-local-only}@postgres:5432/${POSTGRES_DB:-riskpilot}}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+      CELERY_QUEUE: ${CELERY_QUEUE:-riskpilot.documents}
+      OBJECT_STORE_BACKEND: ${OBJECT_STORE_BACKEND:-local}
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-http://minio:9000}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-${MINIO_ROOT_USER:-riskpilot}}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-${MINIO_ROOT_PASSWORD:-riskpilot-local-only-secret}}
+      S3_BUCKET: ${S3_BUCKET:-riskpilot}
+      EMBED_PROVIDER: ${EMBED_PROVIDER:-api}
+      EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-2048}
+      WARMUP_RESEARCH_ON_STARTUP: ${WARMUP_RESEARCH_ON_STARTUP:-false}
     volumes:
       # 持久化数据：向量库、上传文件、embedding 缓存、聊天历史
       - ./data:/app/data
@@ -23,6 +40,76 @@ services:
       resources:
         limits:
           memory: 4G
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: riskpilot-rag:latest
+    container_name: riskpilot-worker
+    restart: unless-stopped
+    command: >-
+      celery -A infra.tasks.document_tasks:celery_app worker
+      --loglevel=INFO
+      --pool=prefork
+      --concurrency=${CELERY_WORKER_CONCURRENCY:-2}
+      --queues=${CELERY_QUEUE:-riskpilot.documents}
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      STORAGE_BACKEND: postgres
+      VECTOR_BACKEND: pgvector
+      TASK_BACKEND: celery
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-riskpilot}:${POSTGRES_PASSWORD:-riskpilot-local-only}@postgres:5432/${POSTGRES_DB:-riskpilot}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      CELERY_QUEUE: ${CELERY_QUEUE:-riskpilot.documents}
+      OBJECT_STORE_BACKEND: s3
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-riskpilot}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-riskpilot-local-only-secret}
+      S3_BUCKET: ${S3_BUCKET:-riskpilot}
+      EMBED_PROVIDER: ${WORKER_EMBED_PROVIDER:-api}
+      EMBEDDING_DIMENSIONS: "2048"
+      LLM_PROVIDER: ${LLM_PROVIDER:-api}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - hf-cache:/app/.cache/huggingface
+    stop_grace_period: 30s
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "celery -A infra.tasks.document_tasks:celery_app inspect ping --destination celery@$$HOSTNAME --timeout 5",
+        ]
+      interval: 10s
+      timeout: 8s
+      retries: 12
+      start_period: 20s
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: riskpilot-rag:latest
+    container_name: riskpilot-migrate
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-riskpilot}:${POSTGRES_PASSWORD:-riskpilot-local-only}@postgres:5432/${POSTGRES_DB:-riskpilot}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
 
   postgres:
     image: pgvector/pgvector:pg17
@@ -46,6 +133,21 @@ services:
       timeout: 5s
       retries: 20
 
+  redis:
+    image: redis:7.4-alpine
+    container_name: riskpilot-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
   minio:
     image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
     container_name: riskpilot-minio
@@ -65,7 +167,23 @@ services:
       timeout: 5s
       retries: 20
 
+  minio-init:
+    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
+    container_name: riskpilot-minio-init
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000
+      ${MINIO_ROOT_USER:-riskpilot}
+      ${MINIO_ROOT_PASSWORD:-riskpilot-local-only-secret} &&
+      mc mb --ignore-existing local/${S3_BUCKET:-riskpilot}
+      "
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: "no"
+
 volumes:
   hf-cache:
   postgres-data:
+  redis-data:
   minio-data:

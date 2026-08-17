@@ -82,7 +82,7 @@ def _setup():
         parsed_at=102.0,
     )
     repo._snapshots[version.version_id] = snapshot
-    times = iter([103.0, 104.0])
+    times = iter([103.0, 104.0, 105.0])
     worker = EvidenceIndexWorker(
         document_repo=repo,
         chunker=FakeEvidenceChunker(),
@@ -114,7 +114,7 @@ class TestEvidenceIndexWorker:
         assert second.job == first.job
         assert second.chunks == []
 
-    def test_embedding_failure_marks_job_and_document_failed(self) -> None:
+    def test_embedding_failure_preserves_resumable_stage(self) -> None:
         class FailingEmbedder:
             def embed(self, texts: list[str]) -> list[list[float]]:
                 raise RuntimeError("embedding unavailable")
@@ -134,7 +134,30 @@ class TestEvidenceIndexWorker:
         failed_document = repo.get("doc_001")
         failed_job = repo.get_job(job.job_id)
         assert failed_document is not None
-        assert failed_document.status == "failed"
+        assert failed_document.status == "embedding"
         assert failed_job is not None
-        assert failed_job.status == "failed"
-        assert failed_job.error_code == "INDEX_RUNTIMEERROR"
+        assert failed_job.status == "running"
+        assert failed_job.current_stage == "embedding"
+        assert failed_job.error_code is None
+
+    def test_zero_vector_fallback_is_rejected_but_remains_resumable(self) -> None:
+        class ZeroEmbedder:
+            def embed(self, texts: list[str]) -> list[list[float]]:
+                return [[0.0, 0.0] for _text in texts]
+
+        worker, repo, index, job = _setup()
+        zero_worker = EvidenceIndexWorker(
+            document_repo=repo,
+            chunker=FakeEvidenceChunker(),
+            evidence_index=index,
+            embedder=ZeroEmbedder(),
+            clock=iter([103.0, 104.0]).__next__,
+        )
+
+        with pytest.raises(RuntimeError, match="零向量"):
+            zero_worker.run(job.job_id)
+
+        failed_job = repo.get_job(job.job_id)
+        assert failed_job is not None
+        assert failed_job.status == "running"
+        assert failed_job.current_stage == "embedding"

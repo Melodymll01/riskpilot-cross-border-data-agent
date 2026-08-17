@@ -92,6 +92,14 @@ class ProcessingJobNotFound(DomainError):
     """按 `job_id` 找不到处理任务或当前用户不可见。"""
 
 
+class ProcessingJobConflict(DomainError):
+    """处理任务 revision 已变化，当前执行器必须重新读取状态。"""
+
+    def __init__(self, job_id: str) -> None:
+        self.job_id = job_id
+        super().__init__(f"处理任务 {job_id!r} 已被其他执行器更新，请重新读取后继续")
+
+
 class UnsupportedDocumentType(DomainError):
     """文件扩展名或实际内容类型不受支持。"""
 

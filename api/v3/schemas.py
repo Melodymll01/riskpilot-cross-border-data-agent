@@ -116,9 +116,11 @@ class DocumentOut(BaseModel):
         "parsing",
         "ocr",
         "chunking",
+        "embedding",
         "indexing",
         "ready",
         "failed",
+        "cancelled",
         "deleted",
     ]
     created_by: str
@@ -148,6 +150,7 @@ class ProcessingJobOut(BaseModel):
     error_code: str | None
     error_message: str | None
     retry_count: int
+    revision: int
     created_at: float
     updated_at: float
     started_at: float | None
@@ -174,6 +177,10 @@ class DocumentDetailResponse(BaseModel):
 
 class DocumentListResponse(BaseModel):
     documents: list[CaseDocumentSummaryOut]
+
+
+class ProcessingJobListResponse(BaseModel):
+    jobs: list[ProcessingJobOut]
 
 
 class ParseStageResponse(BaseModel):

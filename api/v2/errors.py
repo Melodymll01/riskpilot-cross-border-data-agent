@@ -33,6 +33,7 @@ from domain.errors import (
     OAuthFlowError,
     OwnerMismatch,
     PolicyRuleNotFound,
+    ProcessingJobConflict,
     ProcessingJobNotFound,
     TaskNotFound,
     ToolExecutionError,
@@ -76,6 +77,7 @@ _DOMAIN_MAP: dict[type[DomainError], tuple[int, str]] = {
     InvalidCaseTransition: (status.HTTP_409_CONFLICT, "INVALID_CASE_TRANSITION"),
     DocumentNotFound: (status.HTTP_404_NOT_FOUND, "DOCUMENT_NOT_FOUND"),
     ProcessingJobNotFound: (status.HTTP_404_NOT_FOUND, "PROCESSING_JOB_NOT_FOUND"),
+    ProcessingJobConflict: (status.HTTP_409_CONFLICT, "PROCESSING_JOB_CONFLICT"),
     UnsupportedDocumentType: (
         status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
         "UNSUPPORTED_DOCUMENT_TYPE",

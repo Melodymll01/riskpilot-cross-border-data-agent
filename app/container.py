@@ -42,6 +42,7 @@ from app.factories import (
     build_fact_proposal_generator,
     build_fact_store,
     build_feedback_repo,
+    build_job_dispatcher,
     build_kb_repo,
     build_memory,
     build_memory_scheduler,
@@ -93,6 +94,7 @@ if TYPE_CHECKING:
         AssessmentRepoPort,
         AuditLogPort,
         AuthPort,
+        BackgroundJobDispatcherPort,
         CaseFactRepoPort,
         CaseRepoPort,
         ChatPort,
@@ -161,6 +163,7 @@ class AppContainer:
         evidence_index: EvidenceIndexPort | None = None,
         policy_rule_repo: PolicyRuleRepoPort | None = None,
         object_store: ObjectStorePort | None = None,
+        job_dispatcher: BackgroundJobDispatcherPort | None = None,
         workflow_runtime: WorkflowRuntimePort | None = None,
         visual_index: VisualIndexPort | None = None,
         visual_embedder: VisualEmbedPort | None = None,
@@ -264,6 +267,9 @@ class AppContainer:
             settings
         )
         self.object_store: ObjectStorePort = object_store or build_object_store(settings)
+        self.job_dispatcher: BackgroundJobDispatcherPort = job_dispatcher or build_job_dispatcher(
+            settings
+        )
         self.visual_index = visual_index or build_visual_index(settings, pool=pool)
         self.visual_embedder = visual_embedder or build_visual_embedder(settings)
         self.document_parser: DocumentParserPort = document_parser or build_document_parser(
@@ -346,6 +352,7 @@ class AppContainer:
             case_management=self.case_management,
             workspace_management=self.workspace_management,
             max_upload_bytes=settings.max_upload_mb * 1024 * 1024,
+            job_dispatcher=self.job_dispatcher,
         )
         from app.workers import DocumentProcessingWorker, EvidenceIndexWorker
 

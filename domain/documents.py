@@ -17,9 +17,11 @@ DocumentStatus = Literal[
     "parsing",
     "ocr",
     "chunking",
+    "embedding",
     "indexing",
     "ready",
     "failed",
+    "cancelled",
     "deleted",
 ]
 ProcessingJobStatus = Literal["queued", "running", "completed", "failed", "cancelled"]
@@ -32,6 +34,7 @@ ProcessingStage = Literal[
     "extract_tables",
     "normalize",
     "chunk",
+    "embedding",
     "index_vector",
     "index_bm25",
     "quality_check",
@@ -46,13 +49,15 @@ class Document(BaseDomainModel):
 
     _ALLOWED_TRANSITIONS: ClassVar[dict[str, frozenset[str]]] = {
         "uploaded": frozenset({"queued", "deleted"}),
-        "queued": frozenset({"parsing", "failed", "deleted"}),
-        "parsing": frozenset({"ocr", "chunking", "failed", "deleted"}),
-        "ocr": frozenset({"chunking", "failed", "deleted"}),
-        "chunking": frozenset({"indexing", "failed", "deleted"}),
-        "indexing": frozenset({"ready", "failed", "deleted"}),
+        "queued": frozenset({"parsing", "failed", "cancelled", "deleted"}),
+        "parsing": frozenset({"ocr", "chunking", "failed", "cancelled", "deleted"}),
+        "ocr": frozenset({"chunking", "failed", "cancelled", "deleted"}),
+        "chunking": frozenset({"embedding", "failed", "cancelled", "deleted"}),
+        "embedding": frozenset({"indexing", "failed", "cancelled", "deleted"}),
+        "indexing": frozenset({"ready", "failed", "cancelled", "deleted"}),
         "ready": frozenset({"queued", "deleted"}),
         "failed": frozenset({"queued", "deleted"}),
+        "cancelled": frozenset({"queued", "deleted"}),
         "deleted": frozenset(),
     }
 
@@ -135,7 +140,7 @@ class ProcessingJob(BaseDomainModel):
     """单个 DocumentVersion 的可重试处理任务。"""
 
     _ALLOWED_TRANSITIONS: ClassVar[dict[str, frozenset[str]]] = {
-        "queued": frozenset({"running", "cancelled"}),
+        "queued": frozenset({"running", "failed", "cancelled"}),
         "running": frozenset({"completed", "failed", "cancelled"}),
         "completed": frozenset(),
         "failed": frozenset({"queued"}),
@@ -150,6 +155,7 @@ class ProcessingJob(BaseDomainModel):
     error_code: str | None = None
     error_message: str | None = None
     retry_count: int = Field(default=0, ge=0)
+    revision: int = Field(default=0, ge=0)
     created_at: float
     updated_at: float
     started_at: float | None = None
@@ -211,6 +217,7 @@ class ProcessingJob(BaseDomainModel):
             update={
                 "current_stage": stage,
                 "progress": progress,
+                "revision": self.revision + 1,
                 "updated_at": update_time,
             }
         )
@@ -281,6 +288,7 @@ class ProcessingJob(BaseDomainModel):
             update={
                 **changes,
                 "status": target,
+                "revision": self.revision + 1,
                 "updated_at": transition_time,
             }
         )

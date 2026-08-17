@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import logging
 import time
 import uuid
 import zipfile
@@ -32,11 +33,12 @@ if TYPE_CHECKING:
         IndexStageResult,
         ParseStageResult,
     )
-    from domain.ports import DocumentRepoPort, ObjectStorePort
+    from domain.ports import BackgroundJobDispatcherPort, DocumentRepoPort, ObjectStorePort
 
 _SUPPORTED_SUFFIXES = {".pdf", ".docx", ".txt", ".md", ".markdown"}
 _WRITE_ROLES: set[WorkspaceRole] = {"editor", "reviewer", "admin"}
 _DOCX_REQUIRED_ENTRIES = {"[Content_Types].xml", "word/document.xml"}
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -83,6 +85,7 @@ class DocumentManagementUseCase:
         case_management: CaseManagementUseCase,
         workspace_management: WorkspaceManagementUseCase,
         max_upload_bytes: int,
+        job_dispatcher: BackgroundJobDispatcherPort,
         processing_worker: DocumentProcessingWorker | None = None,
         index_worker: EvidenceIndexWorker | None = None,
     ) -> None:
@@ -93,6 +96,7 @@ class DocumentManagementUseCase:
         self._case_management = case_management
         self._workspace_management = workspace_management
         self._max_upload_bytes = max_upload_bytes
+        self._dispatcher = job_dispatcher
         self._processing_worker = processing_worker
         self._index_worker = index_worker
 
@@ -186,12 +190,18 @@ class DocumentManagementUseCase:
         except Exception:
             self._objects.delete(object_key)
             raise
+        dispatched_job = self._enqueue_or_fail(job, document)
+        dispatched_document = (
+            document
+            if dispatched_job.status == "queued"
+            else self._repo.get(document.document_id) or document
+        )
 
         return DocumentUploadResult(
-            document=document,
+            document=dispatched_document,
             version=version,
             binding=binding,
-            job=job,
+            job=dispatched_job,
         )
 
     def list_case_documents(
@@ -249,6 +259,21 @@ class DocumentManagementUseCase:
         job, _ = self._authorize_job(job_id, actor_id, write=False)
         return job
 
+    def list_jobs(
+        self,
+        case_id: str,
+        actor_id: str,
+        *,
+        statuses: set[str] | None = None,
+        limit: int = 50,
+    ) -> list[ProcessingJob]:
+        self._case_management.get_case(case_id, actor_id)
+        return self._repo.list_jobs_for_case(
+            case_id,
+            statuses=statuses,
+            limit=limit,
+        )
+
     def run_parse_stage(
         self,
         job_id: str,
@@ -266,8 +291,30 @@ class DocumentManagementUseCase:
         retry_at = max(time.time(), job.updated_at, document.updated_at)
         retried_job = job.retry(at=retry_at)
         queued_document = document.transition_to("queued", at=retried_job.updated_at)
-        self._repo.update_processing_state(queued_document, retried_job)
-        return retried_job
+        self._repo.update_processing_state(
+            queued_document,
+            retried_job,
+            expected_revision=job.revision,
+        )
+        return self._enqueue_or_fail(retried_job, queued_document)
+
+    def cancel_job(self, job_id: str, actor_id: str) -> ProcessingJob:
+        job, document = self._authorize_job(job_id, actor_id, write=True)
+        if job.status not in {"queued", "running"}:
+            raise InvalidDocumentContent("只有 queued/running 文档处理任务可以取消")
+        cancelled_at = max(time.time(), job.updated_at, document.updated_at)
+        cancelled_job = job.cancel(at=cancelled_at)
+        cancelled_document = document.transition_to("cancelled", at=cancelled_at)
+        self._repo.update_processing_state(
+            cancelled_document,
+            cancelled_job,
+            expected_revision=job.revision,
+        )
+        try:
+            self._dispatcher.cancel_document(job.job_id, attempt=job.retry_count)
+        except Exception:
+            logger.warning("Celery revoke 失败，数据库 cancelled 状态仍然生效", exc_info=True)
+        return cancelled_job
 
     def run_index_stage(
         self,
@@ -316,6 +363,29 @@ class DocumentManagementUseCase:
         if document.current_version_id is None:
             return None
         return self._repo.get_latest_job_for_version(document.current_version_id)
+
+    def _enqueue_or_fail(
+        self,
+        job: ProcessingJob,
+        document: Document,
+    ) -> ProcessingJob:
+        try:
+            self._dispatcher.enqueue_document(job.job_id, attempt=job.retry_count)
+        except Exception as exc:
+            failed_at = max(time.time(), job.updated_at, document.updated_at)
+            failed_job = job.fail(
+                error_code="TASK_DISPATCH_FAILED",
+                error_message=str(exc),
+                at=failed_at,
+            )
+            failed_document = document.transition_to("failed", at=failed_at)
+            self._repo.update_processing_state(
+                failed_document,
+                failed_job,
+                expected_revision=job.revision,
+            )
+            return failed_job
+        return job
 
 
 def _normalize_filename(filename: str) -> tuple[str, str]:

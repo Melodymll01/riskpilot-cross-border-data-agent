@@ -26,13 +26,14 @@ class Settings(BaseSettings):
     # ── 业务数据库 Profile ────────────────────────────────────────────────────
     storage_backend: Literal["sqlite", "postgres"] = "sqlite"
     vector_backend: Literal["chroma", "pgvector"] = "chroma"
+    task_backend: Literal["manual", "celery"] = "manual"
     database_url: str = "postgresql+psycopg://riskpilot:riskpilot@127.0.0.1:5432/riskpilot"
 
     # ── 通道选择 ──────────────────────────────────────────────────────────────
     # "api"   → 使用远端 API（智谱 / OpenAI 等）
     # "local" → 使用本机 Ollama
     llm_provider: Literal["api", "local"] = "api"  # 对话 & 查询改写
-    embed_provider: Literal["api", "local"] = "api"  # Embedding
+    embed_provider: Literal["api", "local", "deterministic"] = "api"  # Embedding
 
     # ── 远端 API 配置（智谱 / OpenAI 兼容）────────────────────────────────────
     openai_api_key: str = "sk-placeholder"
@@ -133,6 +134,13 @@ class Settings(BaseSettings):
 
     # Redis 在 Phase 4 引入 Celery 后成为生产必需依赖；未配置时 readiness 标记 disabled。
     redis_url: str | None = None
+    celery_broker_url: str | None = None
+    celery_result_backend: str | None = None
+    celery_queue: str = "riskpilot.documents"
+    celery_max_retries: int = Field(3, ge=0, le=10)
+    celery_retry_backoff_max_seconds: int = Field(300, ge=1, le=3600)
+    celery_soft_time_limit_seconds: int = Field(900, ge=10, le=7200)
+    celery_time_limit_seconds: int = Field(960, ge=11, le=7500)
 
     # API 限流
     rate_limit_enabled: bool = True  # 是否启用 v2 HTTP 限流（测试可关）
@@ -274,10 +282,14 @@ class Settings(BaseSettings):
 
     @property
     def effective_embed_api_key(self) -> str:
-        return "ollama" if self.embed_provider == "local" else self.openai_api_key
+        if self.embed_provider in {"local", "deterministic"}:
+            return "offline"
+        return self.openai_api_key
 
     @property
     def effective_embed_model(self) -> str:
+        if self.embed_provider == "deterministic":
+            return "deterministic-sha256"
         return (
             self.local_embedding_model if self.embed_provider == "local" else self.embedding_model
         )
@@ -301,6 +313,16 @@ class Settings(BaseSettings):
                 errors.append("S3_ACCESS_KEY_ID 与 S3_SECRET_ACCESS_KEY 必须同时配置或同时省略")
             if not self.s3_bucket.strip():
                 errors.append("OBJECT_STORE_BACKEND=s3 时必须配置 S3_BUCKET")
+        if self.task_backend == "celery":
+            broker_url = self.celery_broker_url or self.redis_url
+            if not broker_url or not broker_url.startswith(("redis://", "rediss://")):
+                errors.append("TASK_BACKEND=celery 时必须配置 Redis CELERY_BROKER_URL 或 REDIS_URL")
+            if self.storage_backend != "postgres" or self.vector_backend != "pgvector":
+                errors.append("TASK_BACKEND=celery 时必须使用 postgres+pgvector 生产 Profile")
+            if self.object_store_backend != "s3":
+                errors.append("TASK_BACKEND=celery 时必须使用 S3/MinIO 对象存储")
+        if self.celery_time_limit_seconds <= self.celery_soft_time_limit_seconds:
+            errors.append("CELERY_TIME_LIMIT_SECONDS 必须大于 CELERY_SOFT_TIME_LIMIT_SECONDS")
         if self.llm_provider == "api" and _is_placeholder_secret(self.effective_chat_api_key):
             errors.append("LLM_PROVIDER=api 时必须配置 CHAT_API_KEY 或 OPENAI_API_KEY")
         if self.embed_provider == "api" and _is_placeholder_secret(self.openai_api_key):

@@ -65,6 +65,7 @@ def test_postgres_offline_sql_contains_production_types_and_indexes(
     assert "embedding::halfvec(2048)" in sql
     assert "halfvec_cosine_ops" in sql
     assert "to_tsvector('simple', search_tokens)" in sql
+    assert "ADD COLUMN revision INTEGER DEFAULT '0' NOT NULL" in sql
 
 
 @pytest.mark.skipif(

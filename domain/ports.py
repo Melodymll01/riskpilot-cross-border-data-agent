@@ -233,14 +233,29 @@ class DocumentRepoPort(Protocol):
         document_version_id: str,
     ) -> ProcessingJob | None: ...
 
+    def list_jobs_for_case(
+        self,
+        case_id: str,
+        *,
+        statuses: set[str] | None = None,
+        limit: int = 50,
+    ) -> list[ProcessingJob]: ...
+
     def update_document(self, document: Document) -> None: ...
 
-    def update_job(self, job: ProcessingJob) -> None: ...
+    def update_job(
+        self,
+        job: ProcessingJob,
+        *,
+        expected_revision: int,
+    ) -> None: ...
 
     def update_processing_state(
         self,
         document: Document,
         job: ProcessingJob,
+        *,
+        expected_revision: int,
     ) -> None: ...
 
     def save_parse_result(
@@ -249,6 +264,8 @@ class DocumentRepoPort(Protocol):
         snapshot: DocumentParseSnapshot,
         document: Document,
         job: ProcessingJob,
+        *,
+        expected_job_revision: int,
     ) -> None:
         """原子保存解析快照，并推进版本、文档和任务状态。"""
         ...
@@ -265,6 +282,27 @@ class DocumentParserPort(Protocol):
         version: DocumentVersion,
         content: bytes,
     ) -> DocumentParseSnapshot: ...
+
+
+@runtime_checkable
+class DocumentOcrPort(Protocol):
+    """只补全 ParseSnapshot 中标记为 empty 的页面。"""
+
+    def apply_ocr(
+        self,
+        version: DocumentVersion,
+        content: bytes,
+        snapshot: DocumentParseSnapshot,
+    ) -> DocumentParseSnapshot: ...
+
+
+@runtime_checkable
+class BackgroundJobDispatcherPort(Protocol):
+    """后台任务投递端口；业务消息只携带服务端 job_id。"""
+
+    def enqueue_document(self, job_id: str, *, attempt: int) -> str: ...
+
+    def cancel_document(self, job_id: str, *, attempt: int) -> None: ...
 
 
 @runtime_checkable
@@ -321,6 +359,8 @@ class EvidenceIndexPort(Protocol):
         embeddings: list[list[float]],
         document: Document,
         job: ProcessingJob,
+        *,
+        expected_job_revision: int,
     ) -> None:
         """原子替换版本证据块，并完成文档与任务状态。"""
         ...

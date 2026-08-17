@@ -241,3 +241,29 @@ class TestRuntimeConfiguration:
         assert "S3_ACCESS_KEY_ID 与 S3_SECRET_ACCESS_KEY 必须同时配置或同时省略" in (
             settings.runtime_configuration_errors()
         )
+
+    def test_celery_requires_redis_and_shared_production_storage(self) -> None:
+        settings = _mk(
+            llm_provider="local",
+            embed_provider="local",
+            task_backend="celery",
+        )
+
+        errors = settings.runtime_configuration_errors()
+        assert "TASK_BACKEND=celery 时必须配置 Redis CELERY_BROKER_URL 或 REDIS_URL" in errors
+        assert "TASK_BACKEND=celery 时必须使用 postgres+pgvector 生产 Profile" in errors
+        assert "TASK_BACKEND=celery 时必须使用 S3/MinIO 对象存储" in errors
+
+    def test_celery_accepts_complete_production_profile(self) -> None:
+        settings = _mk(
+            llm_provider="local",
+            embed_provider="local",
+            task_backend="celery",
+            storage_backend="postgres",
+            vector_backend="pgvector",
+            object_store_backend="s3",
+            database_url="postgresql+psycopg://riskpilot@localhost/riskpilot",
+            redis_url="redis://localhost:6379/0",
+        )
+
+        settings.validate_runtime_configuration()

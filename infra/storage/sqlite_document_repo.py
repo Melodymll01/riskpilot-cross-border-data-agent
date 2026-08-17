@@ -15,6 +15,7 @@ from domain.documents import (
     ProcessingJobStatus,
     ProcessingStage,
 )
+from domain.errors import ProcessingJobConflict
 from infra.storage._db import SqliteConnectionPool
 
 
@@ -68,9 +69,9 @@ class SqliteDocumentRepo:
                 """
                 INSERT INTO processing_jobs
                     (job_id, document_version_id, status, current_stage, progress,
-                     error_code, error_message, retry_count, created_at, updated_at,
+                     error_code, error_message, retry_count, revision, created_at, updated_at,
                      started_at, completed_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 _job_values(job),
             )
@@ -202,6 +203,32 @@ class SqliteDocumentRepo:
         )
         return None if row is None else _row_to_job(row)
 
+    def list_jobs_for_case(
+        self,
+        case_id: str,
+        *,
+        statuses: set[str] | None = None,
+        limit: int = 50,
+    ) -> list[ProcessingJob]:
+        if limit < 1:
+            raise ValueError("limit 必须大于 0")
+        statement = """
+            SELECT DISTINCT j.*
+            FROM processing_jobs AS j
+            JOIN document_versions AS v ON v.version_id = j.document_version_id
+            JOIN case_documents AS cd ON cd.document_id = v.document_id
+            WHERE cd.case_id = ?
+        """
+        params: list[object] = [case_id]
+        if statuses:
+            placeholders = ", ".join("?" for _ in statuses)
+            statement += f" AND j.status IN ({placeholders})"
+            params.extend(sorted(statuses))
+        statement += " ORDER BY j.created_at DESC, j.job_id DESC LIMIT ?"
+        params.append(limit)
+        rows = self._pool.get().execute(statement, params).fetchall()
+        return [_row_to_job(row) for row in rows]
+
     def update_document(self, document: Document) -> None:
         conn = self._pool.get()
         conn.execute(
@@ -231,50 +258,27 @@ class SqliteDocumentRepo:
         )
         conn.commit()
 
-    def update_job(self, job: ProcessingJob) -> None:
+    def update_job(
+        self,
+        job: ProcessingJob,
+        *,
+        expected_revision: int,
+    ) -> None:
         conn = self._pool.get()
-        conn.execute(
-            """
-            UPDATE processing_jobs SET
-                document_version_id = ?,
-                status = ?,
-                current_stage = ?,
-                progress = ?,
-                error_code = ?,
-                error_message = ?,
-                retry_count = ?,
-                created_at = ?,
-                updated_at = ?,
-                started_at = ?,
-                completed_at = ?
-            WHERE job_id = ?
-            """,
-            (
-                job.document_version_id,
-                job.status,
-                job.current_stage,
-                job.progress,
-                job.error_code,
-                job.error_message,
-                job.retry_count,
-                job.created_at,
-                job.updated_at,
-                job.started_at,
-                job.completed_at,
-                job.job_id,
-            ),
-        )
-        conn.commit()
+        with conn:
+            _update_job(conn, job, expected_revision=expected_revision)
 
     def update_processing_state(
         self,
         document: Document,
         job: ProcessingJob,
+        *,
+        expected_revision: int,
     ) -> None:
         conn = self._pool.get()
         with conn:
             _update_document(conn, document)
-            _update_job(conn, job)
+            _update_job(conn, job, expected_revision=expected_revision)
 
     def save_parse_result(
         self,
@@ -282,6 +286,8 @@ class SqliteDocumentRepo:
         snapshot: DocumentParseSnapshot,
         document: Document,
         job: ProcessingJob,
+        *,
+        expected_job_revision: int,
     ) -> None:
         if snapshot.document_version_id != version.version_id:
             raise ValueError("解析快照必须属于当前 DocumentVersion")
@@ -318,7 +324,7 @@ class SqliteDocumentRepo:
                 ),
             )
             _update_document(conn, document)
-            _update_job(conn, job)
+            _update_job(conn, job, expected_revision=expected_job_revision)
 
     def get_parse_snapshot(self, document_version_id: str) -> DocumentParseSnapshot | None:
         row = (
@@ -392,6 +398,7 @@ def _job_values(job: ProcessingJob) -> tuple[object, ...]:
         job.error_code,
         job.error_message,
         job.retry_count,
+        job.revision,
         job.created_at,
         job.updated_at,
         job.started_at,
@@ -427,8 +434,15 @@ def _update_document(conn: Any, document: Document) -> None:
     )
 
 
-def _update_job(conn: Any, job: ProcessingJob) -> None:
-    conn.execute(
+def _update_job(
+    conn: Any,
+    job: ProcessingJob,
+    *,
+    expected_revision: int,
+) -> None:
+    if job.revision <= expected_revision:
+        raise ValueError("ProcessingJob revision 必须递增")
+    cursor = conn.execute(
         """
         UPDATE processing_jobs SET
             document_version_id = ?,
@@ -438,11 +452,12 @@ def _update_job(conn: Any, job: ProcessingJob) -> None:
             error_code = ?,
             error_message = ?,
             retry_count = ?,
+            revision = ?,
             created_at = ?,
             updated_at = ?,
             started_at = ?,
             completed_at = ?
-        WHERE job_id = ?
+        WHERE job_id = ? AND revision = ?
         """,
         (
             job.document_version_id,
@@ -452,13 +467,17 @@ def _update_job(conn: Any, job: ProcessingJob) -> None:
             job.error_code,
             job.error_message,
             job.retry_count,
+            job.revision,
             job.created_at,
             job.updated_at,
             job.started_at,
             job.completed_at,
             job.job_id,
+            expected_revision,
         ),
     )
+    if cursor.rowcount != 1:
+        raise ProcessingJobConflict(job.job_id)
 
 
 def _row_to_document(row: Any) -> Document:
@@ -510,6 +529,7 @@ def _row_to_job(row: Any) -> ProcessingJob:
         error_code=row["error_code"],
         error_message=row["error_message"],
         retry_count=row["retry_count"],
+        revision=row["revision"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
         started_at=row["started_at"],
@@ -524,9 +544,11 @@ def _validate_document_status(value: str) -> DocumentStatus:
         "parsing",
         "ocr",
         "chunking",
+        "embedding",
         "indexing",
         "ready",
         "failed",
+        "cancelled",
         "deleted",
     }
     if value not in valid:
@@ -550,6 +572,7 @@ def _validate_processing_stage(value: str) -> ProcessingStage:
         "extract_tables",
         "normalize",
         "chunk",
+        "embedding",
         "index_vector",
         "index_bm25",
         "quality_check",

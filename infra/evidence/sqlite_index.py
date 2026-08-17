@@ -39,6 +39,8 @@ class SqliteEvidenceIndex:
         embeddings: list[list[float]],
         document: Document,
         job: ProcessingJob,
+        *,
+        expected_job_revision: int,
     ) -> None:
         _validate_index_payload(document_version_id, chunks, embeddings)
         conn = self._pool.get()
@@ -46,7 +48,11 @@ class SqliteEvidenceIndex:
             _validate_persisted_scope(conn, chunks)
             _replace_chunks(conn, document_version_id, chunks, embeddings)
             _update_document_status(conn, document)
-            _update_job_status(conn, job)
+            _update_job_status(
+                conn,
+                job,
+                expected_revision=expected_job_revision,
+            )
 
     def search(
         self,
@@ -360,14 +366,23 @@ def _update_document_status(conn: Any, document: Document) -> None:
     )
 
 
-def _update_job_status(conn: Any, job: ProcessingJob) -> None:
-    conn.execute(
+def _update_job_status(
+    conn: Any,
+    job: ProcessingJob,
+    *,
+    expected_revision: int,
+) -> None:
+    from domain.errors import ProcessingJobConflict
+
+    if job.revision <= expected_revision:
+        raise ValueError("ProcessingJob revision 必须递增")
+    cursor = conn.execute(
         """
         UPDATE processing_jobs SET
             status = ?, current_stage = ?, progress = ?, error_code = ?,
             error_message = ?, retry_count = ?, updated_at = ?, started_at = ?,
-            completed_at = ?
-        WHERE job_id = ?
+            completed_at = ?, revision = ?
+        WHERE job_id = ? AND revision = ?
         """,
         (
             job.status,
@@ -379,6 +394,10 @@ def _update_job_status(conn: Any, job: ProcessingJob) -> None:
             job.updated_at,
             job.started_at,
             job.completed_at,
+            job.revision,
             job.job_id,
+            expected_revision,
         ),
     )
+    if cursor.rowcount != 1:
+        raise ProcessingJobConflict(job.job_id)

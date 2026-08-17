@@ -19,6 +19,7 @@ from api.v3.schemas import (
     DocumentVersionOut,
     IndexStageResponse,
     ParseStageResponse,
+    ProcessingJobListResponse,
     ProcessingJobOut,
 )
 from domain.errors import DocumentTooLarge
@@ -67,6 +68,7 @@ def _to_job_out(job: ProcessingJob) -> ProcessingJobOut:
         error_code=job.error_code,
         error_message=job.error_message,
         retry_count=job.retry_count,
+        revision=job.revision,
         created_at=job.created_at,
         updated_at=job.updated_at,
         started_at=job.started_at,
@@ -199,6 +201,25 @@ def build_document_routes(container: AppContainer) -> APIRouter:
         job = container.document_management.get_job(job_id, actor_id)
         return _to_job_out(job)
 
+    @router.get(
+        "/cases/{case_id}/processing-jobs",
+        response_model=ProcessingJobListResponse,
+        summary="列出案件文档处理任务",
+    )
+    def list_processing_jobs(
+        case_id: str,
+        status_filter: list[str] | None = None,
+        limit: int = 50,
+        actor_id: str = Depends(require_owner),
+    ) -> ProcessingJobListResponse:
+        jobs = container.document_management.list_jobs(
+            case_id,
+            actor_id,
+            statuses=set(status_filter) if status_filter else None,
+            limit=limit,
+        )
+        return ProcessingJobListResponse(jobs=[_to_job_out(job) for job in jobs])
+
     @router.post(
         "/processing-jobs/{job_id}/parse",
         response_model=ParseStageResponse,
@@ -228,6 +249,18 @@ def build_document_routes(container: AppContainer) -> APIRouter:
         actor_id: str = Depends(require_owner),
     ) -> ProcessingJobOut:
         job = container.document_management.retry_job(job_id, actor_id)
+        return _to_job_out(job)
+
+    @router.post(
+        "/processing-jobs/{job_id}/cancel",
+        response_model=ProcessingJobOut,
+        summary="协作式取消文档处理任务",
+    )
+    def cancel_processing_job(
+        job_id: str,
+        actor_id: str = Depends(require_owner),
+    ) -> ProcessingJobOut:
+        job = container.document_management.cancel_job(job_id, actor_id)
         return _to_job_out(job)
 
     @router.post(

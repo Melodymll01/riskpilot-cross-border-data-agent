@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from typing import Any, cast
+
+from sqlalchemy import select, update
+from sqlalchemy.engine import CursorResult
+from sqlalchemy.orm import Session
 
 from domain.document_content import DocumentParseSnapshot
 from domain.documents import CaseDocument, Document, DocumentVersion, ProcessingJob
+from domain.errors import ProcessingJobConflict
 from infra.storage.sqlalchemy.database import SqlAlchemyDatabase
 from infra.storage.sqlalchemy.mapping import (
     require_datetime,
@@ -117,6 +122,36 @@ class SqlAlchemyDocumentRepo:
             row = session.scalar(statement)
             return None if row is None else _job(row)
 
+    def list_jobs_for_case(
+        self,
+        case_id: str,
+        *,
+        statuses: set[str] | None = None,
+        limit: int = 50,
+    ) -> list[ProcessingJob]:
+        if limit < 1:
+            raise ValueError("limit 必须大于 0")
+        statement = (
+            select(ProcessingJobRow)
+            .join(
+                DocumentVersionRow,
+                DocumentVersionRow.version_id == ProcessingJobRow.document_version_id,
+            )
+            .join(
+                CaseDocumentRow,
+                CaseDocumentRow.document_id == DocumentVersionRow.document_id,
+            )
+            .where(CaseDocumentRow.case_id == case_id)
+        )
+        if statuses:
+            statement = statement.where(ProcessingJobRow.status.in_(statuses))
+        statement = statement.order_by(
+            ProcessingJobRow.created_at.desc(),
+            ProcessingJobRow.job_id.desc(),
+        ).limit(limit)
+        with self._database.read_session() as session:
+            return [_job(row) for row in session.scalars(statement).unique()]
+
     def update_document(self, document: Document) -> None:
         with self._database.session() as session:
             row = session.get(DocumentRow, document.document_id)
@@ -124,17 +159,21 @@ class SqlAlchemyDocumentRepo:
                 raise ValueError("待更新 Document 不存在")
             _apply_document(row, document)
 
-    def update_job(self, job: ProcessingJob) -> None:
+    def update_job(
+        self,
+        job: ProcessingJob,
+        *,
+        expected_revision: int,
+    ) -> None:
         with self._database.session() as session:
-            row = session.get(ProcessingJobRow, job.job_id)
-            if row is None:
-                raise ValueError("待更新 ProcessingJob 不存在")
-            _apply_job(row, job)
+            _cas_job(session, job, expected_revision=expected_revision)
 
     def update_processing_state(
         self,
         document: Document,
         job: ProcessingJob,
+        *,
+        expected_revision: int,
     ) -> None:
         with self._database.session() as session:
             document_row = session.get(DocumentRow, document.document_id)
@@ -142,7 +181,7 @@ class SqlAlchemyDocumentRepo:
             if document_row is None or job_row is None:
                 raise ValueError("Document 或 ProcessingJob 不存在")
             _apply_document(document_row, document)
-            _apply_job(job_row, job)
+            _cas_job(session, job, expected_revision=expected_revision)
 
     def save_parse_result(
         self,
@@ -150,6 +189,8 @@ class SqlAlchemyDocumentRepo:
         snapshot: DocumentParseSnapshot,
         document: Document,
         job: ProcessingJob,
+        *,
+        expected_job_revision: int,
     ) -> None:
         with self._database.session() as session:
             version_row = session.get(DocumentVersionRow, version.version_id)
@@ -159,7 +200,7 @@ class SqlAlchemyDocumentRepo:
                 raise ValueError("DocumentVersion、Document 或 ProcessingJob 不存在")
             _apply_version(version_row, version)
             _apply_document(document_row, document)
-            _apply_job(job_row, job)
+            _cas_job(session, job, expected_revision=expected_job_revision)
             existing = session.scalar(
                 select(DocumentParseSnapshotRow).where(
                     DocumentParseSnapshotRow.document_version_id == version.version_id
@@ -261,10 +302,48 @@ def _apply_job(row: ProcessingJobRow, job: ProcessingJob) -> None:
     row.error_code = job.error_code
     row.error_message = job.error_message
     row.retry_count = job.retry_count
+    row.revision = job.revision
     row.created_at = require_datetime(job.created_at)
     row.updated_at = require_datetime(job.updated_at)
     row.started_at = to_datetime(job.started_at)
     row.completed_at = to_datetime(job.completed_at)
+
+
+def _cas_job(
+    session: Session,
+    job: ProcessingJob,
+    *,
+    expected_revision: int,
+) -> None:
+    if job.revision <= expected_revision:
+        raise ValueError("ProcessingJob revision 必须递增")
+    values = {
+        "document_version_id": job.document_version_id,
+        "status": job.status,
+        "current_stage": job.current_stage,
+        "progress": job.progress,
+        "error_code": job.error_code,
+        "error_message": job.error_message,
+        "retry_count": job.retry_count,
+        "revision": job.revision,
+        "created_at": require_datetime(job.created_at),
+        "updated_at": require_datetime(job.updated_at),
+        "started_at": to_datetime(job.started_at),
+        "completed_at": to_datetime(job.completed_at),
+    }
+    result = cast(
+        "CursorResult[Any]",
+        session.execute(
+            update(ProcessingJobRow)
+            .where(
+                ProcessingJobRow.job_id == job.job_id,
+                ProcessingJobRow.revision == expected_revision,
+            )
+            .values(**values)
+        ),
+    )
+    if result.rowcount != 1:
+        raise ProcessingJobConflict(job.job_id)
 
 
 def _snapshot_row(
@@ -327,6 +406,7 @@ def _job(row: ProcessingJobRow) -> ProcessingJob:
         error_code=row.error_code,
         error_message=row.error_message,
         retry_count=row.retry_count,
+        revision=row.revision,
         created_at=require_timestamp(row.created_at),
         updated_at=require_timestamp(row.updated_at),
         started_at=to_timestamp(row.started_at),

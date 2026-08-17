@@ -14,6 +14,7 @@ from domain import (
     DocumentRepoPort,
     DocumentVersion,
     ProcessingJob,
+    ProcessingJobConflict,
     Workspace,
     WorkspaceMembership,
 )
@@ -197,6 +198,10 @@ class TestDocumentQueries:
         assert {
             d.document_id for d in document_repo.list_for_case("case_001", include_deleted=True)
         } == {"doc_001", "doc_deleted"}
+        assert {job.job_id for job in document_repo.list_jobs_for_case("case_001")} == {
+            "job_001",
+            "job_deleted",
+        }
 
     def test_update_document_and_job(
         self,
@@ -215,10 +220,42 @@ class TestDocumentQueries:
             progress=0.4,
             at=102.0,
         )
-        document_repo.update_job(updated_job)
+        document_repo.update_job(updated_job, expected_revision=job.revision)
 
         assert document_repo.get(document.document_id) == updated_document
         assert document_repo.get_job(job.job_id) == updated_job
+
+    def test_stale_job_revision_does_not_update_document_or_job(
+        self,
+        workspace_repo: SqliteWorkspaceRepo,
+        case_repo: SqliteCaseRepo,
+        document_repo: SqliteDocumentRepo,
+    ) -> None:
+        _seed_case(workspace_repo, case_repo)
+        document, version, binding, job = _upload_graph()
+        document_repo.create_upload(document, version, binding, job)
+        running = job.start(at=101.0)
+        parsing = document.transition_to("parsing", at=101.0)
+        document_repo.update_processing_state(
+            parsing,
+            running,
+            expected_revision=job.revision,
+        )
+
+        stale_failed = job.start(at=102.0).fail(
+            error_code="STALE",
+            at=103.0,
+        )
+        stale_document = document.transition_to("failed", at=103.0)
+        with pytest.raises(ProcessingJobConflict):
+            document_repo.update_processing_state(
+                stale_document,
+                stale_failed,
+                expected_revision=job.revision,
+            )
+
+        assert document_repo.get(document.document_id) == parsing
+        assert document_repo.get_job(job.job_id) == running
 
 
 class TestParseSnapshotPersistence:
@@ -261,6 +298,7 @@ class TestParseSnapshotPersistence:
             snapshot,
             chunking_document,
             running_job,
+            expected_job_revision=job.revision,
         )
 
         assert document_repo.get_version(version.version_id) == parsed_version
