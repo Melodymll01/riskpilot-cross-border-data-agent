@@ -44,6 +44,7 @@ class SqlAlchemyAgentRunRepo:
                 if workspace_id != run.workspace_id:
                     raise ValueError("AgentRun 的 Workspace 与 Case 归属不一致")
                 session.add(_run_row(run))
+                session.flush()
                 session.add(_checkpoint_row(checkpoint))
                 session.add(_event_row(event))
         except IntegrityError as exc:

@@ -1,6 +1,6 @@
 # Phase 2 实施复盘：PostgreSQL 核心存储
 
-- 状态：代码完成，等待 CI PostgreSQL service 验证
+- 状态：已完成
 - 日期：2026-08-17
 - 前置提交：`4c9444f`
 
@@ -26,8 +26,9 @@ PostgreSQL 的价值不是“换数据库”，而是把事务、唯一约束、
 - PostgreSQL 专属：GitHub Actions 启动 PostgreSQL service，运行真实方言、partial unique
   index 和并发 Run 测试。
 
-当前执行环境没有 Docker/psql，因此不会声称本地已跑 PostgreSQL；真实 PostgreSQL 结果
-必须来自 CI service。
+开始实施时当前环境没有 Docker/psql。为完成真实方言验收，后续通过 Homebrew 安装
+PostgreSQL 17.11，不注册系统服务，使用 `/tmp/riskpilot-pg17` 临时集群和端口 55432
+运行验证；验证后立即停止并删除临时数据目录。
 
 ## 3. 修改文件与实现说明
 
@@ -94,6 +95,7 @@ SQLAlchemy ORM 只属于 infra，不能复用或污染 Domain Pydantic Model。
 - `AgentRun` 建立 partial unique index：
   `case_id + workflow_type WHERE status IN active statuses`；
 - `CaseFactEvidence` 使用 `(fact_id, fact_version)` 组合外键；
+- CheckConstraint 使用稳定显式名称，避免 PostgreSQL 自动命名造成 Alembic drift；
 - Phase 2 不迁 Visual Asset，避免与 Phase 3 多模态/pgvector 混合。
 
 #### `infra/storage/sqlalchemy/mapping.py`
@@ -126,6 +128,8 @@ Workspace 与创建者 admin membership 必须同事务创建。
 - PostgreSQL 使用 `ON CONFLICT` 更新 role；
 - SQLite contract profile 使用等价 get/update 分支；
 - upsert 不覆盖原始 `joined_at`。
+- Workspace 主表插入后显式 flush，再插 Membership；没有 ORM relationship 时不能依赖
+  SQLAlchemy 自动推断父子 flush 顺序。
 
 #### `case_repo.py`
 
@@ -154,6 +158,7 @@ Document、Version、Case binding 和 ProcessingJob 必须原子创建；解析�
 - `save_parse_result()` 同事务更新 Version/Document/Job 与 ParseSnapshot；
 - ParseSnapshot 以 JSONB 保存完整 Pydantic schema；
 - 不保存本地绝对路径，只保存 object_key。
+- Document、Version、Binding/Job 之间显式父子 flush，确保 PostgreSQL 外键顺序；
 
 #### `case_fact_repo.py`
 
@@ -168,6 +173,7 @@ Fact 当前快照、历史版本和原文证据必须保持一致，Reviewer 批
 - revision 保留历史 payload；
 - 批量状态更新同步更新当前快照与版本快照；
 - Evidence 使用组合外键绑定 FactVersion。
+- Fact 与 FactVersion 分阶段 flush，再插 Evidence，保持外键顺序且仍在同一事务回滚。
 
 #### `policy_rule_repo.py`
 
@@ -195,6 +201,7 @@ Assessment 版本切换和审批必须原子，不能出现 Assessment 已批准
 - Bundle 拆为 Assessment/Finding/Action/Citation 表；
 - 审批时同时 CAS 更新 Assessment 与 Case；
 - 版本号 `(case_id, version)` 唯一。
+- Assessment 父记录 flush 后再插 Finding/Action/Citation，解决真实 PostgreSQL 外键顺序。
 
 #### `agent_run_repo.py`
 
@@ -211,6 +218,7 @@ Agent Run 是并发和恢复核心，需要数据库级乐观锁、事件连续�
 - `(run_id, sequence)`、`(run_id, version)` 唯一；
 - partial unique index 阻止同 Case + Workflow 的第二个活动 Run；
 - PostgreSQL 并发 contract 用两个线程同时 create，期望一个 created、一个 conflict。
+- Run 父记录 flush 后再插 Checkpoint/Event。
 
 #### `evidence_index.py`
 
@@ -430,7 +438,7 @@ Graph 节点与 checkpoint state 不变。
 ruff check .                         passed
 ruff format --check .                359 files formatted
 mypy domain app infra                124 source files passed
-pytest -q                            1229 passed, 2 skipped, 5 warnings in 19.18s
+pytest -q                            1229 passed, 2 skipped, 5 warnings in 21.02s
 ```
 
 两个 skip：
@@ -455,39 +463,48 @@ PostgreSQL offline SQL               JSONB + partial unique index confirmed
 
 ### 真实 PostgreSQL
 
-已在 GitHub Actions 配置 PostgreSQL 17 service job，但本地尚无执行结果。远端 CI 必须验证：
+临时 PostgreSQL 17.11 实测：
 
-- Alembic upgrade；
-- Alembic drift check；
-- 全 Repository contract；
-- 两线程并发活动 Run 仅一个成功。
+```text
+alembic upgrade head             passed
+alembic check                    No new upgrade operations detected
+Repository contracts             6 passed
+并发活动 Run                     1 created + 1 conflict
+partial unique index             已在 pg_indexes 中确认
+alembic_version                  1 row
+```
+
+实测过程发现并修复两类 SQLite contract 未暴露的问题：
+
+1. 未命名 CheckConstraint 在 PostgreSQL 反射后造成 Alembic schema drift；
+2. 无 ORM relationship 的多 Row 插入不能依赖自动 flush 顺序，父表必须显式 flush。
+
+GitHub Actions 仍保留 PostgreSQL 17 service job，作为后续每次提交的持续回归。
 
 ## 8. 尚未解决的风险
 
-1. **真实 PostgreSQL CI 尚未在当前本地执行**：当前环境无 Docker/psql，不能宣布该项已
-   通过；需 push 后观察 GitHub Actions；
-2. Evidence embedding 在 Phase 2 仍为 JSONB + Python 排序，只为保持完整 profile；
+1. Evidence embedding 在 Phase 2 仍为 JSONB + Python 排序，只为保持完整 profile；
    Phase 3 必须升级 pgvector/FTS；
-3. User/Task/Memory/Audit 辅助模块仍使用 SQLite，当前不是全仓 PostgreSQL；核心案件闭环
+2. User/Task/Memory/Audit 辅助模块仍使用 SQLite，当前不是全仓 PostgreSQL；核心案件闭环
    已迁移；
-4. LangGraph checkpointer 仍是 SQLite，目标 PostgreSQL checkpointer 后续接入；
-5. PostgreSQL transaction isolation 目前使用 SQLAlchemy/数据库默认级别；高竞争场景需
+3. LangGraph checkpointer 仍是 SQLite，目标 PostgreSQL checkpointer 后续接入；
+4. PostgreSQL transaction isolation 目前使用 SQLAlchemy/数据库默认级别；高竞争场景需
    根据真实压测决定是否提高隔离级别。
 
 ## 9. 下一阶段建议
 
-先 push 当前分支并观察 PostgreSQL CI job。只有该 job 通过，Phase 2 才满足最终验收，
-然后进入 Phase 3：pgvector、PostgreSQL FTS 和 MinIO/S3ObjectStore。
+进入 Phase 3：pgvector、PostgreSQL FTS 和 MinIO/S3ObjectStore。继续复用本阶段
+SQLAlchemy schema、真实 PostgreSQL contract 和 CI service。
 
 ## 10. 验收标准
 
 | 验收项 | 状态 |
 | --- | --- |
-| Alembic 空库迁移 | 本地 SQLite 方言通过；PostgreSQL CI 待执行 |
-| SQLite/PostgreSQL profile 可装配 | 代码与 SQLAlchemy contract 通过 |
-| 核心 Repository contract | 本地 5 passed；PostgreSQL CI 待执行 |
-| AgentRun 乐观锁 | 本地 contract 通过 |
-| 同 Case 活动 Run 唯一 | partial index 已生成；真实并发 CI 待执行 |
+| Alembic 空库迁移 | 满足：SQLite 可逆 + PostgreSQL 17.11 upgrade |
+| SQLite/PostgreSQL profile 可装配 | 满足：双 profile contract |
+| 核心 Repository contract | 满足：本地 + PostgreSQL 6 passed |
+| AgentRun 乐观锁 | 满足：stale revision fail closed |
+| 同 Case 活动 Run 唯一 | 满足：真实并发 1 created + 1 conflict |
 | ORM 不泄漏到 domain | 满足：ORM 仅位于 infra |
 
-Phase 2 当前为“代码完成，等待 CI PostgreSQL service 验证”，尚不宣告最终验收通过。
+Phase 2 验收通过。

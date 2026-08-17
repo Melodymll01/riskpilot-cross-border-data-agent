@@ -43,7 +43,9 @@ class SqlAlchemyCaseFactRepo:
             for fact, evidence in items:
                 _validate_persisted_scope(session, evidence)
                 session.add(_fact_row(fact))
+                session.flush()
                 session.add(_version_row(fact))
+                session.flush()
                 session.add_all(_evidence_row(item) for item in evidence)
 
     def get(self, fact_id: str) -> CaseFact | None:
@@ -109,6 +111,7 @@ class SqlAlchemyCaseFactRepo:
                 raise ValueError("待修订事实不存在")
             _apply_fact(row, fact)
             session.add(_version_row(fact))
+            session.flush()
             session.add_all(_evidence_row(item) for item in evidence)
 
     def update_status(self, fact: CaseFact) -> None:

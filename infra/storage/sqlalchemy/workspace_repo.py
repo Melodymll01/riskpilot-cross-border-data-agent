@@ -32,6 +32,7 @@ class SqlAlchemyWorkspaceRepo:
             raise ValueError("Workspace 创建者必须具有 admin 角色")
         with self._database.session() as session:
             session.add(_workspace_row(workspace))
+            session.flush()
             session.add(_membership_row(creator_membership))
 
     def get(self, workspace_id: str) -> Workspace | None:

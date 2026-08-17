@@ -36,7 +36,9 @@ class SqlAlchemyDocumentRepo:
         _validate_upload_graph(document, version, binding, job)
         with self._database.session() as session:
             session.add(_document_row(document))
+            session.flush()
             session.add(_version_row(version))
+            session.flush()
             session.add(_binding_row(binding))
             session.add(_job_row(job))
 

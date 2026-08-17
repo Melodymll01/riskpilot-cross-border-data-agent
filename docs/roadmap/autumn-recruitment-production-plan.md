@@ -1,7 +1,7 @@
 # RiskPilot 2026 秋招生产化路线
 
 - 状态：执行中
-- 当前进度：Phase 0、Phase 1 已完成；Phase 2 代码完成，等待 CI PostgreSQL service 验证
+- 当前进度：Phase 0～2 已完成；下一阶段为 Phase 3 pgvector 与对象存储
 - 基线日期：2026-08-17
 - 基线提交：`50272310957467bb21eee8d7ca525e4b3ac71c6c`
 - 主分支：`main`

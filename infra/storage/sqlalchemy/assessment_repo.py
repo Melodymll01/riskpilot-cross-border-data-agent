@@ -66,6 +66,7 @@ class SqlAlchemyAssessmentRepo:
                 if previous_result.rowcount != 1:
                     raise ValueError("旧 Assessment 状态已变化，请重新生成")
             session.add(_assessment_row(assessment))
+            session.flush()
             session.add_all(_citation_row(item) for item in bundle.evidence_citations)
             session.add_all(_finding_row(item) for item in bundle.findings)
             session.add_all(_action_row(item) for item in bundle.action_items)

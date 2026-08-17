@@ -136,7 +136,10 @@ class CaseDocumentRow(Base):
 class ProcessingJobRow(Base):
     __tablename__ = "processing_jobs"
     __table_args__ = (
-        CheckConstraint("progress >= 0 AND progress <= 1"),
+        CheckConstraint(
+            "progress >= 0 AND progress <= 1",
+            name="processing_jobs_progress_check",
+        ),
         Index("ix_processing_jobs_version_created", "document_version_id", "created_at"),
     )
 
@@ -412,7 +415,7 @@ class ActionItemRow(Base):
 class AgentRunRow(Base):
     __tablename__ = "agent_runs"
     __table_args__ = (
-        CheckConstraint("revision >= 1"),
+        CheckConstraint("revision >= 1", name="agent_runs_revision_check"),
         Index("ix_agent_runs_case_created", "case_id", "created_at"),
         Index(
             "uq_agent_runs_active_case_workflow",

@@ -161,7 +161,10 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True),
-        sa.CheckConstraint("revision >= 1"),
+        sa.CheckConstraint(
+            "revision >= 1",
+            name="agent_runs_revision_check",
+        ),
         sa.ForeignKeyConstraint(["case_id"], ["compliance_cases.case_id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["workspace_id"], ["workspaces.workspace_id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("run_id"),
@@ -468,7 +471,10 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True),
-        sa.CheckConstraint("progress >= 0 AND progress <= 1"),
+        sa.CheckConstraint(
+            "progress >= 0 AND progress <= 1",
+            name="processing_jobs_progress_check",
+        ),
         sa.ForeignKeyConstraint(
             ["document_version_id"], ["document_versions.version_id"], ondelete="CASCADE"
         ),
