@@ -68,9 +68,18 @@ class SqliteEvidenceIndex:
             self._pool.get()
             .execute(
                 """
-            SELECT * FROM evidence_chunks
-            WHERE workspace_id = ? AND case_id = ?
-            """,
+                SELECT ec.*
+                FROM evidence_chunks AS ec
+                JOIN documents AS d
+                  ON d.document_id = ec.document_id
+                 AND d.workspace_id = ec.workspace_id
+                JOIN case_documents AS cd
+                  ON cd.case_id = ec.case_id
+                 AND cd.document_id = ec.document_id
+                WHERE ec.workspace_id = ?
+                  AND ec.case_id = ?
+                  AND d.current_version_id = ec.document_version_id
+                """,
                 (workspace_id, case_id),
             )
             .fetchall()

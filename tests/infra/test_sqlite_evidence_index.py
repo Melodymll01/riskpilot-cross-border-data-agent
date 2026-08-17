@@ -365,6 +365,64 @@ class TestEvidenceIndex:
         )
         assert [hit.chunk.chunk_id for hit in hits] == ["new"]
 
+    def test_search_excludes_non_current_document_version(
+        self,
+        pool: SqliteConnectionPool,
+        index: SqliteEvidenceIndex,
+    ) -> None:
+        old = _chunk(
+            "old_version",
+            workspace_id="ws_001",
+            case_id="case_001",
+            text="旧版本重要数据",
+        )
+        _seed_scope(pool, old)
+        index.replace_version_chunks(old.document_version_id, [old], [[1.0, 0.0]])
+        current = old.model_copy(
+            update={
+                "chunk_id": "current_version",
+                "document_version_id": "ver_current",
+                "text": "当前版本个人信息",
+                "source_sha256": "b" * 64,
+            }
+        )
+        conn = pool.get()
+        conn.execute(
+            """
+            INSERT INTO document_versions
+                (version_id, document_id, version_number, object_key, sha256,
+                 mime_type, size_bytes, parser_version, page_count, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                current.document_version_id,
+                current.document_id,
+                2,
+                f"{current.workspace_id}/{current.document_id}/v2/source.txt",
+                current.source_sha256,
+                "text/plain",
+                10,
+                "",
+                None,
+                101.0,
+            ),
+        )
+        conn.execute(
+            "UPDATE documents SET current_version_id = ? WHERE document_id = ?",
+            (current.document_version_id, current.document_id),
+        )
+        conn.commit()
+        index.replace_version_chunks(current.document_version_id, [current], [[0.0, 1.0]])
+
+        hits = index.search(
+            workspace_id="ws_001",
+            case_id="case_001",
+            query="重要数据",
+            query_embedding=[1.0, 0.0],
+        )
+
+        assert [hit.chunk.chunk_id for hit in hits] == ["current_version"]
+
     def test_rejects_chunk_without_case_document_binding(
         self,
         pool: SqliteConnectionPool,

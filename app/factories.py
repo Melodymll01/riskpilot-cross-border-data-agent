@@ -72,7 +72,7 @@ from infra.memory import (
     TaskBackedMemory,
     ThreadPoolMemoryScheduler,
 )
-from infra.object_store import LocalObjectStore
+from infra.object_store import LocalObjectStore, S3ObjectStore
 from infra.observability import LangSmithTraceAdapter, NoopTraceAdapter
 from infra.qa import (
     StructuredClaimSupportVerifier,
@@ -229,6 +229,14 @@ def build_document_repo(
 
 
 def build_object_store(settings: Settings) -> ObjectStorePort:
+    if settings.object_store_backend == "s3":
+        return S3ObjectStore(
+            bucket=settings.s3_bucket,
+            endpoint_url=settings.s3_endpoint_url,
+            access_key_id=settings.s3_access_key_id,
+            secret_access_key=settings.s3_secret_access_key,
+            region=settings.s3_region,
+        )
     return LocalObjectStore(settings.object_store_dir)
 
 
@@ -264,8 +272,11 @@ def build_evidence_index(
     pool: SqliteConnectionPool | None = None,
     database: SqlAlchemyDatabase | None = None,
 ) -> EvidenceIndexPort:
-    if settings.storage_backend == "postgres":
-        return SqlAlchemyEvidenceIndex(database or build_sqlalchemy_database(settings))
+    if settings.vector_backend == "pgvector":
+        return SqlAlchemyEvidenceIndex(
+            database or build_sqlalchemy_database(settings),
+            embedding_dimensions=settings.embedding_dimensions,
+        )
     return SqliteEvidenceIndex(pool or build_sqlite_pool(settings))
 
 

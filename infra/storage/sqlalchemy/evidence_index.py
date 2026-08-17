@@ -1,7 +1,7 @@
-"""SQLAlchemy EvidenceIndexPort 过渡实现。
+"""SQLAlchemy EvidenceIndexPort 实现。
 
-Phase 2 先保证 PostgreSQL profile 的作用域、事务和完整闭环；Phase 3 将 embedding
-列升级为 pgvector，并把 dense/FTS 候选查询下推数据库。
+PostgreSQL 使用 pgvector + FTS 先在数据库完成范围过滤和候选排序；SQLite 仅保留为
+零外部依赖的 Repository contract 测试路径。
 """
 
 from __future__ import annotations
@@ -10,7 +10,8 @@ import math
 from collections import Counter
 from typing import Any
 
-from sqlalchemy import delete, select
+from pgvector.sqlalchemy import HALFVEC
+from sqlalchemy import and_, cast, delete, func, literal_column, select
 
 from domain.documents import Document, ProcessingJob
 from domain.evidence import EvidenceChunk, EvidenceSearchHit
@@ -27,11 +28,18 @@ from infra.storage.sqlalchemy.models import (
 )
 
 _RRF_K = 60
+_CANDIDATE_MULTIPLIER = 4
 
 
 class SqlAlchemyEvidenceIndex:
-    def __init__(self, database: SqlAlchemyDatabase) -> None:
+    def __init__(
+        self,
+        database: SqlAlchemyDatabase,
+        *,
+        embedding_dimensions: int | None = None,
+    ) -> None:
         self._database = database
+        self._embedding_dimensions = embedding_dimensions
 
     def replace_version_chunks(
         self,
@@ -39,7 +47,12 @@ class SqlAlchemyEvidenceIndex:
         chunks: list[EvidenceChunk],
         embeddings: list[list[float]],
     ) -> None:
-        _validate_payload(document_version_id, chunks, embeddings)
+        _validate_payload(
+            document_version_id,
+            chunks,
+            embeddings,
+            expected_dimensions=self._embedding_dimensions,
+        )
         with self._database.session() as session:
             _validate_scope(session, chunks)
             session.execute(
@@ -59,7 +72,12 @@ class SqlAlchemyEvidenceIndex:
         document: Document,
         job: ProcessingJob,
     ) -> None:
-        _validate_payload(document_version_id, chunks, embeddings)
+        _validate_payload(
+            document_version_id,
+            chunks,
+            embeddings,
+            expected_dimensions=self._embedding_dimensions,
+        )
         with self._database.session() as session:
             _validate_scope(session, chunks)
             session.execute(
@@ -87,9 +105,19 @@ class SqlAlchemyEvidenceIndex:
         top_k: int = 5,
     ) -> list[EvidenceSearchHit]:
         _validate_search(workspace_id, query, top_k, case_id=case_id)
-        statement = select(EvidenceChunkRow).where(
-            EvidenceChunkRow.workspace_id == workspace_id,
-            EvidenceChunkRow.case_id == case_id,
+        if self._is_postgres:
+            return self._search_postgres(
+                workspace_id=workspace_id,
+                case_id=case_id,
+                query=query,
+                query_embedding=query_embedding,
+                top_k=top_k,
+            )
+        statement = _scoped_statement(
+            workspace_id=workspace_id,
+            case_id=case_id,
+            workspace_knowledge=False,
+            extra_columns=(),
         )
         with self._database.read_session() as session:
             rows = list(session.scalars(statement))
@@ -104,6 +132,15 @@ class SqlAlchemyEvidenceIndex:
         top_k: int = 5,
     ) -> list[EvidenceSearchHit]:
         _validate_search(workspace_id, query, top_k)
+        if self._is_postgres:
+            return self._search_postgres(
+                workspace_id=workspace_id,
+                case_id=None,
+                query=query,
+                query_embedding=query_embedding,
+                top_k=top_k,
+                workspace_knowledge=True,
+            )
         statement = (
             select(EvidenceChunkRow)
             .join(
@@ -143,11 +180,81 @@ class SqlAlchemyEvidenceIndex:
         with self._database.read_session() as session:
             return len(list(session.scalars(statement)))
 
+    @property
+    def _is_postgres(self) -> bool:
+        return self._database.engine.dialect.name == "postgresql"
+
+    def _search_postgres(
+        self,
+        *,
+        workspace_id: str,
+        case_id: str | None,
+        query: str,
+        query_embedding: list[float],
+        top_k: int,
+        workspace_knowledge: bool = False,
+    ) -> list[EvidenceSearchHit]:
+        dimensions = self._require_query_dimensions(query_embedding)
+        candidate_limit = top_k * _CANDIDATE_MULTIPLIER
+        embedding = cast(EvidenceChunkRow.embedding, HALFVEC(dimensions))
+        distance = embedding.cosine_distance(query_embedding).label("vector_distance")
+        dense_statement = (
+            _scoped_statement(
+                workspace_id=workspace_id,
+                case_id=case_id,
+                workspace_knowledge=workspace_knowledge,
+                extra_columns=(distance,),
+            )
+            .where(func.vector_dims(EvidenceChunkRow.embedding) == dimensions)
+            .order_by(distance)
+            .limit(candidate_limit)
+        )
+
+        query_tokens = " ".join(_tokenize(query))
+        search_vector = func.to_tsvector(
+            literal_column("'simple'"),
+            EvidenceChunkRow.search_tokens,
+        )
+        search_query = func.plainto_tsquery(literal_column("'simple'"), query_tokens)
+        lexical_score = func.ts_rank_cd(search_vector, search_query).label("lexical_score")
+        lexical_statement = (
+            _scoped_statement(
+                workspace_id=workspace_id,
+                case_id=case_id,
+                workspace_knowledge=workspace_knowledge,
+                extra_columns=(lexical_score,),
+            )
+            .where(
+                func.vector_dims(EvidenceChunkRow.embedding) == dimensions,
+                search_vector.op("@@")(search_query),
+            )
+            .order_by(lexical_score.desc())
+            .limit(candidate_limit)
+        )
+
+        with self._database.read_session() as session:
+            dense_rows = list(session.execute(dense_statement))
+            lexical_rows = list(session.execute(lexical_statement))
+        hits = _fuse_postgres_candidates(dense_rows, lexical_rows)
+        if workspace_knowledge:
+            hits = _dedupe_workspace_hits(hits)
+        return hits[:top_k]
+
+    def _require_query_dimensions(self, query_embedding: list[float]) -> int:
+        dimensions = len(query_embedding)
+        if dimensions == 0:
+            raise ValueError("query_embedding 不能为空")
+        if self._embedding_dimensions is not None and dimensions != self._embedding_dimensions:
+            raise ValueError("query_embedding 维度与 pgvector profile 不一致")
+        return dimensions
+
 
 def _validate_payload(
     document_version_id: str,
     chunks: list[EvidenceChunk],
     embeddings: list[list[float]],
+    *,
+    expected_dimensions: int | None,
 ) -> None:
     if not chunks:
         raise ValueError("chunks 不能为空")
@@ -158,6 +265,8 @@ def _validate_payload(
     dimensions = {len(embedding) for embedding in embeddings}
     if 0 in dimensions or len(dimensions) != 1:
         raise ValueError("embedding 维度必须非零且一致")
+    if expected_dimensions is not None and dimensions != {expected_dimensions}:
+        raise ValueError("embedding 维度与 pgvector profile 不一致")
 
 
 def _validate_scope(session: Any, chunks: list[EvidenceChunk]) -> None:
@@ -215,6 +324,7 @@ def _row(chunk: EvidenceChunk, embedding: list[float]) -> EvidenceChunkRow:
         page_number=chunk.page_number,
         chunk_index=chunk.chunk_index,
         text=chunk.text,
+        search_tokens=" ".join(_tokenize(chunk.text)),
         source_sha256=chunk.source_sha256,
         embedding=embedding,
         created_at=require_datetime(chunk.created_at),
@@ -278,6 +388,97 @@ def _rank(
         )
     hits.sort(key=lambda hit: (hit.score, hit.vector_score), reverse=True)
     return hits[:top_k]
+
+
+def _scoped_statement(
+    *,
+    workspace_id: str,
+    case_id: str | None,
+    workspace_knowledge: bool,
+    extra_columns: tuple[Any, ...],
+) -> Any:
+    statement = (
+        select(EvidenceChunkRow, *extra_columns)
+        .join(
+            DocumentRow,
+            and_(
+                DocumentRow.document_id == EvidenceChunkRow.document_id,
+                DocumentRow.workspace_id == EvidenceChunkRow.workspace_id,
+            ),
+        )
+        .join(
+            CaseDocumentRow,
+            and_(
+                CaseDocumentRow.case_id == EvidenceChunkRow.case_id,
+                CaseDocumentRow.document_id == EvidenceChunkRow.document_id,
+            ),
+        )
+        .where(
+            EvidenceChunkRow.workspace_id == workspace_id,
+            DocumentRow.workspace_id == workspace_id,
+            DocumentRow.current_version_id == EvidenceChunkRow.document_version_id,
+        )
+    )
+    if case_id is not None:
+        statement = statement.where(EvidenceChunkRow.case_id == case_id)
+    if workspace_knowledge:
+        statement = statement.where(
+            DocumentRow.document_type == "workspace_knowledge",
+            DocumentRow.status == "ready",
+        )
+    return statement
+
+
+def _fuse_postgres_candidates(
+    dense_rows: list[Any],
+    lexical_rows: list[Any],
+) -> list[EvidenceSearchHit]:
+    dense_by_id = {
+        row.chunk_id: (row, max(-1.0, min(1.0, 1.0 - float(distance))))
+        for row, distance in dense_rows
+    }
+    lexical_by_id = {row.chunk_id: (row, max(0.0, float(score))) for row, score in lexical_rows}
+    dense_ranks = {row.chunk_id: rank for rank, (row, _distance) in enumerate(dense_rows, start=1)}
+    lexical_ranks = {row.chunk_id: rank for rank, (row, _score) in enumerate(lexical_rows, start=1)}
+    chunk_ids = dense_by_id.keys() | lexical_by_id.keys()
+    hits: list[EvidenceSearchHit] = []
+    for chunk_id in chunk_ids:
+        dense_item = dense_by_id.get(chunk_id)
+        lexical_item = lexical_by_id.get(chunk_id)
+        if dense_item is not None:
+            row = dense_item[0]
+        elif lexical_item is not None:
+            row = lexical_item[0]
+        else:
+            continue
+        score = 0.0
+        if chunk_id in dense_ranks:
+            score += 1.0 / (_RRF_K + dense_ranks[chunk_id])
+        if chunk_id in lexical_ranks:
+            score += 1.0 / (_RRF_K + lexical_ranks[chunk_id])
+        hits.append(
+            EvidenceSearchHit(
+                chunk=_chunk(row),
+                score=score,
+                vector_score=dense_item[1] if dense_item is not None else 0.0,
+                bm25_score=lexical_item[1] if lexical_item is not None else 0.0,
+            )
+        )
+    hits.sort(key=lambda hit: (hit.score, hit.vector_score), reverse=True)
+    return hits
+
+
+def _dedupe_workspace_hits(hits: list[EvidenceSearchHit]) -> list[EvidenceSearchHit]:
+    unique: dict[tuple[str, str, int, int], EvidenceSearchHit] = {}
+    for hit in hits:
+        key = (
+            hit.chunk.document_id,
+            hit.chunk.document_version_id,
+            hit.chunk.page_number,
+            hit.chunk.chunk_index,
+        )
+        unique.setdefault(key, hit)
+    return list(unique.values())
 
 
 def _cosine(left: list[float], right: list[float]) -> float:

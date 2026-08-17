@@ -8,6 +8,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any
 
+from pgvector.sqlalchemy import HALFVEC, Vector
 from sqlalchemy import (
     JSON,
     CheckConstraint,
@@ -21,12 +22,15 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    cast,
+    func,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 JsonType = JSON().with_variant(JSONB(), "postgresql")
+VectorType = Vector().with_variant(JSON(), "sqlite")
 
 
 class Base(DeclarativeBase):
@@ -206,6 +210,11 @@ class EvidenceChunkRow(Base):
             "case_id",
             "document_version_id",
         ),
+        Index(
+            "ix_evidence_chunks_search_tokens_fts",
+            text("to_tsvector('simple', search_tokens)"),
+            postgresql_using="gin",
+        ).ddl_if(dialect="postgresql"),
     )
 
     chunk_id: Mapped[str] = mapped_column(String(256), primary_key=True)
@@ -216,9 +225,19 @@ class EvidenceChunkRow(Base):
     page_number: Mapped[int] = mapped_column(Integer)
     chunk_index: Mapped[int] = mapped_column(Integer)
     text: Mapped[str] = mapped_column(Text)
+    search_tokens: Mapped[str] = mapped_column(Text, default="")
     source_sha256: Mapped[str] = mapped_column(String(64))
-    embedding: Mapped[list[float]] = mapped_column(JsonType)
+    embedding: Mapped[list[float]] = mapped_column(VectorType)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+Index(
+    "ix_evidence_chunks_embedding_hnsw_2048",
+    cast(EvidenceChunkRow.embedding, HALFVEC(2048)).label("embedding"),
+    postgresql_using="hnsw",
+    postgresql_ops={"embedding": "halfvec_cosine_ops"},
+    postgresql_where=func.vector_dims(EvidenceChunkRow.embedding) == 2048,
+).ddl_if(dialect="postgresql")
 
 
 class CaseFactRow(Base):

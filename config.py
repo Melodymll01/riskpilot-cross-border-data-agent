@@ -25,6 +25,7 @@ def _is_placeholder_secret(value: str | None) -> bool:
 class Settings(BaseSettings):
     # ── 业务数据库 Profile ────────────────────────────────────────────────────
     storage_backend: Literal["sqlite", "postgres"] = "sqlite"
+    vector_backend: Literal["chroma", "pgvector"] = "chroma"
     database_url: str = "postgresql+psycopg://riskpilot:riskpilot@127.0.0.1:5432/riskpilot"
 
     # ── 通道选择 ──────────────────────────────────────────────────────────────
@@ -104,7 +105,13 @@ class Settings(BaseSettings):
     # 存储路径
     chroma_persist_dir: str = "./data/chroma_db"
     upload_dir: str = "./data/uploads"
+    object_store_backend: Literal["local", "s3"] = "local"
     object_store_dir: str = "./data/objects"
+    s3_endpoint_url: str | None = None
+    s3_access_key_id: str | None = None
+    s3_secret_access_key: str | None = None
+    s3_bucket: str = "riskpilot"
+    s3_region: str = "us-east-1"
 
     # 上传限制
     max_upload_mb: int = Field(50, ge=1, le=500)  # 最大上传文件大小（MB）
@@ -282,6 +289,18 @@ class Settings(BaseSettings):
             ("postgresql+psycopg://", "postgresql://")
         ):
             errors.append("STORAGE_BACKEND=postgres 时 DATABASE_URL 必须是 PostgreSQL URL")
+        if (self.storage_backend, self.vector_backend) not in {
+            ("sqlite", "chroma"),
+            ("postgres", "pgvector"),
+        }:
+            errors.append("仅支持 sqlite+chroma 本地 Profile 或 postgres+pgvector 生产 Profile")
+        if self.vector_backend == "pgvector" and self.embedding_dimensions != 2048:
+            errors.append("VECTOR_BACKEND=pgvector 时 EMBEDDING_DIMENSIONS 必须为 2048")
+        if self.object_store_backend == "s3":
+            if bool(self.s3_access_key_id) != bool(self.s3_secret_access_key):
+                errors.append("S3_ACCESS_KEY_ID 与 S3_SECRET_ACCESS_KEY 必须同时配置或同时省略")
+            if not self.s3_bucket.strip():
+                errors.append("OBJECT_STORE_BACKEND=s3 时必须配置 S3_BUCKET")
         if self.llm_provider == "api" and _is_placeholder_secret(self.effective_chat_api_key):
             errors.append("LLM_PROVIDER=api 时必须配置 CHAT_API_KEY 或 OPENAI_API_KEY")
         if self.embed_provider == "api" and _is_placeholder_secret(self.openai_api_key):

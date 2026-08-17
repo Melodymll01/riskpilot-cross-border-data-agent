@@ -9,7 +9,8 @@ services:
     ports:
       - "8001:8001"
     env_file:
-      - .env          # 密钥与配置从本机 .env 注入，不打进镜像
+      - path: .env
+        required: false
     volumes:
       # 持久化数据：向量库、上传文件、embedding 缓存、聊天历史
       - ./data:/app/data
@@ -23,5 +24,48 @@ services:
         limits:
           memory: 4G
 
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: riskpilot-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-riskpilot}
+      POSTGRES_USER: ${POSTGRES_USER:-riskpilot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-riskpilot-local-only}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-riskpilot} -d ${POSTGRES_DB:-riskpilot}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    container_name: riskpilot-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-riskpilot}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-riskpilot-local-only-secret}
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
 volumes:
   hf-cache:
+  postgres-data:
+  minio-data:

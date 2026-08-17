@@ -73,7 +73,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:17-alpine
+        image: pgvector/pgvector:pg17
         env:
           POSTGRES_DB: riskpilot_test
           POSTGRES_USER: riskpilot
@@ -88,6 +88,9 @@ jobs:
     env:
       DATABASE_URL: postgresql+psycopg://riskpilot:riskpilot@127.0.0.1:5432/riskpilot_test
       TEST_POSTGRES_URL: postgresql+psycopg://riskpilot:riskpilot@127.0.0.1:5432/riskpilot_test
+      STORAGE_BACKEND: postgres
+      VECTOR_BACKEND: pgvector
+      EMBEDDING_DIMENSIONS: "2048"
       LLM_PROVIDER: local
       EMBED_PROVIDER: local
     steps:
@@ -104,5 +107,7 @@ jobs:
         run: alembic upgrade head
       - name: Alembic schema drift check
         run: alembic check
+      - name: PostgreSQL migration schema contract
+        run: pytest -q tests/infra/test_alembic_migrations.py
       - name: PostgreSQL repository contracts
         run: pytest -q tests/infra/test_sqlalchemy_storage.py

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import os
 import tempfile
-from pathlib import Path, PurePosixPath
+from pathlib import Path
+
+from infra.object_store.keys import validate_object_key
 
 
 class LocalObjectStore:
@@ -59,17 +61,8 @@ class LocalObjectStore:
         return self._resolve(object_key).is_file()
 
     def _resolve(self, object_key: str) -> Path:
-        if not object_key or "\\" in object_key:
-            raise ValueError("object_key 必须是非空 POSIX 相对路径")
-        key = PurePosixPath(object_key)
-        if (
-            not key.parts
-            or str(key) == "."
-            or key.is_absolute()
-            or any(part in {"", ".", ".."} for part in key.parts)
-        ):
-            raise ValueError("object_key 不能包含绝对路径或路径穿越")
-        target = self._root.joinpath(*key.parts).resolve()
+        key = validate_object_key(object_key)
+        target = self._root.joinpath(*key.split("/")).resolve()
         if not target.is_relative_to(self._root):
             raise ValueError("object_key 超出对象存储根目录")
         return target

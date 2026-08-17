@@ -184,9 +184,60 @@ class TestRuntimeConfiguration:
             llm_provider="local",
             embed_provider="local",
             storage_backend="postgres",
+            vector_backend="pgvector",
             database_url="sqlite:///wrong.db",
         )
 
         assert settings.runtime_configuration_errors() == [
             "STORAGE_BACKEND=postgres 时 DATABASE_URL 必须是 PostgreSQL URL"
         ]
+
+    @pytest.mark.parametrize(
+        ("storage_backend", "vector_backend"),
+        [("sqlite", "pgvector"), ("postgres", "chroma")],
+    )
+    def test_rejects_split_brain_storage_profiles(
+        self,
+        storage_backend: str,
+        vector_backend: str,
+    ) -> None:
+        settings = _mk(
+            llm_provider="local",
+            embed_provider="local",
+            storage_backend=storage_backend,
+            vector_backend=vector_backend,
+            database_url="postgresql+psycopg://riskpilot@localhost/riskpilot",
+        )
+
+        assert (
+            "仅支持 sqlite+chroma 本地 Profile 或 postgres+pgvector 生产 Profile"
+            in settings.runtime_configuration_errors()
+        )
+
+    def test_pgvector_requires_the_indexed_embedding_dimension(self) -> None:
+        settings = _mk(
+            llm_provider="local",
+            embed_provider="local",
+            storage_backend="postgres",
+            vector_backend="pgvector",
+            database_url="postgresql+psycopg://riskpilot@localhost/riskpilot",
+            embedding_dimensions=1024,
+        )
+
+        assert (
+            "VECTOR_BACKEND=pgvector 时 EMBEDDING_DIMENSIONS 必须为 2048"
+            in settings.runtime_configuration_errors()
+        )
+
+    def test_s3_credentials_must_be_complete_pairs(self) -> None:
+        settings = _mk(
+            llm_provider="local",
+            embed_provider="local",
+            object_store_backend="s3",
+            s3_access_key_id="only-access-key",
+            s3_secret_access_key=None,
+        )
+
+        assert "S3_ACCESS_KEY_ID 与 S3_SECRET_ACCESS_KEY 必须同时配置或同时省略" in (
+            settings.runtime_configuration_errors()
+        )

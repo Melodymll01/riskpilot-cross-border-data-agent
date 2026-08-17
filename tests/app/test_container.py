@@ -242,6 +242,8 @@ class TestPostgresProfile:
         postgres_settings = settings.model_copy(
             update={
                 "storage_backend": "postgres",
+                "vector_backend": "pgvector",
+                "embedding_dimensions": 2048,
                 "database_url": "sqlite://",
             }
         )

@@ -21,6 +21,7 @@ from app.factories import (
     build_document_parser,
     build_document_repo,
     build_embedder,
+    build_evidence_index,
     build_evidence_qa_generator,
     build_fact_proposal_generator,
     build_object_store,
@@ -62,12 +63,14 @@ from domain.ports import (
     WorkflowRuntimePort,
     WorkspaceRepoPort,
 )
+from infra.object_store import S3ObjectStore
 from infra.storage.sqlalchemy import (
     SqlAlchemyAgentRunRepo,
     SqlAlchemyAssessmentRepo,
     SqlAlchemyCaseFactRepo,
     SqlAlchemyCaseRepo,
     SqlAlchemyDocumentRepo,
+    SqlAlchemyEvidenceIndex,
     SqlAlchemyPolicyRuleRepo,
     SqlAlchemyWorkspaceRepo,
 )
@@ -123,6 +126,19 @@ class TestStorageFactories:
     def test_object_store_satisfies_port(self, settings: Settings) -> None:
         assert isinstance(build_object_store(settings), ObjectStorePort)
 
+    def test_s3_object_store_profile_satisfies_port(self, settings: Settings) -> None:
+        s3_settings = settings.model_copy(
+            update={
+                "object_store_backend": "s3",
+                "s3_endpoint_url": "http://127.0.0.1:9000",
+                "s3_access_key_id": "riskpilot",
+                "s3_secret_access_key": "test-only-secret",
+            }
+        )
+        store = build_object_store(s3_settings)
+        assert isinstance(store, S3ObjectStore)
+        assert isinstance(store, ObjectStorePort)
+
     def test_policy_rule_repo_satisfies_port(self, settings: Settings) -> None:
         pool = build_sqlite_pool(settings)
         assert isinstance(build_policy_rule_repo(settings, pool=pool), PolicyRuleRepoPort)
@@ -138,6 +154,8 @@ class TestStorageFactories:
         postgres_settings = settings.model_copy(
             update={
                 "storage_backend": "postgres",
+                "vector_backend": "pgvector",
+                "embedding_dimensions": 2048,
                 "database_url": "sqlite://",
             }
         )
@@ -170,6 +188,10 @@ class TestStorageFactories:
             assert isinstance(
                 build_agent_run_repo(postgres_settings, database=database),
                 SqlAlchemyAgentRunRepo,
+            )
+            assert isinstance(
+                build_evidence_index(postgres_settings, database=database),
+                SqlAlchemyEvidenceIndex,
             )
         finally:
             database.dispose()
