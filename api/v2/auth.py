@@ -139,12 +139,24 @@ def build_auth_routes(container: AppContainer, *, limiter: RateLimiter | None = 
         owner_id: str | None = Depends(identify),
     ) -> WhoAmIResponse:
         if owner_id is None:
-            return WhoAmIResponse(authenticated=False, user=None)
+            return WhoAmIResponse(
+                authenticated=False,
+                user=None,
+                demo_login_enabled=container.settings.demo_login_enabled,
+            )
         user = container.user_repo.get(owner_id)
         if user is None:
             # cookie 有效但用户已被删 —— 视作未登录
-            return WhoAmIResponse(authenticated=False, user=None)
-        return WhoAmIResponse(authenticated=True, user=_to_user_out(user, admin_ids))
+            return WhoAmIResponse(
+                authenticated=False,
+                user=None,
+                demo_login_enabled=container.settings.demo_login_enabled,
+            )
+        return WhoAmIResponse(
+            authenticated=True,
+            user=_to_user_out(user, admin_ids),
+            demo_login_enabled=container.settings.demo_login_enabled,
+        )
 
     # ── 登出 ──────────────────────────────────────────────────────────
     @router.post(

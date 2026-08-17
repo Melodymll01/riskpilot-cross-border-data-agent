@@ -58,6 +58,7 @@
         </div>
         <div class="user-menu hidden" id="user-menu">
           <button class="menu-item hidden" id="btn-memory-settings" hidden>⚙ 记忆与隐私</button>
+          <button class="menu-item hidden" id="btn-demo-login" hidden>进入固定 Demo</button>
           <button class="menu-item" id="btn-github-login">使用 GitHub 登录</button>
           <button class="menu-item" id="btn-logout">退出登录</button>
         </div>
@@ -177,6 +178,21 @@
         </div>
       </section>
 
+      <section class="case-demo-bar" aria-label="固定演示案件">
+        <div>
+          <strong>固定 Demo</strong>
+          <span class="case-muted">Seed 后可一键定位，不会修改数据库。</span>
+        </div>
+        <div class="case-demo-actions">
+          <button class="btn btn-ghost" type="button"
+                  data-demo-case-id="case_demo_happy_path">A · Happy Path</button>
+          <button class="btn btn-ghost" type="button"
+                  data-demo-case-id="case_demo_human_loop">B · HITL</button>
+          <button class="btn btn-ghost" type="button"
+                  data-demo-case-id="case_demo_failure_recovery">C · Recovery</button>
+        </div>
+      </section>
+
       <details class="case-direct">
         <summary>按 Case ID 直达</summary>
         <form class="case-load" id="case-load-form" autocomplete="off">
@@ -209,7 +225,17 @@
           <section class="case-card">
             <header class="case-card-header">
               <h3>Assessment Run</h3>
-              <button class="btn btn-primary" id="case-btn-continue" type="button">继续 Run</button>
+              <div class="case-run-actions">
+                <button class="btn btn-primary" id="case-btn-continue" type="button">继续</button>
+                <button class="btn btn-ghost" id="case-btn-retry-run" type="button">重试</button>
+                <button class="btn btn-ghost" id="case-btn-cancel-run" type="button">取消</button>
+                <button class="btn btn-primary" id="case-btn-review-run" type="button">
+                  Reviewer 通过
+                </button>
+                <button class="btn btn-ghost" id="case-btn-reject-run" type="button">
+                  Reviewer 拒绝
+                </button>
+              </div>
             </header>
             <div id="case-run"></div>
           </section>
@@ -234,6 +260,47 @@
             <div class="case-list" id="case-documents"></div>
           </section>
         </div>
+
+        <section class="case-card case-run-detail-card">
+          <header class="case-card-header">
+            <div>
+              <h3>Agent Run Detail</h3>
+              <p class="case-muted">
+                展示结构化节点与工具轨迹，不展示模型思维链、原始 Prompt 或案件正文。
+              </p>
+            </div>
+          </header>
+          <div class="case-detail-layout">
+            <div class="case-detail-column">
+              <section class="case-detail-section">
+                <h4>Evidence Plan</h4>
+                <div id="case-run-plan"></div>
+              </section>
+              <section class="case-detail-section">
+                <h4>节点时间线</h4>
+                <ol class="case-timeline" id="case-run-timeline"></ol>
+              </section>
+            </div>
+            <div class="case-detail-column">
+              <section class="case-detail-section case-interrupt-section" id="case-run-interrupt-wrap">
+                <h4>Human-in-the-loop</h4>
+                <div id="case-run-interrupt"></div>
+              </section>
+              <section class="case-detail-section">
+                <h4>工具调用</h4>
+                <div class="case-tool-list" id="case-run-tools"></div>
+              </section>
+              <section class="case-detail-section">
+                <h4>规则与 Citation</h4>
+                <div id="case-run-verification"></div>
+              </section>
+              <section class="case-detail-section">
+                <h4>最终 Assessment</h4>
+                <div id="case-run-assessment"></div>
+              </section>
+            </div>
+          </div>
+        </section>
 
         <section class="case-card">
           <header class="case-card-header">

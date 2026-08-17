@@ -4,7 +4,16 @@
  * ES module；由 index.html `<script type="module">` 拉起。
  */
 
-import { ensureSession, getUser, onUserChange, startGithubLogin, logout, displayLabels } from "./auth.js";
+import {
+  displayLabels,
+  ensureSession,
+  getUser,
+  isDemoLoginEnabled,
+  loginDemo,
+  logout,
+  onUserChange,
+  startGithubLogin,
+} from "./auth.js";
 import {
   sendMessage,
   newConversation,
@@ -117,6 +126,11 @@ onUserChange((user) => {
   applyCaseGate(!!user && user.provider !== "anonymous");
   // 记忆与隐私：仅「真实登录」用户可用（匿名访客不显示）
   applyMemoryGate(!!user && user.provider !== "anonymous");
+  const demoLogin = $("#btn-demo-login");
+  if (demoLogin) {
+    demoLogin.classList.toggle("hidden", !isDemoLoginEnabled());
+    demoLogin.hidden = !isDemoLoginEnabled();
+  }
 });
 
 function applyCaseGate(isLoggedIn) {
@@ -245,6 +259,15 @@ function bindUI() {
     $("#user-menu").classList.add("hidden");
     try { await startGithubLogin(); }
     catch (err) { alert(`GitHub 登录失败：${err.message}`); }
+  });
+  $("#btn-demo-login")?.addEventListener("click", async () => {
+    $("#user-menu").classList.add("hidden");
+    try {
+      await loginDemo();
+      switchView("cases");
+    } catch (err) {
+      alert(`Demo 登录失败：${err.message}`);
+    }
   });
   $("#btn-logout").addEventListener("click", async () => {
     $("#user-menu").classList.add("hidden");

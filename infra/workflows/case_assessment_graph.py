@@ -78,6 +78,7 @@ class CaseAssessmentState(TypedDict, total=False):
     refusal_reason: str
     budget: dict[str, Any]
     tool_trace: list[dict[str, Any]]
+    node_trace: list[dict[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -231,14 +232,25 @@ def _node(
                         }
                     )
                 raise
+            duration_ms = max(0, int((__import__("time").perf_counter() - started) * 1000))
             if span is not None:
                 span.add_metadata(
                     {
                         "status": "completed",
-                        "duration_ms": (__import__("time").perf_counter() - started) * 1000,
+                        "duration_ms": duration_ms,
                     }
                 )
-            return result
+            return {
+                **result,
+                "node_trace": [
+                    *list(state.get("node_trace", [])),
+                    {
+                        "stage": name,
+                        "status": "completed",
+                        "duration_ms": duration_ms,
+                    },
+                ],
+            }
 
     return wrapped
 

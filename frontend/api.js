@@ -75,6 +75,7 @@ async function requestAt(base, method, path, body) {
 export const auth = {
   me: () => request("GET", "/auth/me"),
   anonymous: () => request("POST", "/auth/anonymous"),
+  demo: () => request("POST", "/auth/demo"),
   githubLoginUrl: () => request("GET", "/auth/github/login"),
   logout: () => request("POST", "/auth/logout"),
 };
@@ -235,6 +236,8 @@ export const casesV3 = {
     requestV3("GET", `/cases/${encodeURIComponent(caseId)}/assessment-runs`),
   run: (runId) =>
     requestV3("GET", `/runs/${encodeURIComponent(runId)}`),
+  runDetail: (runId) =>
+    requestV3("GET", `/runs/${encodeURIComponent(runId)}/detail`),
   events: (runId) =>
     requestV3("GET", `/runs/${encodeURIComponent(runId)}/events?after_sequence=0`),
   proposeFacts: (caseId, body) =>
@@ -243,6 +246,12 @@ export const casesV3 = {
     requestV3("POST", `/facts/${encodeURIComponent(factId)}/transitions`, { target }),
   continueRun: (runId) =>
     requestV3("POST", `/runs/${encodeURIComponent(runId)}/continue`),
+  retryRun: (runId) =>
+    requestV3("POST", `/runs/${encodeURIComponent(runId)}/retry`),
+  cancelRun: (runId) =>
+    requestV3("POST", `/runs/${encodeURIComponent(runId)}/cancel`),
+  reviewRun: (runId, body) =>
+    requestV3("POST", `/runs/${encodeURIComponent(runId)}/review`, body),
 };
 
 /* ─────────── audit (admin-only) ─────────── */

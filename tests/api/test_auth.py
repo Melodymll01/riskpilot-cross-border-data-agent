@@ -31,8 +31,10 @@ class TestAnonymousLogin:
 
 class TestDemoLogin:
     def test_demo_login_is_hidden_by_default(self, client: TestClient) -> None:
+        me = client.get("/api/v2/auth/me")
         response = client.post("/api/v2/auth/demo")
 
+        assert me.json()["demo_login_enabled"] is False
         assert response.status_code == 404
         assert "/api/v2/auth/demo" not in client.get("/openapi.json").json()["paths"]
 
@@ -40,8 +42,10 @@ class TestDemoLogin:
         container: AppContainer = client.app.state.container  # type: ignore[attr-defined]
         container.settings.demo_login_enabled = True
 
+        me = client.get("/api/v2/auth/me")
         response = client.post("/api/v2/auth/demo")
 
+        assert me.json()["demo_login_enabled"] is True
         assert response.status_code == 503
         assert response.json()["error_code"] == "DEMO_NOT_SEEDED"
 
@@ -73,7 +77,11 @@ class TestWhoAmI:
     def test_anonymous_returns_not_authenticated(self, client: TestClient) -> None:
         resp = client.get("/api/v2/auth/me")
         assert resp.status_code == 200
-        assert resp.json() == {"authenticated": False, "user": None}
+        assert resp.json() == {
+            "authenticated": False,
+            "user": None,
+            "demo_login_enabled": False,
+        }
 
     def test_after_anonymous_login_returns_user(
         self, authed_client: tuple[TestClient, dict[str, Any]]

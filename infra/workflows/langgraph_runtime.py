@@ -235,6 +235,7 @@ class LangGraphWorkflowRuntime:
                 }
             ).model_dump(),
             "tool_trace": [],
+            "node_trace": [],
         }
         completed_stages = _consume_updates(
             graph.stream(state, config=config, stream_mode="updates")
@@ -530,6 +531,7 @@ def _safe_state(value: Any) -> dict[str, Any]:
         "refusal_reason",
         "budget",
         "tool_trace",
+        "node_trace",
     }
     safe: dict[str, Any] = {}
     for key in allowed:

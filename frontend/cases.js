@@ -21,6 +21,7 @@ const state = {
   runs: [],
   activeRun: null,
   displayRun: null,
+  runDetail: null,
   missingFields: [],
 };
 
@@ -39,6 +40,11 @@ export function mount() {
   $("#case-create-form")?.addEventListener("submit", onCreateSubmit);
   $("#case-btn-propose")?.addEventListener("click", proposeFacts);
   $("#case-btn-continue")?.addEventListener("click", continueRun);
+  $("#case-btn-retry-run")?.addEventListener("click", retryRun);
+  $("#case-btn-cancel-run")?.addEventListener("click", cancelRun);
+  $("#case-btn-review-run")?.addEventListener("click", approveRun);
+  $("#case-btn-reject-run")?.addEventListener("click", rejectRun);
+  document.querySelector(".case-demo-actions")?.addEventListener("click", onDemoCaseSelect);
   $("#case-upload-form")?.addEventListener("submit", uploadDocument);
   $("#case-visual-upload-form")?.addEventListener("submit", uploadVisual);
   $("#case-visual-search-form")?.addEventListener("submit", searchVisual);
@@ -68,9 +74,12 @@ export async function refresh() {
     state.runs = runData?.runs || [];
     state.activeRun = pickActiveRun(state.runs);
     state.displayRun = state.activeRun || state.runs[0] || null;
-    state.missingFields = state.activeRun
-      ? await loadMissingFields(state.activeRun)
-      : [];
+    state.runDetail = state.displayRun
+      ? await casesV3.runDetail(state.displayRun.run_id)
+      : null;
+    state.missingFields =
+      state.runDetail?.interrupt?.missing_fact_fields ||
+      (state.activeRun ? await loadMissingFields(state.activeRun) : []);
     render();
     setStatus("ok", "案件数据已刷新");
   } catch (error) {
@@ -136,6 +145,15 @@ async function onCaseSelect(event) {
   const button = event.target.closest("[data-case-id]");
   if (!button) return;
   state.caseId = button.dataset.caseId || "";
+  const input = $("#case-id-input");
+  if (input) input.value = state.caseId;
+  await refresh();
+}
+
+async function onDemoCaseSelect(event) {
+  const button = event.target.closest("[data-demo-case-id]");
+  if (!button) return;
+  state.caseId = button.dataset.demoCaseId || "";
   const input = $("#case-id-input");
   if (input) input.value = state.caseId;
   await refresh();
@@ -473,6 +491,57 @@ async function continueRun() {
   }
 }
 
+async function retryRun() {
+  if (!state.displayRun || !state.runDetail?.actions?.can_retry) return;
+  await runAction("正在重试失败的 Run…", () =>
+    casesV3.retryRun(state.displayRun.run_id)
+  );
+}
+
+async function cancelRun() {
+  if (!state.displayRun || !state.runDetail?.actions?.can_cancel) return;
+  if (!window.confirm("确认取消当前 Assessment Run？")) return;
+  await runAction("正在取消 Run…", () =>
+    casesV3.cancelRun(state.displayRun.run_id)
+  );
+}
+
+async function approveRun() {
+  if (!state.displayRun || !state.runDetail?.actions?.can_review) return;
+  await runAction("正在提交 Reviewer 审批…", () =>
+    casesV3.reviewRun(state.displayRun.run_id, {
+      decision: "approved",
+      comment: "Run Detail 页面演示审批通过",
+    })
+  );
+}
+
+async function rejectRun() {
+  if (!state.displayRun || !state.runDetail?.actions?.can_review) return;
+  const comment = window.prompt("请输入拒绝原因");
+  if (!comment?.trim()) return;
+  await runAction("正在提交 Reviewer 拒绝意见…", () =>
+    casesV3.reviewRun(state.displayRun.run_id, {
+      decision: "rejected",
+      comment: comment.trim(),
+    })
+  );
+}
+
+async function runAction(loadingMessage, action) {
+  setStatus("loading", loadingMessage);
+  setBusy(true);
+  try {
+    await action();
+    await refresh();
+    setStatus("ok", "Run 状态已更新");
+  } catch (error) {
+    setStatus("error", errorMessage(error));
+  } finally {
+    setBusy(false);
+  }
+}
+
 function render() {
   $("#case-empty")?.classList.toggle("hidden", !!state.caseData);
   $("#case-content")?.classList.toggle("hidden", !state.caseData);
@@ -483,6 +552,7 @@ function render() {
   setText("#case-reviewer", state.caseData.reviewer_id || "未指定");
   renderDocuments();
   renderRun();
+  renderRunDetail();
   renderMissingFields();
   renderFacts();
   renderVisualHits();
@@ -600,24 +670,205 @@ function renderDocuments() {
 function renderRun() {
   const root = $("#case-run");
   const continueButton = $("#case-btn-continue");
+  const retryButton = $("#case-btn-retry-run");
+  const cancelButton = $("#case-btn-cancel-run");
+  const reviewButton = $("#case-btn-review-run");
+  const rejectButton = $("#case-btn-reject-run");
   if (!root) return;
   root.replaceChildren();
   if (!state.displayRun) {
     if (continueButton) continueButton.disabled = true;
+    if (retryButton) retryButton.disabled = true;
+    if (cancelButton) cancelButton.disabled = true;
+    if (reviewButton) reviewButton.disabled = true;
+    if (rejectButton) rejectButton.disabled = true;
     root.appendChild(emptyNode("当前没有 Assessment Run"));
     return;
   }
-  if (continueButton) {
-    continueButton.disabled = !canContinueRun(state.activeRun);
-  }
+  const actions = state.runDetail?.actions || {};
+  if (continueButton) continueButton.disabled = !actions.can_continue;
+  if (retryButton) retryButton.disabled = !actions.can_retry;
+  if (cancelButton) cancelButton.disabled = !actions.can_cancel;
+  if (reviewButton) reviewButton.disabled = !actions.can_review;
+  if (rejectButton) rejectButton.disabled = !actions.can_review;
   const grid = element("div", "case-run-grid");
   grid.append(
     metric("Run", state.displayRun.run_id),
     metric("状态", state.displayRun.status),
     metric("阶段", state.displayRun.current_stage),
-    metric("重试", String(state.displayRun.retry_count))
+    metric("重试", String(state.displayRun.retry_count)),
+    metric("Token", String(state.displayRun.token_usage)),
+    metric(
+      "Cost",
+      `${formatCost(state.displayRun.cost)} ${state.runDetail?.cost_currency || "unspecified"}`
+    ),
+    metric("耗时", formatDuration(state.runDetail?.duration_ms || 0)),
+    metric("Revision", String(state.displayRun.revision))
   );
   root.appendChild(grid);
+}
+
+function renderRunDetail() {
+  renderEvidencePlan();
+  renderTimeline();
+  renderInterrupt();
+  renderToolCalls();
+  renderVerification();
+  renderAssessment();
+}
+
+function renderEvidencePlan() {
+  const root = $("#case-run-plan");
+  if (!root) return;
+  root.replaceChildren();
+  const plan = state.runDetail?.evidence_plan;
+  if (!plan) {
+    root.appendChild(emptyNode("Evidence Plan 尚未生成"));
+    return;
+  }
+  const groups = [
+    ["调查问题", plan.investigation_questions],
+    ["必需事实", plan.required_fact_fields],
+    ["计划工具", plan.planned_tools],
+    ["证据缺口", plan.evidence_gaps],
+    ["完成标准", plan.completion_criteria],
+  ];
+  for (const [title, values] of groups) {
+    const group = element("div", "case-plan-group");
+    group.appendChild(element("strong", "", title));
+    const list = element("ul", "case-plan-list");
+    for (const value of values || []) list.appendChild(element("li", "", value));
+    if (!list.children.length) list.appendChild(element("li", "case-muted", "无"));
+    group.appendChild(list);
+    root.appendChild(group);
+  }
+}
+
+function renderTimeline() {
+  const root = $("#case-run-timeline");
+  if (!root) return;
+  root.replaceChildren();
+  const timeline = state.runDetail?.timeline || [];
+  if (!timeline.length) {
+    root.appendChild(emptyNode("暂无运行事件"));
+    return;
+  }
+  for (const item of timeline) {
+    const row = element("li", "case-timeline-item");
+    row.dataset.status = item.status;
+    const marker = element("span", "case-timeline-marker", String(item.sequence));
+    const content = element("div", "case-timeline-content");
+    const header = element("div", "case-timeline-head");
+    header.append(
+      element("strong", "", item.stage || item.event_type),
+      badge(item.status, item.status)
+    );
+    content.append(
+      header,
+      element("span", "case-muted", item.summary),
+      element(
+        "span",
+        "case-timeline-meta",
+        `${formatDuration(item.duration_ms)} · ${formatTimestamp(item.created_at)}`
+      )
+    );
+    row.append(marker, content);
+    root.appendChild(row);
+  }
+}
+
+function renderInterrupt() {
+  const root = $("#case-run-interrupt");
+  const wrapper = $("#case-run-interrupt-wrap");
+  if (!root || !wrapper) return;
+  root.replaceChildren();
+  const interrupt = state.runDetail?.interrupt;
+  wrapper.classList.toggle("hidden", !interrupt);
+  if (!interrupt) return;
+  root.append(
+    badge("waiting_for_user", interrupt.kind),
+    element("p", "case-interrupt-reason", interrupt.reason)
+  );
+  appendChips(root, "缺失事实", interrupt.missing_fact_fields);
+  appendChips(root, "冲突字段", interrupt.conflict_field_names);
+  appendChips(root, "候选 Fact", interrupt.candidate_fact_ids);
+}
+
+function renderToolCalls() {
+  const root = $("#case-run-tools");
+  if (!root) return;
+  root.replaceChildren();
+  const calls = state.runDetail?.tool_calls || [];
+  if (!calls.length) {
+    root.appendChild(emptyNode("暂无工具调用"));
+    return;
+  }
+  for (const call of calls) {
+    const details = document.createElement("details");
+    details.className = "case-tool-call";
+    const summary = document.createElement("summary");
+    summary.append(
+      element("strong", "", call.tool_name),
+      element(
+        "span",
+        "case-muted",
+        `${formatDuration(call.duration_ms)} · retry ${call.retry_count} · token ${call.token_usage}`
+      )
+    );
+    const body = element("div", "case-tool-body");
+    body.append(
+      labeledCode("参数", call.arguments),
+      labeledCode("结果", call.output),
+      element("p", "case-muted", call.result_summary || "工具执行完成")
+    );
+    details.append(summary, body);
+    root.appendChild(details);
+  }
+}
+
+function renderVerification() {
+  const root = $("#case-run-verification");
+  if (!root) return;
+  root.replaceChildren();
+  const rule = state.runDetail?.rule_evaluation;
+  const citation = state.runDetail?.citation_verification;
+  if (!rule && !citation) {
+    root.appendChild(emptyNode("尚未执行规则或 Citation 校验"));
+    return;
+  }
+  if (rule) root.appendChild(labeledCode("确定性规则", rule));
+  if (citation) root.appendChild(labeledCode("Claim-Citation", citation));
+}
+
+function renderAssessment() {
+  const root = $("#case-run-assessment");
+  if (!root) return;
+  root.replaceChildren();
+  const bundle = state.runDetail?.assessment;
+  if (!bundle) {
+    root.appendChild(emptyNode("当前 Run 尚未生成 Assessment"));
+    return;
+  }
+  const assessment = bundle.assessment;
+  const grid = element("div", "case-assessment-grid");
+  grid.append(
+    metric("Assessment", assessment.assessment_id),
+    metric("状态", assessment.status),
+    metric("风险", assessment.risk_level),
+    metric("路径", (assessment.candidate_paths || []).join("、") || "无"),
+    metric("Finding", String(bundle.findings?.length || 0)),
+    metric("Citation", String(bundle.evidence_citations?.length || 0))
+  );
+  root.appendChild(grid);
+  for (const finding of bundle.findings || []) {
+    root.appendChild(
+      element(
+        "div",
+        "case-assessment-finding",
+        `${finding.severity.toUpperCase()} · ${finding.title}`
+      )
+    );
+  }
 }
 
 function renderMissingFields() {
@@ -627,13 +878,13 @@ function renderMissingFields() {
   root.replaceChildren();
   if (proposeButton) {
     proposeButton.disabled =
-      state.activeRun?.current_stage !== "detect_missing_facts" ||
+      state.activeRun?.current_stage !== "human_fact_confirmation" ||
       !state.missingFields.length;
   }
   if (!state.missingFields.length) {
     root.appendChild(
       emptyNode(
-        state.activeRun?.current_stage === "detect_missing_facts"
+        state.activeRun?.current_stage === "human_fact_confirmation"
           ? "事件中未找到缺失字段"
           : "当前 Run 不在 Fact Confirmation 阶段"
       )
@@ -725,6 +976,42 @@ function selectedFieldNames() {
   return [...document.querySelectorAll("#case-missing-fields input:checked")]
     .map((input) => input.value)
     .filter(Boolean);
+}
+
+function appendChips(root, label, values) {
+  if (!values?.length) return;
+  const group = element("div", "case-chip-group");
+  group.appendChild(element("span", "case-muted", label));
+  const chips = element("div", "case-chips");
+  for (const value of values) chips.appendChild(element("span", "case-chip", value));
+  group.appendChild(chips);
+  root.appendChild(group);
+}
+
+function labeledCode(label, value) {
+  const wrapper = element("div", "case-code-block");
+  wrapper.append(
+    element("span", "case-muted", label),
+    element("pre", "case-fact-value", JSON.stringify(value || {}, null, 2))
+  );
+  return wrapper;
+}
+
+function formatDuration(value) {
+  const duration = Number(value) || 0;
+  if (duration >= 1000) return `${(duration / 1000).toFixed(2)}s`;
+  return `${Math.round(duration)}ms`;
+}
+
+function formatCost(value) {
+  const cost = Number(value) || 0;
+  return cost === 0 ? "0" : cost.toFixed(6);
+}
+
+function formatTimestamp(value) {
+  const timestamp = Number(value);
+  if (!timestamp) return "—";
+  return new Date(timestamp * 1000).toLocaleString("zh-CN", { hour12: false });
 }
 
 function pickActiveRun(runs) {
@@ -899,9 +1186,6 @@ function formatValue(value) {
   }
 }
 
-function canContinueRun(run) {
-  return !!run && new Set(["queued", "running", "waiting_for_user", "retrying"]).has(run.status);
-}
 
 function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);

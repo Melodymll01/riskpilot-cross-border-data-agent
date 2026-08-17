@@ -233,6 +233,51 @@ class TestAssessmentRunApi:
         assert plan.status_code == 200
         assert plan.json()["required_fact_fields"] == ["important_data_involved"]
         assert "evaluate_deterministic_rules" in plan.json()["planned_tools"]
+        run_detail = client.get(f"/api/v3/runs/{run_id}/detail")
+        assert run_detail.status_code == 200
+        detail_body = run_detail.json()
+        assert detail_body["run"] == run
+        assert detail_body["duration_ms"] >= 0
+        assert detail_body["cost_currency"] == "unspecified"
+        assert detail_body["evidence_plan"]["required_fact_fields"] == ["important_data_involved"]
+        assert [item["tool_name"] for item in detail_body["tool_calls"]] == [
+            "retrieve_case_evidence",
+            "retrieve_regulations",
+            "evaluate_deterministic_rules",
+            "verify_claim_citations",
+        ]
+        assert detail_body["rule_evaluation"]["triggered_rule_ids"] == ["SYNTHETIC-001"]
+        assert detail_body["citation_verification"]["valid"] is True
+        assert detail_body["assessment"]["assessment"]["generated_by_run_id"] == run_id
+        assert detail_body["actions"] == {
+            "can_continue": False,
+            "can_retry": False,
+            "can_cancel": True,
+            "can_review": False,
+        }
+        timeline_stages = [
+            item["stage"]
+            for item in detail_body["timeline"]
+            if item["event_type"] == "stage_completed"
+        ]
+        assert "build_evidence_plan" in timeline_stages
+        assert "verify_claim_citations" in timeline_stages
+        assert all(item["duration_ms"] >= 0 for item in detail_body["timeline"])
+        assert all(
+            not ({"workspace_id", "case_id", "actor_id", "owner_id"} & set(item["arguments"]))
+            for item in detail_body["tool_calls"]
+        )
+        serialized_detail = run_detail.text.lower()
+        for forbidden in (
+            "chain_of_thought",
+            "raw_prompt",
+            "authorization",
+            "api_key",
+            "password",
+            "secret",
+            "thought",
+        ):
+            assert forbidden not in serialized_detail
         unchanged = client.post(f"/api/v3/runs/{run_id}/continue")
         assert unchanged.status_code == 200
         assert unchanged.json()["status"] == "waiting_for_review"
@@ -244,6 +289,9 @@ class TestAssessmentRunApi:
         assert after.json()["events"] == [event_items[-1]]
 
         _switch_actor(client, "github:reviewer")
+        reviewer_detail = client.get(f"/api/v3/runs/{run_id}/detail")
+        assert reviewer_detail.status_code == 200
+        assert reviewer_detail.json()["actions"]["can_review"] is True
         approved = client.post(
             f"/api/v3/runs/{run_id}/review",
             json={"decision": "approved", "comment": "审核通过"},
@@ -278,6 +326,15 @@ class TestAssessmentRunApi:
         missing_fact = client.post(f"/api/v3/runs/{run_id}/continue")
         assert missing_fact.status_code == 200
         assert missing_fact.json()["current_stage"] == "human_fact_confirmation"
+        missing_detail = client.get(f"/api/v3/runs/{run_id}/detail")
+        assert missing_detail.status_code == 200
+        interrupt = missing_detail.json()["interrupt"]
+        assert interrupt["kind"] == "fact_confirmation"
+        assert interrupt["stage"] == "human_fact_confirmation"
+        assert interrupt["missing_fact_fields"] == ["important_data_involved"]
+        assert interrupt["reason"] == "等待人工确认关键事实"
+        assert missing_detail.json()["assessment"] is None
+        assert missing_detail.json()["actions"]["can_continue"] is True
 
         _confirm_fact(client, case_id)
         review = client.post(f"/api/v3/runs/{run_id}/continue")
@@ -441,6 +498,8 @@ class TestAssessmentRunApi:
         hidden = client.get(f"/api/v3/runs/{run_id}")
         assert hidden.status_code == 404
         assert hidden.json()["error_code"] == "AGENT_RUN_NOT_FOUND"
+        hidden_detail = client.get(f"/api/v3/runs/{run_id}/detail")
+        assert hidden_detail.status_code == 404
         events = client.get(f"/api/v3/runs/{run_id}/events")
         assert events.status_code == 404
 

@@ -12,6 +12,7 @@ def test_case_workbench_dom_contract() -> None:
     html = (FRONTEND / "index.html").read_text(encoding="utf-8")
     required_ids = {
         "nav-cases",
+        "btn-demo-login",
         "case-pane",
         "case-load-form",
         "case-id-input",
@@ -27,12 +28,22 @@ def test_case_workbench_dom_contract() -> None:
         "case-btn-refresh",
         "case-btn-propose",
         "case-btn-continue",
+        "case-btn-retry-run",
+        "case-btn-cancel-run",
+        "case-btn-review-run",
+        "case-btn-reject-run",
         "case-upload-form",
         "case-upload-file",
         "case-upload-purpose",
         "case-upload-submit",
         "case-documents",
         "case-run",
+        "case-run-plan",
+        "case-run-timeline",
+        "case-run-interrupt",
+        "case-run-tools",
+        "case-run-verification",
+        "case-run-assessment",
         "case-missing-fields",
         "case-facts",
     }
@@ -56,6 +67,9 @@ def test_case_api_client_uses_v3_routes() -> None:
         "/assessment-runs",
         "/transitions",
         "/continue",
+        "/detail",
+        "/cancel",
+        "/review",
         "/events?after_sequence=0",
     ):
         assert route in source
@@ -76,6 +90,14 @@ def test_case_renderer_does_not_inject_untrusted_html() -> None:
     assert "runDocumentPipeline" in source
     assert "latest_job" in source
     assert "documentAction" in source
+    assert "renderRunDetail" in source
+    assert "renderTimeline" in source
+    assert "renderToolCalls" in source
+    assert "renderInterrupt" in source
+    assert "renderAssessment" in source
+    assert "rejectRun" in source
+    assert 'current_stage !== "human_fact_confirmation"' in source
+    assert "data-demo-case-id" in (FRONTEND / "index.html").read_text(encoding="utf-8")
 
 
 def test_app_mounts_authenticated_case_view() -> None:
@@ -85,3 +107,5 @@ def test_app_mounts_authenticated_case_view() -> None:
     assert "cases.mount()" in source
     assert 'applyCaseGate(!!user && user.provider !== "anonymous")' in source
     assert '(!user || user.provider === "anonymous")' in source
+    assert "isDemoLoginEnabled" in source
+    assert "loginDemo" in source

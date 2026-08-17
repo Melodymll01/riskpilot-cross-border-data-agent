@@ -12,10 +12,15 @@
 import { auth as authApi, ApiError } from "./api.js";
 
 let _current = null;
+let _demoLoginEnabled = false;
 const _listeners = new Set();
 
 export function getUser() {
   return _current;
+}
+
+export function isDemoLoginEnabled() {
+  return _demoLoginEnabled;
 }
 
 export function onUserChange(fn) {
@@ -36,6 +41,7 @@ function setUser(user) {
 export async function ensureSession() {
   try {
     const me = await authApi.me();
+    _demoLoginEnabled = !!me.demo_login_enabled;
     if (me.authenticated) {
       setUser(me.user);
       return me.user;
@@ -62,6 +68,12 @@ export async function startGithubLogin() {
     throw new Error("github login url 缺失");
   }
   window.location.href = resp.authorize_url;
+}
+
+export async function loginDemo() {
+  const response = await authApi.demo();
+  setUser(response.user);
+  return response.user;
 }
 
 export async function logout() {

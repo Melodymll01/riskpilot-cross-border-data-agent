@@ -46,6 +46,7 @@ class WhoAmIResponse(BaseModel):
 
     authenticated: bool
     user: UserOut | None = None
+    demo_login_enabled: bool = False
 
 
 class AnonymousLoginResponse(BaseModel):

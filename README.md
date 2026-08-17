@@ -57,6 +57,7 @@
 | **可恢复案件工作流** | local SQLite / production PostgreSQL checkpointer，支持 interrupt/resume、失败重试、取消和人工审批 | [assessment_runs.py](app/use_cases/assessment_runs.py) |
 | **OpenTelemetry 链路** | HTTP → Agent → Graph Node → Tool → Celery W3C Trace；业务 ID HMAC，异常正文不进入 span | [otel.py](infra/observability/otel.py) |
 | **Prometheus 指标** | HTTP、Agent、Tool、Worker、队列、LLM token/cost、拒答和 Citation failure；Worker 支持 prefork 聚合 | [metrics.py](infra/observability/metrics.py) |
+| **Agent Run Detail** | 一页展示 Evidence Plan、节点耗时、Tool、HITL、Fact/Conflict、规则、Citation、token/cost 和 Assessment，不展示思维链 | [cases.js](frontend/cases.js) |
 | **V3 案件工作台** | Workspace/Case 创建与导航、材料上传/解析/索引/失败重试、Fact Confirmation 与继续运行 | [cases.js](frontend/cases.js) |
 | **V3 Evidence QA** | 四类授权检索；结构/语义双校验；有限 Claim 过滤修复，全部失败仍安全拒答 | [evidence_qa.py](app/use_cases/evidence_qa.py) |
 
@@ -66,7 +67,7 @@
 | --- | --- |
 | 离线回归 | **1357 passed · 4 skipped · 5 warnings**（`make ci`，2026-08-17） |
 | 架构规模 | **46 Port + 17 Use Case** · DDD 4 层 |
-| V3 资源接口 | **48 个路由** · Workspace → Visual Evidence / Evidence QA / Assessment Run |
+| V3 资源接口 | **49 个路由** · Workspace → Visual Evidence / Evidence QA / Assessment Run Detail |
 | Agent/Graph | LangChain Tool Calling + 2 张 LangGraph（Research / Assessment） |
 | Agent Eval | **39 个案件 · 13 类场景**；Offline Task/Tool/Argument/Missing-Fact/Citation/Recovery 均 **1.0**；Unsafe/Cross-tenant/False Accept 均 **0.0** |
 | 记忆系统 | **4 层**（L1 最近消息 → L4 语义事实）+ `hybrid_v1` 可解释召回 |
@@ -325,6 +326,8 @@ ADMIN_USER_IDS=github:your-github-login
 
 - [V3 Evidence QA 指南](docs/guides/v3-evidence-qa.md)
 - [V3 Case Assessment Run 指南](docs/guides/v3-assessment-run.md)
+- [2～3 分钟面试演示脚本](docs/guides/interview-demo-script.md)
+- [简历描述与面试展开](docs/guides/resume-project-description.md)
 
 ## 技术栈
 
@@ -356,6 +359,8 @@ ADMIN_USER_IDS=github:your-github-login
 7. **Evidence QA 演示**：[docs/guides/v3-evidence-qa.md](docs/guides/v3-evidence-qa.md)
 8. **LangSmith 可观测性**：[docs/guides/langsmith-observability.md](docs/guides/langsmith-observability.md)
 9. **Agent Eval 报告**：[evaluations/agent_runs/reports/latest.md](evaluations/agent_runs/reports/latest.md)
+10. **面试演示脚本**：[docs/guides/interview-demo-script.md](docs/guides/interview-demo-script.md)
+11. **简历项目描述**：[docs/guides/resume-project-description.md](docs/guides/resume-project-description.md)
 
 ## 协议
 

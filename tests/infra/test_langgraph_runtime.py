@@ -289,6 +289,13 @@ class TestLangGraphInterruptResume:
         assert "chain_of_thought" not in result.state
         assert result.state["evidence_plan"]["investigation_questions"]
         assert result.state["budget"]["tool_calls"] >= 1
+        assert result.state["node_trace"]
+        assert all(
+            set(item) == {"stage", "status", "duration_ms"}
+            and item["status"] == "completed"
+            and item["duration_ms"] >= 0
+            for item in result.state["node_trace"]
+        )
 
     def test_rejected_review_also_completes_graph(self, checkpoint_path: str) -> None:
         runtime = _runtime(checkpoint_path)

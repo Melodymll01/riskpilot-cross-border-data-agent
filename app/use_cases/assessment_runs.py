@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import time
 import uuid
+from dataclasses import dataclass
 from datetime import date
 from typing import TYPE_CHECKING, Any
 
+from app.use_cases.fact_management import FactDetail
 from domain.agent_workflow import EvidencePlan
 from domain.errors import (
     AgentRunAlreadyActive,
@@ -31,7 +33,7 @@ if TYPE_CHECKING:
     from app.use_cases.policy_management import PolicyManagementUseCase
     from app.use_cases.workspace_management import WorkspaceManagementUseCase
     from config import Settings
-    from domain.assessments import AssessmentStatus
+    from domain.assessments import AssessmentBundle, AssessmentStatus
     from domain.ports import (
         AgentRunRepoPort,
         CaseFactRepoPort,
@@ -48,6 +50,66 @@ _ACTIVE_STATUSES = {
     "retrying",
 }
 _SAFE_RUN_FAILURE_MESSAGE = "Agent Run 执行失败；详细原因仅记录于受控服务日志。"
+
+
+@dataclass(frozen=True)
+class RunTimelineItem:
+    sequence: int
+    event_type: str
+    stage: str | None
+    status: str
+    summary: str
+    duration_ms: int
+    created_at: float
+
+
+@dataclass(frozen=True)
+class RunToolCallDetail:
+    sequence: int
+    tool_name: str
+    stage: str | None
+    arguments: dict[str, Any]
+    result_summary: str
+    output: dict[str, Any]
+    duration_ms: int
+    retry_count: int
+    token_usage: int
+    created_at: float
+
+
+@dataclass(frozen=True)
+class RunInterruptDetail:
+    kind: str
+    stage: str | None
+    reason: str
+    missing_fact_fields: list[str]
+    conflict_field_names: list[str]
+    candidate_fact_ids: list[str]
+    created_at: float
+
+
+@dataclass(frozen=True)
+class RunActionCapabilities:
+    can_continue: bool
+    can_retry: bool
+    can_cancel: bool
+    can_review: bool
+
+
+@dataclass(frozen=True)
+class AssessmentRunDetail:
+    run: AgentRun
+    duration_ms: int
+    cost_currency: str
+    timeline: list[RunTimelineItem]
+    evidence_plan: EvidencePlan | None
+    tool_calls: list[RunToolCallDetail]
+    interrupt: RunInterruptDetail | None
+    facts: list[FactDetail]
+    rule_evaluation: dict[str, Any] | None
+    citation_verification: dict[str, Any] | None
+    assessment: AssessmentBundle | None
+    actions: RunActionCapabilities
 
 
 def _new_id(prefix: str) -> str:
@@ -478,6 +540,74 @@ class AssessmentRunUseCase:
             return None
         return EvidencePlan.model_validate(value)
 
+    def get_detail(self, run_id: str, actor_id: str) -> AssessmentRunDetail:
+        run = self._get_authorized_run(run_id, actor_id, write=False)
+        case = self._case_management.get_case(run.case_id, actor_id)
+        membership = self._workspace_management.require_membership(
+            run.workspace_id,
+            actor_id,
+        )
+        can_write = membership.role in _WRITE_ROLES
+        can_review_assignment = membership.role == "admin" or (
+            membership.role == "reviewer"
+            and (case.reviewer_id is None or case.reviewer_id == actor_id)
+        )
+        events = self._runs.list_events(run.run_id, limit=500)
+        plan = self.get_evidence_plan(run.run_id, actor_id)
+        facts = [
+            FactDetail(
+                fact=fact,
+                evidence=self._facts.list_evidence(
+                    fact.fact_id,
+                    fact_version=fact.version,
+                ),
+            )
+            for fact in self._facts.list_for_case(run.case_id)
+        ]
+        active_assessment = self._assessments.get_active(run.case_id, actor_id)
+        if (
+            active_assessment is not None
+            and active_assessment.assessment.generated_by_run_id != run.run_id
+        ):
+            active_assessment = None
+        tool_calls = _tool_call_details(events)
+        return AssessmentRunDetail(
+            run=run,
+            duration_ms=_run_duration_ms(run),
+            cost_currency=_cost_currency(run),
+            timeline=_timeline(events),
+            evidence_plan=plan,
+            tool_calls=tool_calls,
+            interrupt=(
+                _latest_interrupt(events)
+                if run.status in {"waiting_for_user", "waiting_for_review"}
+                else None
+            ),
+            facts=facts,
+            rule_evaluation=_latest_tool_output(
+                tool_calls,
+                "evaluate_deterministic_rules",
+            ),
+            citation_verification=_latest_tool_output(
+                tool_calls,
+                "verify_claim_citations",
+            ),
+            assessment=active_assessment,
+            actions=RunActionCapabilities(
+                can_continue=can_write
+                and run.status in {"queued", "running", "waiting_for_user", "retrying"},
+                can_retry=can_write and run.status == "failed",
+                can_cancel=can_write
+                and run.status
+                in {"queued", "running", "waiting_for_user", "waiting_for_review", "retrying"},
+                can_review=(
+                    can_review_assignment
+                    and run.status == "waiting_for_review"
+                    and run.current_stage == "human_review"
+                ),
+            ),
+        )
+
     def _generate_assessment_and_resume(
         self,
         run: AgentRun,
@@ -581,6 +711,7 @@ class AssessmentRunUseCase:
             start_sequence=self._runs.next_event_sequence(run.run_id),
             created_at=now,
             previous_tool_trace_count=_tool_trace_count(previous_state),
+            previous_node_trace_count=_node_trace_count(previous_state),
             plan_already_persisted="evidence_plan" in previous_state,
         )
         self._runs.save_progress(
@@ -869,6 +1000,7 @@ def _checkpoint_state(result: WorkflowExecutionResult) -> dict[str, Any]:
         "refusal_reason",
         "budget",
         "tool_trace",
+        "node_trace",
     ):
         if field_name in result.state:
             state[field_name] = result.state[field_name]
@@ -901,22 +1033,49 @@ def _events_for_result(
     start_sequence: int,
     created_at: float,
     previous_tool_trace_count: int,
+    previous_node_trace_count: int,
     plan_already_persisted: bool,
 ) -> list[RunEvent]:
     events: list[RunEvent] = []
     sequence = start_sequence
-    for stage in result.completed_stages:
-        events.append(
-            RunEvent(
-                event_id=_new_id("run_event"),
-                run_id=run_id,
-                sequence=sequence,
-                event_type="stage_completed",
-                stage=stage,
-                created_at=created_at,
+    node_trace = result.state.get("node_trace", [])
+    new_node_trace = node_trace[previous_node_trace_count:] if isinstance(node_trace, list) else []
+    if new_node_trace:
+        for trace in new_node_trace:
+            if not isinstance(trace, dict):
+                continue
+            stage = _optional_string(trace.get("stage"))
+            if stage is None:
+                continue
+            events.append(
+                RunEvent(
+                    event_id=_new_id("run_event"),
+                    run_id=run_id,
+                    sequence=sequence,
+                    event_type="stage_completed",
+                    stage=stage,
+                    payload={
+                        "status": _safe_string(trace.get("status"), default="completed"),
+                        "duration_ms": _safe_non_negative_int(trace.get("duration_ms")),
+                    },
+                    created_at=created_at,
+                )
             )
-        )
-        sequence += 1
+            sequence += 1
+    else:
+        for stage in result.completed_stages:
+            events.append(
+                RunEvent(
+                    event_id=_new_id("run_event"),
+                    run_id=run_id,
+                    sequence=sequence,
+                    event_type="stage_completed",
+                    stage=stage,
+                    payload={"status": "completed", "duration_ms": 0},
+                    created_at=created_at,
+                )
+            )
+            sequence += 1
     evidence_plan = result.state.get("evidence_plan")
     if not plan_already_persisted and isinstance(evidence_plan, dict):
         events.append(
@@ -997,6 +1156,184 @@ def _events_for_result(
 def _tool_trace_count(state: dict[str, Any]) -> int:
     value = state.get("tool_trace", [])
     return len(value) if isinstance(value, list) else 0
+
+
+def _node_trace_count(state: dict[str, Any]) -> int:
+    value = state.get("node_trace", [])
+    return len(value) if isinstance(value, list) else 0
+
+
+_TOOL_OUTPUT_FIELDS: dict[str, frozenset[str]] = {
+    "retrieve_case_evidence": frozenset(
+        {"evidence_ids", "document_ids", "document_version_ids", "hit_count"}
+    ),
+    "retrieve_regulations": frozenset({"rule_ids", "required_fact_fields", "source_clause_ids"}),
+    "extract_fact_candidates": frozenset(
+        {"fact_ids", "proposed_field_names", "conflict_field_names"}
+    ),
+    "evaluate_deterministic_rules": frozenset(
+        {"triggered_rule_ids", "missing_fact_fields", "evaluation_status_by_rule"}
+    ),
+    "verify_claim_citations": frozenset(
+        {"assessment_id", "valid", "citation_count", "finding_count"}
+    ),
+}
+_TOOL_ARGUMENT_FIELDS: dict[str, frozenset[str]] = {
+    "retrieve_case_evidence": frozenset({"query", "query_length", "top_k"}),
+    "retrieve_regulations": frozenset({"ruleset_version"}),
+    "extract_fact_candidates": frozenset({"field_names", "document_ids"}),
+    "evaluate_deterministic_rules": frozenset({"ruleset_version"}),
+    "verify_claim_citations": frozenset({"assessment_id"}),
+}
+_INTERRUPT_EVENTS = {
+    "fact_confirmation_required",
+    "conflict_detected",
+    "human_input_required",
+    "human_review_required",
+    "run_paused",
+}
+_EVENT_SUMMARIES = {
+    "run_started": "Run 已创建",
+    "stage_started": "工作流开始执行",
+    "stage_progress": "证据计划已生成",
+    "stage_completed": "节点执行完成",
+    "tool_completed": "工具调用完成",
+    "facts_proposed": "已生成事实候选",
+    "fact_confirmation_required": "等待人工确认关键事实",
+    "conflict_detected": "检测到事实冲突，等待 Reviewer",
+    "human_input_required": "等待人工输入",
+    "human_review_required": "等待 Reviewer 审批",
+    "run_retrying": "Run 正在重试",
+    "run_failed": "Run 执行失败",
+    "run_completed": "Run 已完成",
+    "run_cancelled": "Run 已取消",
+}
+
+
+def _timeline(events: list[RunEvent]) -> list[RunTimelineItem]:
+    return [
+        RunTimelineItem(
+            sequence=event.sequence,
+            event_type=event.event_type,
+            stage=event.stage,
+            status=_event_status(event),
+            summary=_EVENT_SUMMARIES.get(event.event_type, event.event_type),
+            duration_ms=_safe_non_negative_int(event.payload.get("duration_ms")),
+            created_at=event.created_at,
+        )
+        for event in events
+    ]
+
+
+def _tool_call_details(events: list[RunEvent]) -> list[RunToolCallDetail]:
+    details: list[RunToolCallDetail] = []
+    for event in events:
+        if event.event_type != "tool_completed":
+            continue
+        tool_name = _safe_string(event.payload.get("tool_name"))
+        if not tool_name:
+            continue
+        arguments = event.payload.get("arguments")
+        output = event.payload.get("output")
+        details.append(
+            RunToolCallDetail(
+                sequence=event.sequence,
+                tool_name=tool_name,
+                stage=event.stage,
+                arguments=_safe_tool_arguments(
+                    tool_name,
+                    dict(arguments) if isinstance(arguments, dict) else {},
+                ),
+                result_summary=_safe_string(event.payload.get("result_summary")),
+                output=_safe_tool_output(
+                    tool_name,
+                    dict(output) if isinstance(output, dict) else {},
+                ),
+                duration_ms=_safe_non_negative_int(event.payload.get("duration_ms")),
+                retry_count=_safe_non_negative_int(event.payload.get("retry_count")),
+                token_usage=_safe_non_negative_int(event.payload.get("token_usage")),
+                created_at=event.created_at,
+            )
+        )
+    return details
+
+
+def _latest_interrupt(events: list[RunEvent]) -> RunInterruptDetail | None:
+    for event in reversed(events):
+        if event.event_type not in _INTERRUPT_EVENTS:
+            continue
+        payload = event.payload
+        kind = _safe_string(payload.get("interrupt_kind"), default=event.event_type)
+        return RunInterruptDetail(
+            kind=kind,
+            stage=event.stage,
+            reason=_EVENT_SUMMARIES.get(event.event_type, "等待人工处理"),
+            missing_fact_fields=_safe_string_list(payload.get("missing_fact_fields")),
+            conflict_field_names=_safe_string_list(payload.get("conflict_field_names")),
+            candidate_fact_ids=_safe_string_list(payload.get("candidate_fact_ids")),
+            created_at=event.created_at,
+        )
+    return None
+
+
+def _latest_tool_output(
+    tool_calls: list[RunToolCallDetail],
+    tool_name: str,
+) -> dict[str, Any] | None:
+    for item in reversed(tool_calls):
+        if item.tool_name == tool_name:
+            return dict(item.output)
+    return None
+
+
+def _safe_tool_output(tool_name: str, output: dict[str, Any]) -> dict[str, Any]:
+    allowed = _TOOL_OUTPUT_FIELDS.get(tool_name, frozenset())
+    return {key: value for key, value in output.items() if key in allowed}
+
+
+def _safe_tool_arguments(tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    allowed = _TOOL_ARGUMENT_FIELDS.get(tool_name, frozenset())
+    return {key: value for key, value in arguments.items() if key in allowed}
+
+
+def _event_status(event: RunEvent) -> str:
+    if event.event_type in {"run_failed"}:
+        return "failed"
+    if event.event_type in {"run_completed"}:
+        return "completed"
+    if event.event_type in {"run_cancelled"}:
+        return "cancelled"
+    if event.event_type in _INTERRUPT_EVENTS:
+        return "interrupted"
+    return _safe_string(event.payload.get("status"), default="completed")
+
+
+def _run_duration_ms(run: AgentRun) -> int:
+    if run.started_at is None:
+        return 0
+    end = run.completed_at if run.completed_at is not None else run.updated_at
+    return max(0, int((end - run.started_at) * 1000))
+
+
+def _cost_currency(run: AgentRun) -> str:
+    return _safe_string(
+        run.model_config_snapshot.get("cost_currency"),
+        default="unspecified",
+    )
+
+
+def _safe_string(value: Any, *, default: str = "") -> str:
+    return value if isinstance(value, str) and value else default
+
+
+def _safe_string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return list(dict.fromkeys(item for item in value if isinstance(item, str) and item))
+
+
+def _safe_non_negative_int(value: Any) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
 
 
 def _token_usage(result: WorkflowExecutionResult) -> int:

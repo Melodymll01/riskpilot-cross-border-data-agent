@@ -8,18 +8,27 @@ from fastapi import APIRouter, Depends, Query, status
 from fastapi.exceptions import HTTPException
 
 from api.v2.deps import make_require_owner
+from api.v3.assessments import _to_bundle_out as _to_assessment_bundle_out
+from api.v3.facts import _to_detail_out as _to_fact_detail_out
 from api.v3.schemas import (
     AgentRunListResponse,
     AgentRunOut,
+    AssessmentRunDetailResponse,
     EvidencePlanOut,
+    FactDetailResponse,
     ReviewAssessmentRunRequest,
+    RunActionCapabilitiesOut,
     RunEventListResponse,
     RunEventOut,
+    RunInterruptDetailOut,
+    RunTimelineItemOut,
+    RunToolCallDetailOut,
     StartAssessmentRunRequest,
 )
 
 if TYPE_CHECKING:
     from app.container import AppContainer
+    from app.use_cases.assessment_runs import AssessmentRunDetail
     from domain.runs import AgentRun, RunEvent
 
 
@@ -48,6 +57,33 @@ def _to_run_out(run: AgentRun) -> AgentRunOut:
 
 def _to_event_out(event: RunEvent) -> RunEventOut:
     return RunEventOut(**event.model_dump())
+
+
+def _to_run_detail_out(detail: AssessmentRunDetail) -> AssessmentRunDetailResponse:
+    return AssessmentRunDetailResponse(
+        run=_to_run_out(detail.run),
+        duration_ms=detail.duration_ms,
+        cost_currency=detail.cost_currency,
+        timeline=[RunTimelineItemOut(**item.__dict__) for item in detail.timeline],
+        evidence_plan=(
+            None
+            if detail.evidence_plan is None
+            else EvidencePlanOut(**detail.evidence_plan.model_dump())
+        ),
+        tool_calls=[RunToolCallDetailOut(**item.__dict__) for item in detail.tool_calls],
+        interrupt=(
+            None if detail.interrupt is None else RunInterruptDetailOut(**detail.interrupt.__dict__)
+        ),
+        facts=[
+            FactDetailResponse.model_validate(_to_fact_detail_out(item)) for item in detail.facts
+        ],
+        rule_evaluation=detail.rule_evaluation,
+        citation_verification=detail.citation_verification,
+        assessment=(
+            None if detail.assessment is None else _to_assessment_bundle_out(detail.assessment)
+        ),
+        actions=RunActionCapabilitiesOut(**detail.actions.__dict__),
+    )
 
 
 def build_assessment_run_routes(container: AppContainer) -> APIRouter:
@@ -100,6 +136,17 @@ def build_assessment_run_routes(container: AppContainer) -> APIRouter:
         actor_id: str = Depends(require_owner),
     ) -> AgentRunOut:
         return _to_run_out(container.assessment_runs.get(run_id, actor_id))
+
+    @router.get(
+        "/runs/{run_id}/detail",
+        response_model=AssessmentRunDetailResponse,
+        summary="获取面试展示用安全 Run Detail 聚合",
+    )
+    def get_assessment_run_detail(
+        run_id: str,
+        actor_id: str = Depends(require_owner),
+    ) -> AssessmentRunDetailResponse:
+        return _to_run_detail_out(container.assessment_runs.get_detail(run_id, actor_id))
 
     @router.get(
         "/runs/{run_id}/events",

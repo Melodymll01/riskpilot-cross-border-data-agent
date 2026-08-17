@@ -598,6 +598,61 @@ class EvidencePlanOut(BaseModel):
     completion_criteria: list[str]
 
 
+class RunTimelineItemOut(BaseModel):
+    sequence: int
+    event_type: RunEventTypeValue
+    stage: str | None
+    status: str
+    summary: str
+    duration_ms: int
+    created_at: float
+
+
+class RunToolCallDetailOut(BaseModel):
+    sequence: int
+    tool_name: str
+    stage: str | None
+    arguments: dict[str, object]
+    result_summary: str
+    output: dict[str, object]
+    duration_ms: int
+    retry_count: int
+    token_usage: int
+    created_at: float
+
+
+class RunInterruptDetailOut(BaseModel):
+    kind: str
+    stage: str | None
+    reason: str
+    missing_fact_fields: list[str]
+    conflict_field_names: list[str]
+    candidate_fact_ids: list[str]
+    created_at: float
+
+
+class RunActionCapabilitiesOut(BaseModel):
+    can_continue: bool
+    can_retry: bool
+    can_cancel: bool
+    can_review: bool
+
+
+class AssessmentRunDetailResponse(BaseModel):
+    run: AgentRunOut
+    duration_ms: int
+    cost_currency: str
+    timeline: list[RunTimelineItemOut]
+    evidence_plan: EvidencePlanOut | None
+    tool_calls: list[RunToolCallDetailOut]
+    interrupt: RunInterruptDetailOut | None
+    facts: list[FactDetailResponse]
+    rule_evaluation: dict[str, object] | None
+    citation_verification: dict[str, object] | None
+    assessment: AssessmentBundleResponse | None
+    actions: RunActionCapabilitiesOut
+
+
 QACorpusValue = Literal["regulatory", "workspace", "case", "assessment"]
 EvidenceQAStatusValue = Literal["answered", "partially_answered", "refused"]
 
