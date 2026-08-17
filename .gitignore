@@ -112,6 +112,10 @@ docs/*
 !docs/decisions/**
 !docs/guides/
 !docs/guides/**
+!docs/implementation/
+!docs/implementation/**
+!docs/roadmap/
+!docs/roadmap/**
 .github/skills/
 .copilot/
 .claude/
@@ -157,5 +161,7 @@ yarn-error.log*
 # docs/decisions/    — ADR 决策记录（已显式放行）
 # docs/design/       — 产品与技术设计 SSOT（已显式放行）
 # docs/architecture/ — 架构设计（已显式放行）
+# docs/roadmap/      — 生产化阶段路线与验收门禁
+# docs/implementation/ — 每阶段“为什么 + 怎么实现 + 验证证据”复盘
 # evaluations/**/datasets/  — 评测输入数据集
 !.gitkeep

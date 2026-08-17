@@ -284,12 +284,14 @@ ADMIN_USER_IDS=github:your-github-login
 
 ## 文档
 
-1. **V2 完整设计**：[docs/design/riskpilot-v2.md](docs/design/riskpilot-v2.md)
-2. **架构全景**：[docs/architecture/overview.md](docs/architecture/overview.md)
-3. **架构决策**：[docs/decisions/](docs/decisions/)
-4. **Assessment Run 演示**：[docs/guides/v3-assessment-run.md](docs/guides/v3-assessment-run.md)
-5. **Evidence QA 演示**：[docs/guides/v3-evidence-qa.md](docs/guides/v3-evidence-qa.md)
-6. **LangSmith 可观测性**：[docs/guides/langsmith-observability.md](docs/guides/langsmith-observability.md)
+1. **2026 秋招生产化路线**：[docs/roadmap/autumn-recruitment-production-plan.md](docs/roadmap/autumn-recruitment-production-plan.md)
+2. **阶段实施复盘**：[docs/implementation/](docs/implementation/)
+3. **V2 完整设计**：[docs/design/riskpilot-v2.md](docs/design/riskpilot-v2.md)
+4. **架构全景**：[docs/architecture/overview.md](docs/architecture/overview.md)
+5. **架构决策**：[docs/decisions/](docs/decisions/)
+6. **Assessment Run 演示**：[docs/guides/v3-assessment-run.md](docs/guides/v3-assessment-run.md)
+7. **Evidence QA 演示**：[docs/guides/v3-evidence-qa.md](docs/guides/v3-evidence-qa.md)
+8. **LangSmith 可观测性**：[docs/guides/langsmith-observability.md](docs/guides/langsmith-observability.md)
 
 ## 协议
 

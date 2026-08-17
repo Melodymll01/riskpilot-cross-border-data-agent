@@ -21,6 +21,13 @@ Copilot 使用 LangChain 标准 Tool Calling Agent，Deep Research 与 Case Asse
 使用两张独立 LangGraph；案件工作台使用 `/api/v3`，覆盖 Workspace、Case、Document、
 Text Evidence、Visual Evidence、Fact、Policy、Assessment 和 Assessment Run。
 
+本轮生产化升级把 **Case Assessment Agent** 设为唯一产品主线。Copilot、Memory、
+Visual Evidence 和 Deep Research 都是辅助模块，不与正式案件评估争夺项目叙事。
+阶段路线、目标架构和验收门禁见：
+
+- `docs/roadmap/autumn-recruitment-production-plan.md`
+- `docs/implementation/phase-00-baseline-and-product-focus.md`
+
 ## V2 已落地架构
 
 ```text
