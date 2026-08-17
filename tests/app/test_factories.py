@@ -93,9 +93,7 @@ class TestStorageFactories:
 
     def test_workspace_repo_satisfies_port(self, settings: Settings) -> None:
         pool = build_sqlite_pool(settings)
-        assert isinstance(
-            build_workspace_repo(settings, pool=pool), WorkspaceRepoPort
-        )
+        assert isinstance(build_workspace_repo(settings, pool=pool), WorkspaceRepoPort)
 
     def test_case_repo_satisfies_port(self, settings: Settings) -> None:
         pool = build_sqlite_pool(settings)
@@ -177,7 +175,5 @@ class TestExternalFactories:
         assert isinstance(build_trace(settings), TracePort)
 
     def test_workflow_runtime_satisfies_port(self, settings: Settings) -> None:
-        settings = settings.model_copy(
-            update={"langgraph_checkpoint_db_path": ":memory:"}
-        )
+        settings = settings.model_copy(update={"langgraph_checkpoint_db_path": ":memory:"})
         assert isinstance(build_workflow_runtime(settings), WorkflowRuntimePort)

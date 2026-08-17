@@ -94,9 +94,7 @@ class WebSearcher:
                     title=title_element.get_text(strip=True),
                     url=url,
                     snippet=(
-                        snippet_element.get_text(strip=True)
-                        if snippet_element is not None
-                        else ""
+                        snippet_element.get_text(strip=True) if snippet_element is not None else ""
                     ),
                 )
             )
@@ -109,7 +107,7 @@ class WebSearcher:
     ) -> list[WebSearchResult]:
         response = requests.get(
             "https://www.bing.com/search",
-            params={"q": query, "ensearch": 0, "mkt": "zh-CN"},
+            params={"q": query, "ensearch": "0", "mkt": "zh-CN"},
             headers=self._HEADERS,
             timeout=_REQUEST_TIMEOUT_SECONDS,
         )
@@ -133,9 +131,7 @@ class WebSearcher:
                     title=title_element.get_text(strip=True),
                     url=url,
                     snippet=(
-                        snippet_element.get_text(strip=True)
-                        if snippet_element is not None
-                        else ""
+                        snippet_element.get_text(strip=True) if snippet_element is not None else ""
                     ),
                 )
             )

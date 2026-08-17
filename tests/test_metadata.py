@@ -1,8 +1,7 @@
 """test_metadata.py — Metadata 构建和处理链路测试。"""
 
-import pytest
-from processing.metadata import build_chunks, ChunkWithMetadata
 from ingestion.unified_loader import RawDocument
+from processing.metadata import ChunkWithMetadata, build_chunks
 
 
 class TestChunkWithMetadata:

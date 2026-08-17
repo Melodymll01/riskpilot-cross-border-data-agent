@@ -58,9 +58,7 @@ class TestChatSyncSimple:
         from app.container import AppContainer
 
         container: AppContainer = client.app.state.container  # type: ignore[attr-defined]
-        task = container.task_management.create_task(
-            user["user_id"], title="existing"
-        )
+        task = container.task_management.create_task(user["user_id"], title="existing")
 
         resp = client.post(
             "/api/v2/copilot/chat",
@@ -106,9 +104,7 @@ class TestChatToolLoop:
     def agent_script(self) -> list[AIMessage]:
         return _TOOL_THEN_FINAL
 
-    def test_tool_call_then_answer(
-        self, authed_client: tuple[TestClient, dict[str, Any]]
-    ) -> None:
+    def test_tool_call_then_answer(self, authed_client: tuple[TestClient, dict[str, Any]]) -> None:
         client, _ = authed_client
         resp = client.post(
             "/api/v2/copilot/chat",
@@ -134,9 +130,7 @@ class TestChatMode:
     def agent_script(self) -> list[AIMessage]:
         return [AIMessage(content="回答完毕")]
 
-    def test_default_mode_is_qa(
-        self, authed_client: tuple[TestClient, dict[str, Any]]
-    ) -> None:
+    def test_default_mode_is_qa(self, authed_client: tuple[TestClient, dict[str, Any]]) -> None:
         client, _ = authed_client
         resp = client.post(
             "/api/v2/copilot/chat",

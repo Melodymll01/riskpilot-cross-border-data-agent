@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 import time
-from typing import ClassVar, Literal, cast
+from typing import ClassVar, Literal
 
 from pydantic import Field, model_validator
 
@@ -92,14 +92,11 @@ class Document(BaseDomainModel):
         transition_time = time.time() if at is None else at
         if transition_time < self.updated_at:
             raise ValueError("文档状态变更时间不能早于更新时间")
-        return cast(
-            "Document",
-            self.model_copy(
-                update={
-                    "status": target,
-                    "updated_at": transition_time,
-                }
-            ),
+        return self.model_copy(
+            update={
+                "status": target,
+                "updated_at": transition_time,
+            }
         )
 
 
@@ -210,15 +207,12 @@ class ProcessingJob(BaseDomainModel):
         update_time = time.time() if at is None else at
         if update_time < self.updated_at:
             raise ValueError("任务更新时间不能倒退")
-        return cast(
-            "ProcessingJob",
-            self.model_copy(
-                update={
-                    "current_stage": stage,
-                    "progress": progress,
-                    "updated_at": update_time,
-                }
-            ),
+        return self.model_copy(
+            update={
+                "current_stage": stage,
+                "progress": progress,
+                "updated_at": update_time,
+            }
         )
 
     def complete(self, *, at: float | None = None) -> ProcessingJob:
@@ -283,13 +277,10 @@ class ProcessingJob(BaseDomainModel):
         transition_time = time.time() if at is None else at
         if transition_time < self.updated_at:
             raise ValueError("任务状态变更时间不能早于更新时间")
-        return cast(
-            "ProcessingJob",
-            self.model_copy(
-                update={
-                    **changes,
-                    "status": target,
-                    "updated_at": transition_time,
-                }
-            ),
+        return self.model_copy(
+            update={
+                **changes,
+                "status": target,
+                "updated_at": transition_time,
+            }
         )

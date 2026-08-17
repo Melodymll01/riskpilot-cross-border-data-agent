@@ -558,6 +558,4 @@ def _apply_incremental_migrations(conn: sqlite3.Connection) -> None:
     # tasks.mode（Step 012-tail：三业务模式）
     cols = {row[1] for row in conn.execute("PRAGMA table_info(tasks)").fetchall()}
     if "mode" not in cols:
-        conn.execute(
-            "ALTER TABLE tasks ADD COLUMN mode TEXT NOT NULL DEFAULT 'qa'"
-        )
+        conn.execute("ALTER TABLE tasks ADD COLUMN mode TEXT NOT NULL DEFAULT 'qa'")

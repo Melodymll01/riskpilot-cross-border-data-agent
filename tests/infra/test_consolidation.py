@@ -68,9 +68,7 @@ def _seed_messages(repo: InMemoryTaskRepo, task_id: str, n: int) -> None:
         role = "user" if i % 2 == 0 else "assistant"
         content = f"这是第{i}条实质性消息内容"
         if i == 0:
-            content = "；".join(
-                [content, _NEW_TEXT, _DEDUP_TEXT, _CONFLICT_TEXT]
-            )
+            content = "；".join([content, _NEW_TEXT, _DEDUP_TEXT, _CONFLICT_TEXT])
         repo.append_message(
             Message(
                 msg_id=f"m{i}",

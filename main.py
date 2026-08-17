@@ -48,6 +48,7 @@ logger = logging.getLogger(__name__)
 
 # ===================== Lifespan（替代已弃用的 on_event） =====================
 
+
 def _warn_oauth_redirect_port_mismatch(server_port: int | None) -> None:
     """启动时检查：若 server 监听端口与 github_redirect_uri 里的端口不一致，发出警告。
 
@@ -76,6 +77,7 @@ def _warn_oauth_redirect_port_mismatch(server_port: int | None) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理：启动时初始化服务，关闭时释放资源。"""
+    settings.validate_runtime_configuration()
     logger.info("数据出境知识库问答系统正在启动...")
     container_ref = getattr(app.state, "container", None)
     # Deep Research 图预热，失败不影响服务启动。
@@ -107,7 +109,6 @@ async def _warmup_research(container_ref) -> None:
         logger.warning("深度研究引擎预热失败（已吞掉，将在首次请求时懒加载）", exc_info=True)
 
 
-
 # ===================== FastAPI 应用 =====================
 
 app = FastAPI(
@@ -119,6 +120,7 @@ app = FastAPI(
 
 
 # ===================== 中间件 =====================
+
 
 @app.middleware("http")
 async def request_context_middleware(request: Request, call_next):

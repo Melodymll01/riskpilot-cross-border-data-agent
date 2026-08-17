@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any, ClassVar, Literal, cast
+from typing import Any, ClassVar, Literal
 
 from pydantic import Field, model_validator
 
@@ -188,18 +188,15 @@ class AgentRun(BaseDomainModel):
             raise ValueError("token_usage 不能倒退")
         if next_cost < self.cost:
             raise ValueError("cost 不能倒退")
-        return cast(
-            "AgentRun",
-            self.model_copy(
-                update={
-                    "checkpoint_id": checkpoint_id,
-                    "current_stage": stage,
-                    "token_usage": next_token_usage,
-                    "cost": next_cost,
-                    "revision": self.revision + 1,
-                    "updated_at": update_time,
-                }
-            ),
+        return self.model_copy(
+            update={
+                "checkpoint_id": checkpoint_id,
+                "current_stage": stage,
+                "token_usage": next_token_usage,
+                "cost": next_cost,
+                "revision": self.revision + 1,
+                "updated_at": update_time,
+            }
         )
 
     def pause_for_user(
@@ -338,16 +335,13 @@ class AgentRun(BaseDomainModel):
         if target != self.status and target not in self._ALLOWED_TRANSITIONS[self.status]:
             raise InvalidAgentRunTransition(self.run_id, self.status, target)
         transition_time = self._validate_update_time(at)
-        return cast(
-            "AgentRun",
-            self.model_copy(
-                update={
-                    "status": target,
-                    "revision": self.revision + 1,
-                    "updated_at": transition_time,
-                    **updates,
-                }
-            ),
+        return self.model_copy(
+            update={
+                "status": target,
+                "revision": self.revision + 1,
+                "updated_at": transition_time,
+                **updates,
+            }
         )
 
     def _validate_update_time(self, at: float | None) -> float:

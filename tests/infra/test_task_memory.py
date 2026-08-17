@@ -157,9 +157,7 @@ class TestL2Summary:
     def _mem(
         self, repo: InMemoryTaskRepo, store: InMemorySummaryStore, chat: FakeChat
     ) -> TaskBackedMemory:
-        return TaskBackedMemory(
-            repo, summary_store=store, chat=chat, summary_threshold=3
-        )
+        return TaskBackedMemory(repo, summary_store=store, chat=chat, summary_threshold=3)
 
     def test_summarizes_when_backlog_reaches_threshold(self) -> None:
         repo = InMemoryTaskRepo()
@@ -419,9 +417,7 @@ class TestL4RecallSemantic:
         store = FakeFactStore()
         embed = FakeEmbed()
         store.add(self._fact("anon:o1", "用户在跨境电商行业"), embed.embed(["x"])[0])
-        mem = TaskBackedMemory(
-            InMemoryTaskRepo(), fact_store=store, embedder=embed
-        )
+        mem = TaskBackedMemory(InMemoryTaskRepo(), fact_store=store, embedder=embed)
 
         assert mem.recall_semantic("anon:o1", "  ", 3) == []
         assert mem.recall_semantic("anon:o1", "q", 0) == []
@@ -431,9 +427,7 @@ class TestL4RecallSemantic:
         embed = FakeEmbed()
         fact = self._fact("anon:o1", "用户在跨境电商行业")
         store.add(fact, embed.embed([fact.text])[0])
-        mem = TaskBackedMemory(
-            InMemoryTaskRepo(), fact_store=store, embedder=embed
-        )
+        mem = TaskBackedMemory(InMemoryTaskRepo(), fact_store=store, embedder=embed)
 
         out = mem.recall_semantic("anon:o1", "行业是什么", 3)
 
@@ -444,9 +438,7 @@ class TestL4RecallSemantic:
         embed = FakeEmbed()
         fact = self._fact("anon:o1", "用户偏好英文", superseded_by="f_new")
         store.add(fact, embed.embed([fact.text])[0])
-        mem = TaskBackedMemory(
-            InMemoryTaskRepo(), fact_store=store, embedder=embed
-        )
+        mem = TaskBackedMemory(InMemoryTaskRepo(), fact_store=store, embedder=embed)
 
         assert mem.recall_semantic("anon:o1", "偏好", 3) == []
 
@@ -469,9 +461,7 @@ class TestL4RecallSemantic:
         embed = FakeEmbed()
         fact = self._fact("anon:owner_a", "机密事实")
         store.add(fact, embed.embed([fact.text])[0])
-        mem = TaskBackedMemory(
-            InMemoryTaskRepo(), fact_store=store, embedder=embed
-        )
+        mem = TaskBackedMemory(InMemoryTaskRepo(), fact_store=store, embedder=embed)
 
         assert mem.recall_semantic("anon:owner_b", "事实", 3) == []
 
@@ -623,4 +613,3 @@ class TestL4DeleteFact:
         # owner_b 不能删 owner_a 的事实
         assert mem.delete_fact("anon:owner_b", "f1") is False
         assert store.get("anon:owner_a", "f1") is not None
-

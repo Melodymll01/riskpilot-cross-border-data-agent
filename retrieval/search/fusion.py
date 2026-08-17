@@ -8,7 +8,8 @@
 """
 
 import logging
-from typing import List, Dict, Any, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -16,10 +17,10 @@ DEFAULT_RRF_K = 60
 
 
 def rrf_fuse(
-    rankings: Sequence[Sequence[Dict[str, Any]]],
+    rankings: Sequence[Sequence[dict[str, Any]]],
     k: int = DEFAULT_RRF_K,
-    weights: Sequence[float] = None,
-) -> List[Dict[str, Any]]:
+    weights: Sequence[float] | None = None,
+) -> list[dict[str, Any]]:
     """
     对多路检索结果做 RRF 融合。
 
@@ -36,11 +37,12 @@ def rrf_fuse(
         return []
     if weights is None:
         weights = [1.0] * len(rankings)
-    assert len(weights) == len(rankings), "weights 长度必须与 rankings 一致"
+    if len(weights) != len(rankings):
+        raise ValueError("weights 长度必须与 rankings 一致")
 
-    score_map: Dict[str, float] = {}
-    doc_map: Dict[str, Dict[str, Any]] = {}
-    source_map: Dict[str, List[str]] = {}
+    score_map: dict[str, float] = {}
+    doc_map: dict[str, dict[str, Any]] = {}
+    source_map: dict[str, list[str]] = {}
 
     for path_idx, ranking in enumerate(rankings):
         w = weights[path_idx]
@@ -56,7 +58,7 @@ def rrf_fuse(
                 source_map[doc_id] = []
             source_map[doc_id].append(item.get("match_type") or f"path_{path_idx}")
 
-    fused: List[Dict[str, Any]] = []
+    fused: list[dict[str, Any]] = []
     for doc_id, score in score_map.items():
         doc = doc_map[doc_id]
         doc["rrf_score"] = score
@@ -64,7 +66,5 @@ def rrf_fuse(
         fused.append(doc)
 
     fused.sort(key=lambda x: x["rrf_score"], reverse=True)
-    logger.debug(
-        f"RRF 融合: {len(rankings)} 路 → {len(fused)} 条唯一文档 (k={k})"
-    )
+    logger.debug(f"RRF 融合: {len(rankings)} 路 → {len(fused)} 条唯一文档 (k={k})")
     return fused

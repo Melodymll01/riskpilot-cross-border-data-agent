@@ -15,7 +15,7 @@ help:
 	@echo "  install-dev   - install dev deps (pytest, ruff, mypy, ...)"
 	@echo "  lint          - ruff check"
 	@echo "  format        - ruff format"
-	@echo "  type-check    - mypy on domain/app/infra/auth"
+	@echo "  type-check    - mypy on domain/app/infra"
 	@echo "  test          - run pytest (offline)"
 	@echo "  test-cov      - run pytest with coverage"
 	@echo "  serve         - uvicorn dev server on :$(PORT)"
@@ -41,10 +41,10 @@ format:
 	ruff format .
 
 type-check:
-	-mypy domain app infra/auth
+	mypy domain app infra
 
 test:
-	pytest -ra
+	pytest -q
 
 test-cov:
 	pytest -ra --cov --cov-report=term-missing

@@ -148,20 +148,21 @@ class VectorStore:
         if merged_where:
             query_kwargs["where"] = merged_where
 
-
-        #**这是字典解包，传递给 collection.query() 方法的参数。根据 where_filter 是否存在，query_kwargs 会包含不同的键值对。**
+        # **这是字典解包，传递给 collection.query() 方法的参数。根据 where_filter 是否存在，query_kwargs 会包含不同的键值对。**
         results = self.collection.query(**query_kwargs)
 
         # 整理为更易用的格式，因为我们通常是单条查询，所以取 results["ids"][0] 等。注意检查结果是否存在。
         items = []
         if results and results["ids"] and results["ids"][0]:
             for i in range(len(results["ids"][0])):
-                items.append({
-                    "id": results["ids"][0][i],
-                    "text": results["documents"][0][i],
-                    "metadata": results["metadatas"][0][i],
-                    "distance": results["distances"][0][i],
-                })
+                items.append(
+                    {
+                        "id": results["ids"][0][i],
+                        "text": results["documents"][0][i],
+                        "metadata": results["metadatas"][0][i],
+                        "distance": results["distances"][0][i],
+                    }
+                )
 
         logger.info(f"检索完成，返回 {len(items)} 条结果")
         return items
@@ -365,10 +366,12 @@ class VectorStore:
             按顺序排列的 chunk 文本列表（包含当前 chunk）
         """
         # 计算需要获取的 index 范围
-        target_indices = list(range(
-            max(0, chunk_index - window),
-            chunk_index + window + 1,
-        ))
+        target_indices = list(
+            range(
+                max(0, chunk_index - window),
+                chunk_index + window + 1,
+            )
+        )
 
         clauses: list[dict[str, Any]] = [
             {"source_name": source_name},

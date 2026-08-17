@@ -1,10 +1,13 @@
 """单独测 BM25 和 RRF（不走 embedder，绕开维度问题）。"""
-import sys, os
+
+import os
+import sys
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from retrieval.search.vector_store import VectorStore
 from retrieval.search.bm25_index import BM25Index
 from retrieval.search.fusion import rrf_fuse
+from retrieval.search.vector_store import VectorStore
 
 vs = VectorStore()
 print(f"向量库总记录: {vs.get_total_count()}")

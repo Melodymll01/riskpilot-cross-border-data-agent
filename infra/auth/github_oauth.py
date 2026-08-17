@@ -96,9 +96,7 @@ class GitHubOAuthProvider:
             raise OAuthFlowError(f"token exchange HTTP error: {e}") from e
 
         if not (200 <= resp.status_code < 300):
-            raise OAuthFlowError(
-                f"token exchange returned {resp.status_code}: {resp.text[:200]}"
-            )
+            raise OAuthFlowError(f"token exchange returned {resp.status_code}: {resp.text[:200]}")
         try:
             data = resp.json()
         except Exception as e:  # noqa: BLE001
@@ -125,9 +123,7 @@ class GitHubOAuthProvider:
             raise OAuthFlowError(f"user fetch HTTP error: {e}") from e
 
         if not (200 <= resp.status_code < 300):
-            raise OAuthFlowError(
-                f"GET /user returned {resp.status_code}: {resp.text[:200]}"
-            )
+            raise OAuthFlowError(f"GET /user returned {resp.status_code}: {resp.text[:200]}")
         try:
             data = resp.json()
         except Exception as e:  # noqa: BLE001

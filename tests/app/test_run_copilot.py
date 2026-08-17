@@ -39,9 +39,7 @@ def _make_uc_with_risk_profile(
 class TestNewTaskCreation:
     def test_creates_task_when_id_none(self) -> None:
         uc, _, repo = _make_uc()
-        events = list(
-            uc.stream(owner_id="anon:x", task_id=None, user_message="hello world")
-        )
+        events = list(uc.stream(owner_id="anon:x", task_id=None, user_message="hello world"))
 
         # 第一个事件是 task_created
         assert events[0].event_type is AgentEventType.TASK_CREATED
@@ -57,9 +55,7 @@ class TestNewTaskCreation:
     def test_long_message_truncates_title(self) -> None:
         uc, _, repo = _make_uc()
         long_msg = "我们公司要把欧洲用户数据同步回北京数据中心" * 5
-        events = list(
-            uc.stream(owner_id="anon:x", task_id=None, user_message=long_msg)
-        )
+        events = list(uc.stream(owner_id="anon:x", task_id=None, user_message=long_msg))
         task_id = events[0].payload["task_id"]
         task = repo.get(task_id, "anon:x")
         assert task is not None
@@ -73,9 +69,7 @@ class TestNewTaskCreation:
         task_uc = TaskManagementUseCase(repo)
         task = task_uc.create_task("anon:x", title="existing")
 
-        events = list(
-            uc.stream(owner_id="anon:x", task_id=task.task_id, user_message="q")
-        )
+        events = list(uc.stream(owner_id="anon:x", task_id=task.task_id, user_message="q"))
         assert all(e.event_type is not AgentEventType.TASK_CREATED for e in events)
 
 
@@ -399,9 +393,7 @@ class TestMemoryScheduling:
         sched = _RecordingScheduler()
         uc, _ = _make_uc_with_scheduler(sched)
 
-        events = list(
-            uc.stream(owner_id="anon:x", task_id=None, user_message="个人信息出境条件")
-        )
+        events = list(uc.stream(owner_id="anon:x", task_id=None, user_message="个人信息出境条件"))
         task_id = events[0].payload["task_id"]
 
         assert sched.calls == [("anon:x", task_id)]
@@ -410,9 +402,7 @@ class TestMemoryScheduling:
         sched = _RecordingScheduler()
         uc, _ = _make_uc_with_scheduler(sched)
 
-        events = list(
-            uc.stream(owner_id="anon:x", task_id=None, user_message="个人信息出境条件")
-        )
+        events = list(uc.stream(owner_id="anon:x", task_id=None, user_message="个人信息出境条件"))
         task_id = events[0].payload["task_id"]
 
         assert sched.consolidation_calls == [("anon:x", task_id)]
@@ -422,19 +412,13 @@ class TestMemoryScheduling:
         uc, _ = _make_uc_with_scheduler(sched)
 
         # 调度抛错也不能影响主回复
-        events = list(
-            uc.stream(owner_id="anon:x", task_id=None, user_message="问题")
-        )
+        events = list(uc.stream(owner_id="anon:x", task_id=None, user_message="问题"))
 
         assert any(e.event_type is AgentEventType.ANSWER for e in events)
 
     def test_no_scheduler_is_noop(self) -> None:
         uc, _, _ = _make_uc()  # 不带 scheduler
 
-        events = list(
-            uc.stream(owner_id="anon:x", task_id=None, user_message="问题")
-        )
+        events = list(uc.stream(owner_id="anon:x", task_id=None, user_message="问题"))
 
         assert any(e.event_type is AgentEventType.ANSWER for e in events)
-
-

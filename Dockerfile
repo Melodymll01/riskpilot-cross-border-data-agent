@@ -1,6 +1,6 @@
 # ─── Stage 1: builder ────────────────────────────────────────────────────────
 # 单独的构建阶段：安装依赖、编译 wheel。最终镜像不带构建工具，体积更小。
-FROM python:3.11-slim-bookworm AS builder
+FROM python:3.12-slim-bookworm AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -23,7 +23,7 @@ RUN pip install --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt
 
 # ─── Stage 2: runtime ────────────────────────────────────────────────────────
-FROM python:3.11-slim-bookworm AS runtime
+FROM python:3.12-slim-bookworm AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -44,7 +44,7 @@ RUN groupadd --system app && useradd --system --gid app --home /app app
 WORKDIR /app
 
 # 从 builder 拷贝已安装好的 Python 包
-COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
 # 拷贝项目源码（.dockerignore 会过滤 venv / data / .env 等）
@@ -58,8 +58,8 @@ USER app
 
 EXPOSE 8001
 
-# 容器健康检查：访问根路径
+# 容器健康检查只验证 API 进程，不依赖数据库、Redis 或模型服务。
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-    CMD curl -fsS http://127.0.0.1:8001/ >/dev/null || exit 1
+    CMD curl -fsS http://127.0.0.1:8001/api/v2/health/live >/dev/null || exit 1
 
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]

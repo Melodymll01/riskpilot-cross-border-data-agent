@@ -2,7 +2,6 @@
 
 import logging
 from pathlib import Path
-from typing import Optional
 
 from docx import Document as DocxDocument
 
@@ -21,10 +20,10 @@ class FileLoader:
 
     SUPPORTED_EXTENSIONS = {".pdf", ".txt", ".docx"}
 
-    def __init__(self, pdf_extractor: Optional[PDFExtractor] = None):
+    def __init__(self, pdf_extractor: PDFExtractor | None = None):
         self.pdf_extractor = pdf_extractor or PDFExtractor()
 
-    def load(self, file_path: str, original_filename: Optional[str] = None) -> RawDocument:
+    def load(self, file_path: str, original_filename: str | None = None) -> RawDocument:
         """
         加载指定路径的文件，返回 RawDocument。
 
@@ -100,9 +99,13 @@ class FileLoader:
             elif tag == "tbl":
                 # 表格：按行提取，每行用 " | " 分隔单元格
                 table_rows = []
-                for tr in element.iter("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}tr"):
+                for tr in element.iter(
+                    "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}tr"
+                ):
                     cells = []
-                    for tc in tr.iter("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}tc"):
+                    for tc in tr.iter(
+                        "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}tc"
+                    ):
                         cell_text = "".join(
                             node.text or "" for node in tc.iter() if node.text
                         ).strip()

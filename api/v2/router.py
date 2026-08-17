@@ -24,9 +24,7 @@ if TYPE_CHECKING:
     from app.container import AppContainer
 
 
-def build_v2_router(
-    container: AppContainer, *, limiter: RateLimiter | None = None
-) -> APIRouter:
+def build_v2_router(container: AppContainer, *, limiter: RateLimiter | None = None) -> APIRouter:
     """构造 v2 根 router；包含 auth/tasks/documents/audit/memory/copilot/health 全部子路由。
 
     ``limiter`` 为 ``None`` 时（如测试）所有限流依赖退化为无操作。

@@ -85,9 +85,7 @@ class TestAuthGating:
         assert resp.status_code == 401
         assert resp.json()["error_code"] == "AUTH_REQUIRED"
 
-    def test_list_non_admin_allowed(
-        self, authed_client: tuple[TestClient, dict[str, Any]]
-    ) -> None:
+    def test_list_non_admin_allowed(self, authed_client: tuple[TestClient, dict[str, Any]]) -> None:
         client, _ = authed_client
         resp = client.get("/api/v2/documents")
         assert resp.status_code == 200
@@ -140,9 +138,7 @@ class TestAuthGating:
         assert body["chunk_count"] >= 1
 
     def test_ingest_web_requires_auth(self, client: TestClient) -> None:
-        resp = client.post(
-            "/api/v2/documents/web", json={"url": "https://x.com"}
-        )
+        resp = client.post("/api/v2/documents/web", json={"url": "https://x.com"})
         assert resp.status_code == 401
 
     def test_ingest_web_non_admin_allowed(
@@ -150,9 +146,7 @@ class TestAuthGating:
     ) -> None:
         """Step 025a：非 admin 可采集到自己私人库。"""
         client, _ = authed_client
-        resp = client.post(
-            "/api/v2/documents/web", json={"url": "https://x.com"}
-        )
+        resp = client.post("/api/v2/documents/web", json={"url": "https://x.com"})
         assert resp.status_code == 201, resp.text
         body = resp.json()
         assert body["success"] is True
@@ -212,9 +206,7 @@ class TestStats(_AdminBase):
 
 class TestGet(_AdminBase):
     def test_get_hit(self, admin_client: TestClient) -> None:
-        _seed_chunks(
-            admin_client, source="hit.pdf", n=2, title="T", category="法规"
-        )
+        _seed_chunks(admin_client, source="hit.pdf", n=2, title="T", category="法规")
         resp = admin_client.get("/api/v2/documents/hit.pdf")
         assert resp.status_code == 200
         body = resp.json()
@@ -281,9 +273,7 @@ class TestIngestFile(_AdminBase):
         # 副作用：repo 里有 2 个 chunk
         assert container.kb_repo.count_chunks() == 2
 
-    def test_upload_rejects_unsupported_ext(
-        self, admin_client: TestClient
-    ) -> None:
+    def test_upload_rejects_unsupported_ext(self, admin_client: TestClient) -> None:
         resp = admin_client.post(
             "/api/v2/documents/file",
             files={"file": ("evil.exe", b"x", "application/octet-stream")},
@@ -291,9 +281,7 @@ class TestIngestFile(_AdminBase):
         assert resp.status_code == 400
         assert resp.json()["error_code"] == "UNSUPPORTED_FILE_TYPE"
 
-    def test_upload_rejects_empty_extension(
-        self, admin_client: TestClient
-    ) -> None:
+    def test_upload_rejects_empty_extension(self, admin_client: TestClient) -> None:
         resp = admin_client.post(
             "/api/v2/documents/file",
             files={"file": ("noext", b"x", "application/octet-stream")},
@@ -312,9 +300,7 @@ class TestIngestFile(_AdminBase):
         assert resp.status_code == 413
         assert resp.json()["error_code"] == "FILE_TOO_LARGE"
 
-    def test_upload_temp_file_cleaned_on_success(
-        self, admin_client: TestClient
-    ) -> None:
+    def test_upload_temp_file_cleaned_on_success(self, admin_client: TestClient) -> None:
         container: AppContainer = admin_client.app.state.container  # type: ignore[attr-defined]
         upload_dir = container.settings.upload_dir
         admin_client.post(
@@ -328,9 +314,7 @@ class TestIngestFile(_AdminBase):
             not name.endswith(".txt") for name in os.listdir(upload_dir)
         )
 
-    def test_upload_empty_doc_returns_success_false(
-        self, admin_client: TestClient
-    ) -> None:
+    def test_upload_empty_doc_returns_success_false(self, admin_client: TestClient) -> None:
         """loader 返回空 → use case 返回 success=False，但 HTTP 200/201。"""
         container: AppContainer = admin_client.app.state.container  # type: ignore[attr-defined]
         container.document_loader = FakeDocumentLoader(empty=True)
@@ -380,27 +364,19 @@ class TestIngestWeb(_AdminBase):
         assert container.kb_repo.count_chunks() == 2
 
     def test_web_rejects_invalid_scheme(self, admin_client: TestClient) -> None:
-        resp = admin_client.post(
-            "/api/v2/documents/web", json={"url": "ftp://x.com"}
-        )
+        resp = admin_client.post("/api/v2/documents/web", json={"url": "ftp://x.com"})
         # pydantic 校验失败 → 422
         assert resp.status_code == 422
 
     def test_web_rejects_missing_domain(self, admin_client: TestClient) -> None:
-        resp = admin_client.post(
-            "/api/v2/documents/web", json={"url": "http://"}
-        )
+        resp = admin_client.post("/api/v2/documents/web", json={"url": "http://"})
         assert resp.status_code == 422
 
-    def test_web_empty_url_field_rejected(
-        self, admin_client: TestClient
-    ) -> None:
+    def test_web_empty_url_field_rejected(self, admin_client: TestClient) -> None:
         resp = admin_client.post("/api/v2/documents/web", json={"url": ""})
         assert resp.status_code == 422
 
-    def test_web_empty_doc_returns_success_false(
-        self, admin_client: TestClient
-    ) -> None:
+    def test_web_empty_doc_returns_success_false(self, admin_client: TestClient) -> None:
         container: AppContainer = admin_client.app.state.container  # type: ignore[attr-defined]
         container.document_loader = FakeDocumentLoader(empty=True)
         from app.use_cases.kb_management import KbManagementUseCase
@@ -411,9 +387,7 @@ class TestIngestWeb(_AdminBase):
             embedder=container.embedder,
         )
 
-        resp = admin_client.post(
-            "/api/v2/documents/web", json={"url": "https://empty.example.com"}
-        )
+        resp = admin_client.post("/api/v2/documents/web", json={"url": "https://empty.example.com"})
         assert resp.status_code == 201
         body = resp.json()
         assert body["success"] is False
@@ -433,9 +407,7 @@ class TestOwnerScope(_AdminBase):
 
     # ── GET 可见集合 ────────────────────────────────────────────────
 
-    def test_scope_for_normal_user(
-        self, authed_client: tuple[TestClient, dict[str, Any]]
-    ) -> None:
+    def test_scope_for_normal_user(self, authed_client: tuple[TestClient, dict[str, Any]]) -> None:
         """普通匿名用户视角：mine=只看自己；public=只看公共；all=两者合集（不见他人）。"""
         client, user = authed_client
         me = user["user_id"]
@@ -456,9 +428,7 @@ class TestOwnerScope(_AdminBase):
         # 他人文档对自己应当不可见
         assert "bob.txt" not in names("all")
 
-    def test_scope_for_admin_all_sees_everything(
-        self, admin_client: TestClient
-    ) -> None:
+    def test_scope_for_admin_all_sees_everything(self, admin_client: TestClient) -> None:
         """admin scope=all → 全库可见（含其他人私人）。"""
         _seed_chunks(admin_client, source="pub.txt", n=1, owner_id=None)
         _seed_chunks(admin_client, source="alice.txt", n=1, owner_id="github:alice")
@@ -468,9 +438,7 @@ class TestOwnerScope(_AdminBase):
         names = {d["source_name"] for d in resp.json()["documents"]}
         assert names == {"pub.txt", "alice.txt", "bob.txt"}
 
-    def test_scope_mine_for_admin_is_alice_only(
-        self, admin_client: TestClient
-    ) -> None:
+    def test_scope_mine_for_admin_is_alice_only(self, admin_client: TestClient) -> None:
         """admin scope=mine → 只看自己上传的（owner_id=github:alice）。"""
         _seed_chunks(admin_client, source="pub.txt", n=1, owner_id=None)
         _seed_chunks(admin_client, source="alice.txt", n=1, owner_id="github:alice")
@@ -516,9 +484,7 @@ class TestOwnerScope(_AdminBase):
         _, _, kwargs = loader.calls[0]
         assert kwargs["owner_id"] == me  # 普通用户被强绑自己
 
-    def test_ingest_file_admin_as_public_owner_none(
-        self, admin_client: TestClient
-    ) -> None:
+    def test_ingest_file_admin_as_public_owner_none(self, admin_client: TestClient) -> None:
         """admin 显式 as_public=true → loader 收到 owner_id=None（入公共库）。"""
         container: AppContainer = admin_client.app.state.container  # type: ignore[attr-defined]
         loader: FakeDocumentLoader = container.document_loader  # type: ignore[assignment]

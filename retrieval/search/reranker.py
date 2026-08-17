@@ -6,7 +6,7 @@
 
 import logging
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any
+from typing import Any
 
 from config import settings
 
@@ -17,7 +17,7 @@ class BaseReranker(ABC):
     """重排序器基类，定义统一接口。"""
 
     @abstractmethod
-    def      rerank(self, query: str, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def rerank(self, query: str, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """
         对检索结果进行重排序。
 
@@ -34,7 +34,7 @@ class BaseReranker(ABC):
 class PassthroughReranker(BaseReranker):
     """直通重排序器：不做任何重排序，直接返回原始结果。"""
 
-    def rerank(self, query: str, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def rerank(self, query: str, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
         logger.debug("使用 PassthroughReranker，跳过重排序")
         return results
 
@@ -45,7 +45,7 @@ class DistanceThresholdReranker(BaseReranker):
     def __init__(self, max_distance: float = settings.distance_threshold):
         self.max_distance = max_distance
 
-    def rerank(self, query: str, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def rerank(self, query: str, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not results:
             return results
 
@@ -66,7 +66,9 @@ class DistanceThresholdReranker(BaseReranker):
         )
         return filtered
 
+
 # ---- Cross-Encoder 重排序 ----
+
 
 class CrossEncoderReranker(BaseReranker):
     """基于 Cross-Encoder 模型的重排序器。
@@ -89,6 +91,7 @@ class CrossEncoderReranker(BaseReranker):
         #   TRANSFORMERS_OFFLINE=1
         # 这样可避免每次启动都向 HuggingFace 发 HEAD 请求。
         import os
+
         _offline = os.environ.get("HF_HUB_OFFLINE") == "1"
 
         from sentence_transformers import CrossEncoder
@@ -97,25 +100,24 @@ class CrossEncoderReranker(BaseReranker):
         if device == "auto":
             try:
                 import torch
+
                 device = "cuda" if torch.cuda.is_available() else "cpu"
             except ImportError:
                 device = "cpu"
 
-        logger.info(
-            f"加载 Cross-Encoder 模型: {model_name} (device={device}, offline={_offline})"
-        )
+        logger.info(f"加载 Cross-Encoder 模型: {model_name} (device={device}, offline={_offline})")
         self.model = CrossEncoder(model_name, device=device)
         self.device = device
         self.score_threshold = score_threshold
 
-    def rerank(self, query: str, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def rerank(self, query: str, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not results:
             return results
 
         pairs = [(query, r.get("text", "")) for r in results]
         scores = self.model.predict(pairs)
 
-        for r, s in zip(results, scores):
+        for r, s in zip(results, scores, strict=True):
             r["rerank_score"] = float(s)
 
         # 按 rerank_score 降序排序

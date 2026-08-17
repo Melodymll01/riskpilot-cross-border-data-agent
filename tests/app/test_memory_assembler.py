@@ -258,14 +258,10 @@ class TestProfileInjection:
         mem = FakeMemory(
             messages={"t1": [_msg("user", "x", 1.0)]},
             profiles={
-                "o1": SessionProfile(
-                    owner_id="o1", facts={"语言": "中文", "行业": "跨境电商"}
-                )
+                "o1": SessionProfile(owner_id="o1", facts={"语言": "中文", "行业": "跨境电商"})
             },
         )
-        asm = MemoryAssembler(
-            mem, recent_n=6, token_budget=1500, profile_max_facts=8
-        )
+        asm = MemoryAssembler(mem, recent_n=6, token_budget=1500, profile_max_facts=8)
 
         block = asm.assemble(owner_id="o1", task_id="t1")
 
@@ -276,15 +272,9 @@ class TestProfileInjection:
     def test_profile_truncated_at_max_facts(self) -> None:
         mem = FakeMemory(
             messages={"t1": [_msg("user", "x", 1.0)]},
-            profiles={
-                "o1": SessionProfile(
-                    owner_id="o1", facts={"a": "1", "b": "2", "c": "3"}
-                )
-            },
+            profiles={"o1": SessionProfile(owner_id="o1", facts={"a": "1", "b": "2", "c": "3"})},
         )
-        asm = MemoryAssembler(
-            mem, recent_n=6, token_budget=1500, profile_max_facts=2
-        )
+        asm = MemoryAssembler(mem, recent_n=6, token_budget=1500, profile_max_facts=2)
 
         block = asm.assemble(owner_id="o1", task_id="t1")
 
@@ -295,9 +285,7 @@ class TestProfileInjection:
             messages={"t1": [_msg("user", "x", 1.0)]},
             profiles={"o1": SessionProfile(owner_id="o1", facts={})},
         )
-        asm = MemoryAssembler(
-            mem, recent_n=6, token_budget=1500, profile_max_facts=8
-        )
+        asm = MemoryAssembler(mem, recent_n=6, token_budget=1500, profile_max_facts=8)
 
         block = asm.assemble(owner_id="o1", task_id="t1")
 
@@ -309,9 +297,7 @@ class TestProfileInjection:
             summaries={"t1": "更早聊过评估"},
             profiles={"o1": SessionProfile(owner_id="o1", facts={"语言": "中文"})},
         )
-        asm = MemoryAssembler(
-            mem, recent_n=6, token_budget=1500, profile_max_facts=8
-        )
+        asm = MemoryAssembler(mem, recent_n=6, token_budget=1500, profile_max_facts=8)
 
         block = asm.assemble(owner_id="o1", task_id="t1")
 
@@ -330,7 +316,10 @@ class TestProfileInjection:
                 return [_msg("user", "仍可用", 1.0)]
 
         asm = MemoryAssembler(
-            _Boom(), recent_n=6, token_budget=1500, profile_max_facts=8  # type: ignore[arg-type]
+            _Boom(),
+            recent_n=6,
+            token_budget=1500,
+            profile_max_facts=8,  # type: ignore[arg-type]
         )
 
         block = asm.assemble(owner_id="o1", task_id="t1")
@@ -366,9 +355,7 @@ class TestSettingsGating:
 
     def test_no_store_defaults_all_on(self) -> None:
         mem = self._mem()
-        asm = MemoryAssembler(
-            mem, recent_n=6, token_budget=1500, recall_k=3, profile_max_facts=8
-        )
+        asm = MemoryAssembler(mem, recent_n=6, token_budget=1500, recall_k=3, profile_max_facts=8)
         block = asm.assemble(owner_id="o1", task_id="t1", query="数据出境")
         assert "【相关长期记忆" in block
         assert "【用户画像" in block
@@ -379,9 +366,7 @@ class TestSettingsGating:
         from tests.fakes.fake_memory_settings_store import InMemoryMemorySettingsStore
 
         store = InMemoryMemorySettingsStore()
-        store.upsert(
-            MemorySettings(owner_id="o1", use_saved_memory=True)
-        )
+        store.upsert(MemorySettings(owner_id="o1", use_saved_memory=True))
         block = self._asm(self._mem(), store).assemble(
             owner_id="o1", task_id="t1", query="数据出境"
         )
@@ -394,9 +379,7 @@ class TestSettingsGating:
         from tests.fakes.fake_memory_settings_store import InMemoryMemorySettingsStore
 
         store = InMemoryMemorySettingsStore()
-        store.upsert(
-            MemorySettings(owner_id="o1", use_saved_memory=False)
-        )
+        store.upsert(MemorySettings(owner_id="o1", use_saved_memory=False))
         block = self._asm(self._mem(), store).assemble(
             owner_id="o1", task_id="t1", query="数据出境"
         )
@@ -410,9 +393,7 @@ class TestSettingsGating:
         from tests.fakes.fake_memory_settings_store import InMemoryMemorySettingsStore
 
         store = InMemoryMemorySettingsStore()
-        store.upsert(
-            MemorySettings(owner_id="o1", use_saved_memory=False)
-        )
+        store.upsert(MemorySettings(owner_id="o1", use_saved_memory=False))
         block = self._asm(self._mem(), store).assemble(
             owner_id="o1", task_id="t1", query="数据出境"
         )
@@ -432,5 +413,3 @@ class TestSettingsGating:
         # fail-open：读取异常退回默认开，记忆照常注入
         assert "【相关长期记忆" in block
         assert "【历史对话" in block
-
-

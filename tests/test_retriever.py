@@ -1,6 +1,5 @@
 """test_retriever.py — Retriever 核心逻辑单元测试（去重、关键词提取等）。"""
 
-import pytest
 from retrieval.search.retriever import Retriever
 
 

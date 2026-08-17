@@ -64,9 +64,7 @@ class TestWhoAmI:
         assert body["authenticated"] is True
         assert body["user"]["user_id"] == user["user_id"]
 
-    def test_with_invalid_cookie_returns_not_authenticated(
-        self, client: TestClient
-    ) -> None:
+    def test_with_invalid_cookie_returns_not_authenticated(self, client: TestClient) -> None:
         client.cookies.set("copilot_session", "garbage-token")
         resp = client.get("/api/v2/auth/me")
         assert resp.status_code == 200
@@ -74,9 +72,7 @@ class TestWhoAmI:
 
 
 class TestLogout:
-    def test_clears_cookie(
-        self, authed_client: tuple[TestClient, dict[str, Any]]
-    ) -> None:
+    def test_clears_cookie(self, authed_client: tuple[TestClient, dict[str, Any]]) -> None:
         client, _ = authed_client
         assert "copilot_session" in client.cookies
         resp = client.post("/api/v2/auth/logout")
@@ -181,9 +177,7 @@ class TestRequireOwnerDep:
 class TestUserOutIsAdmin:
     """``UserOut.is_admin`` 字段：默认 False；命中 ``admin_user_ids`` 时 True。"""
 
-    def test_default_anonymous_is_not_admin(
-        self, client: TestClient
-    ) -> None:
+    def test_default_anonymous_is_not_admin(self, client: TestClient) -> None:
         """默认 admin_user_ids 为空 → 任何用户都不是管理员。"""
         resp = client.post("/api/v2/auth/anonymous")
         assert resp.status_code == 201

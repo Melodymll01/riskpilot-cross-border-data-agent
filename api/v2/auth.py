@@ -38,9 +38,7 @@ def _to_user_out(user: User, admin_ids: Iterable[str]) -> UserOut:
     )
 
 
-def build_auth_routes(
-    container: AppContainer, *, limiter: RateLimiter | None = None
-) -> APIRouter:
+def build_auth_routes(container: AppContainer, *, limiter: RateLimiter | None = None) -> APIRouter:
     router = APIRouter(prefix="/auth", tags=["auth"])
     identify = make_identify_owner(container)
     admin_ids = container.settings.admin_user_ids

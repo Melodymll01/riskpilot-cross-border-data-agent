@@ -341,4 +341,3 @@ class MemoryRecallExplainResponse(BaseModel):
     eligible_count: int = Field(ge=0)
     rejected_counts: dict[str, int] = Field(default_factory=dict)
     hits: list[MemoryRecallHitResponse] = Field(default_factory=list)
-

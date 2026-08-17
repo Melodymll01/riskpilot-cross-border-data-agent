@@ -102,8 +102,7 @@ class FakeKbRepo:
         targets = [
             key
             for key in self._store
-            if key[0] == source_name
-            and (isinstance(owner_id, _UnsetType) or key[1] == owner_id)
+            if key[0] == source_name and (isinstance(owner_id, _UnsetType) or key[1] == owner_id)
         ]
         n = sum(len(self._store[k]) for k in targets)
         for k in targets:

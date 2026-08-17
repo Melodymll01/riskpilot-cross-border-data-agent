@@ -14,15 +14,17 @@ import asyncio
 import hashlib
 import logging
 import random
-import time
 import threading
+import time
 from collections import OrderedDict
 from pathlib import Path
-from typing import List, Optional
 
 from openai import (
-    OpenAI, AsyncOpenAI,
-    APITimeoutError, APIConnectionError, RateLimitError,
+    APIConnectionError,
+    APITimeoutError,
+    AsyncOpenAI,
+    OpenAI,
+    RateLimitError,
 )
 
 from config import settings
@@ -72,14 +74,14 @@ class Embedder:
 
         # ── 双层缓存 ──────────────────────────────────────────────────────
         # L1: 内存 LRU（快，进程内有效）
-        self._query_cache: OrderedDict[str, List[float]] = OrderedDict()
+        self._query_cache: OrderedDict[str, list[float]] = OrderedDict()
         self._cache_lock = threading.Lock()
 
         # L2: 磁盘持久缓存（慢，跨进程 / 重启有效）
         self._disk_cache = self._init_disk_cache()
 
         # 零向量维度（首次实际调用后确定）
-        self._zero_dim: Optional[int] = self.dimensions
+        self._zero_dim: int | None = self.dimensions
 
     # ── 磁盘缓存初始化 ────────────────────────────────────────────────────
 
@@ -88,6 +90,7 @@ class Embedder:
         """初始化 diskcache，失败时降级为 None（仅用内存缓存）。"""
         try:
             import diskcache
+
             _DISK_CACHE_DIR.mkdir(parents=True, exist_ok=True)
             return diskcache.Cache(
                 str(_DISK_CACHE_DIR),
@@ -103,7 +106,7 @@ class Embedder:
 
     # ── 缓存操作（线程安全）─────────────────────────────────────────────
 
-    def _cache_get(self, key: str) -> Optional[List[float]]:
+    def _cache_get(self, key: str) -> list[float] | None:
         """L1 → L2 查找缓存。"""
         with self._cache_lock:
             if key in self._query_cache:
@@ -120,7 +123,7 @@ class Embedder:
                 return val
         return None
 
-    def _cache_put(self, key: str, embedding: List[float]):
+    def _cache_put(self, key: str, embedding: list[float]):
         """写入 L1 + L2。"""
         with self._cache_lock:
             self._put_memory_cache(key, embedding)
@@ -130,7 +133,7 @@ class Embedder:
             except Exception as e:
                 logger.debug(f"磁盘缓存写入失败: {e}")
 
-    def _put_memory_cache(self, key: str, embedding: List[float]):
+    def _put_memory_cache(self, key: str, embedding: list[float]):
         """写入内存 LRU（调用者需持有 _cache_lock）。"""
         if len(self._query_cache) >= _QUERY_CACHE_SIZE:
             self._query_cache.popitem(last=False)
@@ -138,14 +141,14 @@ class Embedder:
 
     # ── 零向量降级 ────────────────────────────────────────────────────────
 
-    def _zero_vector(self) -> List[float]:
+    def _zero_vector(self) -> list[float]:
         """返回零向量，用于 API 全部失败时的优雅降级。"""
         dim = self._zero_dim or 1024
         return [0.0] * dim
 
     # ── 同步方法（向后兼容）─────────────────────────────────────────────
 
-    def embed_texts(self, texts: List[str]) -> List[List[float]]:
+    def embed_texts(self, texts: list[str]) -> list[list[float]]:
         """批量计算文本向量（同步），自动分批防止单次请求过大。"""
         if not texts:
             return []
@@ -153,9 +156,9 @@ class Embedder:
         texts = [t[:MAX_CHARS_PER_TEXT] if len(t) > MAX_CHARS_PER_TEXT else t for t in texts]
         logger.info(f"正在计算 {len(texts)} 条文本的 embedding...")
 
-        all_embeddings: List[List[float]] = []
+        all_embeddings: list[list[float]] = []
         for i in range(0, len(texts), EMBED_BATCH_SIZE):
-            batch = texts[i: i + EMBED_BATCH_SIZE]
+            batch = texts[i : i + EMBED_BATCH_SIZE]
             batch_embeddings = self._embed_with_retry(batch)
             all_embeddings.extend(batch_embeddings)
 
@@ -164,23 +167,21 @@ class Embedder:
         logger.info(f"Embedding 计算完成，共 {len(all_embeddings)} 条，维度: {self._zero_dim}")
         return all_embeddings
 
-    def _embed_with_retry(self, texts: List[str]) -> List[List[float]]:
+    def _embed_with_retry(self, texts: list[str]) -> list[list[float]]:
         """调用 embedding API，失败时自动重试；全部失败时降级返回零向量。"""
-        last_error: Optional[Exception] = None
+        last_error: Exception | None = None
         for attempt in range(1, MAX_RETRIES + 1):
             try:
                 kwargs = {"model": self.model, "input": texts}
                 if self.dimensions is not None:
                     kwargs["dimensions"] = self.dimensions
                 response = self.client.embeddings.create(**kwargs)
-                return [
-                    item.embedding for item in sorted(response.data, key=lambda x: x.index)
-                ]
+                return [item.embedding for item in sorted(response.data, key=lambda x: x.index)]
             except (APITimeoutError, APIConnectionError, RateLimitError) as e:
                 last_error = e
                 if attempt == MAX_RETRIES:
                     break
-                wait = 2 ** attempt + random.uniform(0, 1)
+                wait = 2**attempt + random.uniform(0, 1)
                 logger.warning(f"Embedding API 调用失败 (第{attempt}次)，{wait:.1f}s 后重试: {e}")
                 time.sleep(wait)
 
@@ -188,7 +189,7 @@ class Embedder:
         logger.error(f"Embedding API {MAX_RETRIES} 次重试全部失败，降级返回零向量: {last_error}")
         return [self._zero_vector() for _ in texts]
 
-    def embed_query(self, query: str) -> List[float]:
+    def embed_query(self, query: str) -> list[float]:
         """计算单条查询文本的向量（带双层 LRU 缓存，线程安全）。"""
         cache_key = hashlib.md5(query.encode()).hexdigest()
 
@@ -204,7 +205,7 @@ class Embedder:
 
     # ── 异步方法（批量入库高性能场景）──────────────────────────────────
 
-    async def embed_texts_async(self, texts: List[str]) -> List[List[float]]:
+    async def embed_texts_async(self, texts: list[str]) -> list[list[float]]:
         """异步批量计算文本向量，利用信号量控制并发，不阻塞事件循环。
 
         10 万条文档入库时使用此方法，比同步版本快数倍。
@@ -216,9 +217,9 @@ class Embedder:
         logger.info(f"[async] 正在计算 {len(texts)} 条文本的 embedding...")
 
         semaphore = asyncio.Semaphore(_ASYNC_CONCURRENCY)
-        batches = [texts[i: i + EMBED_BATCH_SIZE] for i in range(0, len(texts), EMBED_BATCH_SIZE)]
+        batches = [texts[i : i + EMBED_BATCH_SIZE] for i in range(0, len(texts), EMBED_BATCH_SIZE)]
 
-        async def _process_batch(batch: List[str]) -> List[List[float]]:
+        async def _process_batch(batch: list[str]) -> list[list[float]]:
             async with semaphore:
                 return await self._async_embed_with_retry(batch)
 
@@ -227,33 +228,37 @@ class Embedder:
         all_embeddings = [emb for batch_result in results for emb in batch_result]
         if all_embeddings and all_embeddings[0]:
             self._zero_dim = len(all_embeddings[0])
-        logger.info(f"[async] Embedding 计算完成，共 {len(all_embeddings)} 条，维度: {self._zero_dim}")
+        logger.info(
+            f"[async] Embedding 计算完成，共 {len(all_embeddings)} 条，维度: {self._zero_dim}"
+        )
         return all_embeddings
 
-    async def _async_embed_with_retry(self, texts: List[str]) -> List[List[float]]:
+    async def _async_embed_with_retry(self, texts: list[str]) -> list[list[float]]:
         """异步调用 embedding API，失败时重试；全部失败时降级返回零向量。"""
-        last_error: Optional[Exception] = None
+        last_error: Exception | None = None
         for attempt in range(1, MAX_RETRIES + 1):
             try:
                 kwargs = {"model": self.model, "input": texts}
                 if self.dimensions is not None:
                     kwargs["dimensions"] = self.dimensions
                 response = await self.async_client.embeddings.create(**kwargs)
-                return [
-                    item.embedding for item in sorted(response.data, key=lambda x: x.index)
-                ]
+                return [item.embedding for item in sorted(response.data, key=lambda x: x.index)]
             except (APITimeoutError, APIConnectionError, RateLimitError) as e:
                 last_error = e
                 if attempt == MAX_RETRIES:
                     break
-                wait = 2 ** attempt + random.uniform(0, 1)
-                logger.warning(f"[async] Embedding API 调用失败 (第{attempt}次)，{wait:.1f}s 后重试: {e}")
+                wait = 2**attempt + random.uniform(0, 1)
+                logger.warning(
+                    f"[async] Embedding API 调用失败 (第{attempt}次)，{wait:.1f}s 后重试: {e}"
+                )
                 await asyncio.sleep(wait)
 
-        logger.error(f"[async] Embedding API {MAX_RETRIES} 次重试全部失败，降级返回零向量: {last_error}")
+        logger.error(
+            f"[async] Embedding API {MAX_RETRIES} 次重试全部失败，降级返回零向量: {last_error}"
+        )
         return [self._zero_vector() for _ in texts]
 
-    async def embed_query_async(self, query: str) -> List[float]:
+    async def embed_query_async(self, query: str) -> list[float]:
         """异步计算单条查询向量（带双层缓存）。"""
         cache_key = hashlib.md5(query.encode()).hexdigest()
 

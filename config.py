@@ -7,18 +7,36 @@ from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode
 
 
+class RuntimeConfigurationError(RuntimeError):
+    """应用启动配置不完整；模块导入和离线测试不应触发。"""
+
+
+def _is_placeholder_secret(value: str | None) -> bool:
+    if not value:
+        return True
+    normalized = value.strip().lower()
+    return (
+        normalized in {"sk-placeholder", "your-api-key-here"}
+        or normalized.startswith("your-")
+        or normalized.startswith("<")
+    )
+
+
 class Settings(BaseSettings):
     # ── 通道选择 ──────────────────────────────────────────────────────────────
     # "api"   → 使用远端 API（智谱 / OpenAI 等）
     # "local" → 使用本机 Ollama
-    llm_provider: Literal["api", "local"] = "api"    # 对话 & 查询改写
-    embed_provider: Literal["api", "local"] = "api"               # Embedding
+    llm_provider: Literal["api", "local"] = "api"  # 对话 & 查询改写
+    embed_provider: Literal["api", "local"] = "api"  # Embedding
 
     # ── 远端 API 配置（智谱 / OpenAI 兼容）────────────────────────────────────
     openai_api_key: str = "sk-placeholder"
     openai_api_base: str = "https://open.bigmodel.cn/api/paas/v4"
     embedding_model: str = "embedding-3"
-    embedding_dimensions: int | None = Field(2048, description="Embedding 向量维度，智谱 embedding-3 支持 256/512/1024/2048，None 则使用模型默认值")
+    embedding_dimensions: int | None = Field(
+        2048,
+        description="Embedding 向量维度，智谱 embedding-3 支持 256/512/1024/2048，None 则使用模型默认值",
+    )
     chat_model: str = "glm-4-flash"
 
     # ── Chat 通道单独覆盖（Step 026b）────────────────────────────────────────
@@ -47,27 +65,36 @@ class Settings(BaseSettings):
 
     # 领域关键词（用于混合检索精确匹配，可在 .env 中覆盖）
     domain_terms: list[str] = [
-        "数据出境", "安全评估", "个人信息保护", "数据安全",
-        "跨境传输", "标准合同", "保护认证", "关键信息基础设施",
-        "网络安全审查", "重要数据", "敏感个人信息", "数据处理者",
+        "数据出境",
+        "安全评估",
+        "个人信息保护",
+        "数据安全",
+        "跨境传输",
+        "标准合同",
+        "保护认证",
+        "关键信息基础设施",
+        "网络安全审查",
+        "重要数据",
+        "敏感个人信息",
+        "数据处理者",
     ]
 
     # RAG 增强参数
-    enable_query_rewrite: bool = True   # 是否启用查询改写（会多一次 LLM 调用）
-    enable_reranker: bool = True        # 是否启用 Cross-Encoder 重排序
+    enable_query_rewrite: bool = True  # 是否启用查询改写（会多一次 LLM 调用）
+    enable_reranker: bool = True  # 是否启用 Cross-Encoder 重排序
     reranker_model: str = "BAAI/bge-reranker-base"  # 中文友好，首次启动从 HF 下载约 1.1GB
-    reranker_device: str = "auto"       # cuda / cpu / auto（auto 优先 GPU）
+    reranker_device: str = "auto"  # cuda / cpu / auto（auto 优先 GPU）
     reranker_score_threshold: float | None = None  # 分数阈值，None 表示不过滤
     context_window_size: int = Field(1, ge=0, le=5)  # 上下文窗口：前后各拉取 N 个相邻 chunk
 
     # 混合检索 / RRF 融合
-    enable_bm25_rrf: bool = True        # 启用 BM25 + RRF 融合（替代朴素 union+distance 排序）
+    enable_bm25_rrf: bool = True  # 启用 BM25 + RRF 融合（替代朴素 union+distance 排序）
     rrf_k: int = Field(60, ge=1, le=200)  # RRF 平滑常数（Cormack 2009 原论文默认 60）
     rrf_vector_weight: float = Field(1.0, ge=0.0, le=5.0)
     rrf_bm25_weight: float = Field(1.0, ge=0.0, le=5.0)
 
     # Deep Research 参数
-    enable_web_search: bool = True          # 质量不足时是否允许联网搜索
+    enable_web_search: bool = True  # 质量不足时是否允许联网搜索
     warmup_research_on_startup: bool = True  # 启动时预编译/预热 Research Graph
 
     # 存储路径
@@ -93,11 +120,14 @@ class Settings(BaseSettings):
     langsmith_sampling_rate: float = Field(0.1, ge=0.0, le=1.0)
     langsmith_hash_salt: str | None = None
 
+    # Redis 在 Phase 4 引入 Celery 后成为生产必需依赖；未配置时 readiness 标记 disabled。
+    redis_url: str | None = None
+
     # API 限流
-    rate_limit_enabled: bool = True             # 是否启用 v2 HTTP 限流（测试可关）
-    rate_limit_default: str = "60/minute"       # 普通接口默认限流
-    rate_limit_llm: str = "20/minute"           # LLM 相关接口（问答/研究）限流
-    rate_limit_ingest: str = "10/minute"         # 入库接口限流
+    rate_limit_enabled: bool = True  # 是否启用 v2 HTTP 限流（测试可关）
+    rate_limit_default: str = "60/minute"  # 普通接口默认限流
+    rate_limit_llm: str = "20/minute"  # LLM 相关接口（问答/研究）限流
+    rate_limit_ingest: str = "10/minute"  # 入库接口限流
 
     # 流式超时
     stream_timeout: int = Field(600, ge=10, le=1800)  # SSE 流式生成总超时（秒）
@@ -189,9 +219,7 @@ class Settings(BaseSettings):
     memory_recall_freshness_weight: float = Field(0.05, ge=0.0, le=1.0)
     memory_recall_min_semantic_score: float = Field(0.25, ge=0.0, le=1.0)
     memory_recall_min_final_score: float = Field(0.35, ge=0.0, le=1.0)
-    memory_recall_freshness_half_life_days: float = Field(
-        90.0, ge=0.0, le=3650.0
-    )
+    memory_recall_freshness_half_life_days: float = Field(90.0, ge=0.0, le=3650.0)
     # 写入门控阈值：显著性低于此值不固化（防污染）。
     memory_fact_salience_threshold: float = Field(0.5, ge=0.0, le=1.0)
     # 去重相似度门控：候选与最近邻 ≥ 此值视为重复（强化置信，不新增）。
@@ -205,7 +233,6 @@ class Settings(BaseSettings):
     memory_profile_enabled: bool = True
     # 注入 prompt 的画像偏好条数上限；0 关闭 L3 注入。
     memory_profile_max_facts: int = Field(8, ge=0, le=50)
-
 
     model_config = {
         "env_file": ".env",
@@ -240,19 +267,38 @@ class Settings(BaseSettings):
 
     @property
     def effective_embed_model(self) -> str:
-        return self.local_embedding_model if self.embed_provider == "local" else self.embedding_model
+        return (
+            self.local_embedding_model if self.embed_provider == "local" else self.embedding_model
+        )
+
+    def runtime_configuration_errors(self) -> list[str]:
+        """返回真正启动外部 Adapter 前必须修复的配置问题。"""
+        errors: list[str] = []
+        if self.llm_provider == "api" and _is_placeholder_secret(self.effective_chat_api_key):
+            errors.append("LLM_PROVIDER=api 时必须配置 CHAT_API_KEY 或 OPENAI_API_KEY")
+        if self.embed_provider == "api" and _is_placeholder_secret(self.openai_api_key):
+            errors.append("EMBED_PROVIDER=api 时必须配置 OPENAI_API_KEY")
+        if self.risk_pilot_langsmith_enabled:
+            if _is_placeholder_secret(self.langsmith_api_key):
+                errors.append("启用 LangSmith 时必须配置 LANGSMITH_API_KEY")
+            if not self.langsmith_hash_salt or len(self.langsmith_hash_salt) < 16:
+                errors.append("启用 LangSmith 时 LANGSMITH_HASH_SALT 至少需要 16 个字符")
+        return errors
+
+    def validate_runtime_configuration(self) -> None:
+        """显式启动门禁；离线 import、领域测试和 CLI 工具不调用。"""
+        errors = self.runtime_configuration_errors()
+        if errors:
+            details = "\n- ".join(errors)
+            raise RuntimeConfigurationError(
+                "RiskPilot 运行配置无效：\n"
+                f"- {details}\n"
+                "请复制 .env.example 为 .env 并配置真实凭据，"
+                "或将 LLM_PROVIDER/EMBED_PROVIDER 切换为 local。"
+            )
 
 
 settings = Settings()
-
-# 启动期校验：使用 api 通道时必须配置真实 key，避免运行到一半才 401
-if settings.llm_provider == "api" or settings.embed_provider == "api":
-    _key = settings.openai_api_key
-    if not _key or _key in ("sk-placeholder", "your-api-key-here") or _key.startswith("your-"):
-        raise RuntimeError(
-            "OPENAI_API_KEY 未配置。请复制 .env.example 为 .env 并填入真实 API Key，"
-            "或将 LLM_PROVIDER/EMBED_PROVIDER 切换为 'local' 使用本地 Ollama。"
-        )
 
 # 确保关键目录存在
 os.makedirs(settings.upload_dir, exist_ok=True)

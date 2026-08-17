@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -417,7 +417,7 @@ def evaluate(
     )
     return {
         "schema_version": "1.0",
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "dataset": {
             "name": dataset.name,
             "version": dataset.version,
@@ -447,7 +447,7 @@ def write_report(
 ) -> tuple[Path, Path, Path]:
     report_dir = Path(output_dir)
     report_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     archived_json = report_dir / f"evidence_qa_eval_{timestamp}.json"
     latest_json = report_dir / "evidence_qa_eval_latest.json"
     latest_markdown = report_dir / "evidence_qa_eval_latest.md"

@@ -52,8 +52,6 @@ class SqliteSummaryStore:
 
     def delete_owner(self, owner_id: str) -> int:
         conn = self._pool.get()
-        cur = conn.execute(
-            "DELETE FROM task_summaries WHERE owner_id = ?", (owner_id,)
-        )
+        cur = conn.execute("DELETE FROM task_summaries WHERE owner_id = ?", (owner_id,))
         conn.commit()
         return cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0

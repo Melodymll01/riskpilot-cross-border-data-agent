@@ -65,9 +65,7 @@ class MemoryAssembler:
         if self._memory is None:
             return ""
         use_saved_memory = self._safe_settings(owner_id=owner_id)
-        facts = (
-            self._safe_facts(owner_id=owner_id, query=query) if use_saved_memory else []
-        )
+        facts = self._safe_facts(owner_id=owner_id, query=query) if use_saved_memory else []
         # 当前任务上下文：永远注入（不受开关控制）
         summary = self._safe_summary(owner_id=owner_id, task_id=task_id)
         profile = self._safe_profile(owner_id=owner_id) if use_saved_memory else None
@@ -96,10 +94,15 @@ class MemoryAssembler:
         return settings.use_saved_memory
 
     def _safe_facts(self, *, owner_id: str, query: str | None) -> list[Fact]:
-        if self._recall_k <= 0 or not (query or "").strip():
+        normalized_query = (query or "").strip()
+        if self._recall_k <= 0 or not normalized_query:
             return []
         try:
-            return self._memory.recall_semantic(owner_id, query, self._recall_k)  # type: ignore[union-attr]
+            return self._memory.recall_semantic(  # type: ignore[union-attr]
+                owner_id,
+                normalized_query,
+                self._recall_k,
+            )
         except Exception:  # noqa: BLE001 — 记忆故障必须降级，不得中断主流程
             logger.warning("L4 语义召回失败，降级为无事实", exc_info=True)
             return []

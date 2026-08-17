@@ -15,7 +15,7 @@ import asyncio
 import time
 from collections.abc import Iterator
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from api.v2.sse import stream_with_keepalive
@@ -23,7 +23,7 @@ from api.v2.sse import stream_with_keepalive
 # ──────────────────────────── 测试用最小 AgentEvent stub ────────────────────────────
 
 
-class _FakeEventType(str, Enum):
+class _FakeEventType(StrEnum):
     THOUGHT = "thought"
     ANSWER = "answer"
 
@@ -55,9 +55,7 @@ class TestStreamWithKeepalive:
             _FakeEvent(_FakeEventType.THOUGHT, {"text": "t1"}),
             _FakeEvent(_FakeEventType.ANSWER, {"text": "ok"}),
         ]
-        frames = _collect(
-            stream_with_keepalive(iter(events), keepalive_seconds=0.5)
-        )
+        frames = _collect(stream_with_keepalive(iter(events), keepalive_seconds=0.5))
         # 两个事件帧，无心跳
         event_frames = [f for f in frames if not f.startswith(":")]
         assert len(event_frames) == 2
@@ -73,9 +71,7 @@ class TestStreamWithKeepalive:
             time.sleep(0.25)
             yield _FakeEvent(_FakeEventType.ANSWER, {"text": "done"})
 
-        frames = _collect(
-            stream_with_keepalive(slow_gen(), keepalive_seconds=0.1)
-        )
+        frames = _collect(stream_with_keepalive(slow_gen(), keepalive_seconds=0.1))
 
         keepalive_frames = [f for f in frames if f.startswith(":")]
         event_frames = [f for f in frames if not f.startswith(":")]
@@ -90,9 +86,7 @@ class TestStreamWithKeepalive:
         assert not any("event: error" in f for f in frames), f"出现 error 帧：{frames}"
 
     def test_empty_generator_returns_immediately(self) -> None:
-        frames = _collect(
-            stream_with_keepalive(iter([]), keepalive_seconds=0.5)
-        )
+        frames = _collect(stream_with_keepalive(iter([]), keepalive_seconds=0.5))
         assert frames == []
 
     def test_generator_exception_becomes_sse_error_frame(self) -> None:
@@ -100,9 +94,7 @@ class TestStreamWithKeepalive:
             yield _FakeEvent(_FakeEventType.THOUGHT, {"text": "before"})
             raise RuntimeError("boom")
 
-        frames = _collect(
-            stream_with_keepalive(bad_gen(), keepalive_seconds=0.5)
-        )
+        frames = _collect(stream_with_keepalive(bad_gen(), keepalive_seconds=0.5))
         assert len(frames) == 2
         assert "event: thought" in frames[0]
         assert "event: error" in frames[1]

@@ -44,8 +44,7 @@ class FakeToolCallingModel(BaseChatModel):
         **kwargs: Any,
     ) -> Runnable:
         self.bound_tools = [
-            tool.name if isinstance(tool, BaseTool) else str(tool)
-            for tool in tools
+            tool.name if isinstance(tool, BaseTool) else str(tool) for tool in tools
         ]
         return self
 

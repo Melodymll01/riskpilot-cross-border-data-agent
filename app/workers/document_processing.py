@@ -6,10 +6,16 @@ import hashlib
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from domain.document_content import DocumentParseSnapshot
-from domain.documents import Document, DocumentVersion, ProcessingJob
+from domain.documents import (
+    Document,
+    DocumentStatus,
+    DocumentVersion,
+    ProcessingJob,
+    ProcessingStage,
+)
 from domain.errors import (
     InvalidDocumentContent,
     ProcessingJobNotFound,
@@ -25,7 +31,7 @@ class ParseStageResult:
     version: DocumentVersion
     job: ProcessingJob
     snapshot: DocumentParseSnapshot
-    next_stage: str
+    next_stage: ProcessingStage
 
 
 class DocumentProcessingWorker:
@@ -77,8 +83,8 @@ class DocumentProcessingWorker:
             snapshot = self._parser.parse(version, content)
             requires_ocr = any(page.extraction_method == "empty" for page in snapshot.pages)
             finished_at = max(self._clock(), snapshot.parsed_at, started_at)
-            next_document_status = "ocr" if requires_ocr else "chunking"
-            next_stage = "ocr" if requires_ocr else "chunk"
+            next_document_status: DocumentStatus = "ocr" if requires_ocr else "chunking"
+            next_stage: ProcessingStage = "ocr" if requires_ocr else "chunk"
             next_progress = 0.35 if requires_ocr else 0.5
             updated_document = parsing_document.transition_to(
                 next_document_status,
@@ -89,14 +95,11 @@ class DocumentProcessingWorker:
                 progress=next_progress,
                 at=finished_at,
             )
-            updated_version = cast(
-                "DocumentVersion",
-                version.model_copy(
-                    update={
-                        "parser_version": snapshot.parser_version,
-                        "page_count": snapshot.page_count,
-                    }
-                ),
+            updated_version = version.model_copy(
+                update={
+                    "parser_version": snapshot.parser_version,
+                    "page_count": snapshot.page_count,
+                }
             )
             self._repo.save_parse_result(
                 updated_version,

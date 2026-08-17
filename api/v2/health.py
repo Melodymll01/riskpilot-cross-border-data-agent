@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Response, status
 
 if TYPE_CHECKING:
     from app.container import AppContainer
@@ -17,20 +17,19 @@ def build_health_routes(container: AppContainer) -> APIRouter:
     def health() -> dict[str, Any]:
         return {"status": "ok", "version": "v2"}
 
-    @router.get("/ready", summary="就绪检查：容器各 Port 装配完毕")
-    def ready() -> dict[str, Any]:
+    @router.get("/live", summary="存活检查：只检查 API 进程")
+    def live() -> dict[str, Any]:
+        return {"status": "ok"}
+
+    @router.get("/ready", summary="就绪检查：数据库和已启用基础设施")
+    def ready(response: Response) -> dict[str, Any]:
+        checks = container.readiness.check()
+        is_ready = checks.get("ready") is True
+        if not is_ready:
+            response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
         return {
-            "status": "ok",
-            "ports_loaded": {
-                "user_repo": container.user_repo is not None,
-                "task_repo": container.task_repo is not None,
-                "chat": container.chat is not None,
-                "embedder": container.embedder is not None,
-                "retriever": container.retriever is not None,
-                "web_search": container.web_search is not None,
-                "risk_profile": container.risk_profile is not None,
-                "auth": container.auth is not None,
-            },
+            "status": "ok" if is_ready else "not_ready",
+            "checks": checks,
             "tools": container.copilot_agent.tool_names,
         }
 

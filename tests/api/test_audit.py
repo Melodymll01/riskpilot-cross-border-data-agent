@@ -44,9 +44,7 @@ class TestAuthGating:
         assert resp.status_code == 401
         assert resp.json()["error_code"] == "AUTH_REQUIRED"
 
-    def test_non_admin_returns_403(
-        self, authed_client: tuple[TestClient, dict[str, Any]]
-    ) -> None:
+    def test_non_admin_returns_403(self, authed_client: tuple[TestClient, dict[str, Any]]) -> None:
         client, _ = authed_client
         resp = client.get("/api/v2/audit/logs")
         assert resp.status_code == 403
@@ -145,9 +143,7 @@ class TestFilters(_AdminBase):
 
     def test_filter_by_action(self, admin_client: TestClient) -> None:
         self._seed_three(admin_client)
-        resp = admin_client.get(
-            "/api/v2/audit/logs", params={"action": "kb.delete"}
-        )
+        resp = admin_client.get("/api/v2/audit/logs", params={"action": "kb.delete"})
         assert resp.status_code == 200
         body = resp.json()
         assert body["count"] == 2
@@ -155,9 +151,7 @@ class TestFilters(_AdminBase):
 
     def test_filter_by_actor(self, admin_client: TestClient) -> None:
         self._seed_three(admin_client)
-        resp = admin_client.get(
-            "/api/v2/audit/logs", params={"actor_id": "github:alice"}
-        )
+        resp = admin_client.get("/api/v2/audit/logs", params={"actor_id": "github:alice"})
         assert resp.status_code == 200
         body = resp.json()
         assert body["count"] == 2
@@ -199,29 +193,21 @@ class TestPagination(_AdminBase):
 
     def test_offset_paginates(self, admin_client: TestClient) -> None:
         self._seed_five(admin_client)
-        resp = admin_client.get(
-            "/api/v2/audit/logs", params={"limit": 2, "offset": 2}
-        )
+        resp = admin_client.get("/api/v2/audit/logs", params={"limit": 2, "offset": 2})
         assert resp.status_code == 200
         body = resp.json()
         # 倒序 r4 r3 r2 r1 r0；offset=2 拿 r2 r1
         assert [e["resource"] for e in body["entries"]] == ["r2", "r1"]
         assert body["count"] == 2
 
-    def test_offset_beyond_total_returns_empty(
-        self, admin_client: TestClient
-    ) -> None:
+    def test_offset_beyond_total_returns_empty(self, admin_client: TestClient) -> None:
         self._seed_five(admin_client)
-        resp = admin_client.get(
-            "/api/v2/audit/logs", params={"limit": 10, "offset": 100}
-        )
+        resp = admin_client.get("/api/v2/audit/logs", params={"limit": 10, "offset": 100})
         body = resp.json()
         assert body == {"entries": [], "count": 0}
 
     def test_offset_negative_rejected(self, admin_client: TestClient) -> None:
-        resp = admin_client.get(
-            "/api/v2/audit/logs", params={"offset": -1}
-        )
+        resp = admin_client.get("/api/v2/audit/logs", params={"offset": -1})
         assert resp.status_code == 422
 
 
@@ -271,17 +257,13 @@ class TestExportCsv(_AdminBase):
         assert resp.status_code == 401
         assert resp.json()["error_code"] == "AUTH_REQUIRED"
 
-    def test_non_admin_returns_403(
-        self, authed_client: tuple[TestClient, dict[str, Any]]
-    ) -> None:
+    def test_non_admin_returns_403(self, authed_client: tuple[TestClient, dict[str, Any]]) -> None:
         client, _ = authed_client
         resp = client.get(self._CSV_PATH)
         assert resp.status_code == 403
         assert resp.json()["error_code"] == "ADMIN_REQUIRED"
 
-    def test_admin_returns_csv_with_headers(
-        self, admin_client: TestClient
-    ) -> None:
+    def test_admin_returns_csv_with_headers(self, admin_client: TestClient) -> None:
         self._seed_three(admin_client)
         resp = admin_client.get(self._CSV_PATH)
         assert resp.status_code == 200
@@ -312,9 +294,7 @@ class TestExportCsv(_AdminBase):
 
     def test_filter_by_action(self, admin_client: TestClient) -> None:
         self._seed_three(admin_client)
-        resp = admin_client.get(
-            self._CSV_PATH, params={"action": "kb.delete"}
-        )
+        resp = admin_client.get(self._CSV_PATH, params={"action": "kb.delete"})
         assert resp.status_code == 200
         text = resp.content.decode("utf-8-sig")
         lines = text.strip().splitlines()
@@ -326,9 +306,7 @@ class TestExportCsv(_AdminBase):
 
     def test_filter_by_actor(self, admin_client: TestClient) -> None:
         self._seed_three(admin_client)
-        resp = admin_client.get(
-            self._CSV_PATH, params={"actor_id": "github:alice"}
-        )
+        resp = admin_client.get(self._CSV_PATH, params={"actor_id": "github:alice"})
         assert resp.status_code == 200
         text = resp.content.decode("utf-8-sig")
         lines = text.strip().splitlines()
@@ -337,9 +315,7 @@ class TestExportCsv(_AdminBase):
         assert "d1.pdf" in joined and "f1.pdf" in joined
         assert "d2.pdf" not in joined
 
-    def test_empty_returns_header_only(
-        self, admin_client: TestClient
-    ) -> None:
+    def test_empty_returns_header_only(self, admin_client: TestClient) -> None:
         resp = admin_client.get(self._CSV_PATH)
         assert resp.status_code == 200
         text = resp.content.decode("utf-8-sig")

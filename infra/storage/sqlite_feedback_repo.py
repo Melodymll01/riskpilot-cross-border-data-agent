@@ -53,8 +53,7 @@ class SqliteFeedbackRepo:
         """返回该 task 下 ``{msg_id: rating}`` 映射（仅当前 owner），供前端回显按钮状态。"""
         conn = self._pool.get()
         rows = conn.execute(
-            "SELECT msg_id, rating FROM message_feedback "
-            "WHERE task_id = ? AND owner_id = ?",
+            "SELECT msg_id, rating FROM message_feedback WHERE task_id = ? AND owner_id = ?",
             (task_id, owner_id),
         ).fetchall()
         return {r["msg_id"]: r["rating"] for r in rows}

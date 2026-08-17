@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, cast
 
 from domain.document_content import DocumentParseSnapshot
 from domain.documents import (
@@ -127,14 +127,18 @@ class SqliteDocumentRepo:
         return None if row is None else _row_to_binding(row)
 
     def list_bindings_for_document(self, document_id: str) -> list[CaseDocument]:
-        rows = self._pool.get().execute(
-            """
+        rows = (
+            self._pool.get()
+            .execute(
+                """
             SELECT * FROM case_documents
             WHERE document_id = ?
             ORDER BY added_at, case_id
             """,
-            (document_id,),
-        ).fetchall()
+                (document_id,),
+            )
+            .fetchall()
+        )
         return [_row_to_binding(row) for row in rows]
 
     def list_for_case(
@@ -316,16 +320,18 @@ class SqliteDocumentRepo:
             _update_document(conn, document)
             _update_job(conn, job)
 
-    def get_parse_snapshot(
-        self, document_version_id: str
-    ) -> DocumentParseSnapshot | None:
-        row = self._pool.get().execute(
-            """
+    def get_parse_snapshot(self, document_version_id: str) -> DocumentParseSnapshot | None:
+        row = (
+            self._pool.get()
+            .execute(
+                """
             SELECT payload_json FROM document_parse_snapshots
             WHERE document_version_id = ?
             """,
-            (document_version_id,),
-        ).fetchone()
+                (document_version_id,),
+            )
+            .fetchone()
+        )
         if row is None:
             return None
         return DocumentParseSnapshot.model_validate(json.loads(row["payload_json"]))
@@ -525,13 +531,13 @@ def _validate_document_status(value: str) -> DocumentStatus:
     }
     if value not in valid:
         raise ValueError(f"invalid document status in DB: {value!r}")
-    return value
+    return cast("DocumentStatus", value)
 
 
 def _validate_job_status(value: str) -> ProcessingJobStatus:
     if value not in {"queued", "running", "completed", "failed", "cancelled"}:
         raise ValueError(f"invalid processing job status in DB: {value!r}")
-    return value
+    return cast("ProcessingJobStatus", value)
 
 
 def _validate_processing_stage(value: str) -> ProcessingStage:
@@ -551,4 +557,4 @@ def _validate_processing_stage(value: str) -> ProcessingStage:
     }
     if value not in valid:
         raise ValueError(f"invalid processing stage in DB: {value!r}")
-    return value
+    return cast("ProcessingStage", value)

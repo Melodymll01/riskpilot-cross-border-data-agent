@@ -91,10 +91,14 @@ class SqliteVisualIndex:
         return scored[:top_k]
 
     def get(self, asset_id: str) -> VisualAsset | None:
-        row = self._pool.get().execute(
-            "SELECT * FROM visual_assets WHERE asset_id = ?",
-            (asset_id,),
-        ).fetchone()
+        row = (
+            self._pool.get()
+            .execute(
+                "SELECT * FROM visual_assets WHERE asset_id = ?",
+                (asset_id,),
+            )
+            .fetchone()
+        )
         return _row_to_asset(row) if row is not None else None
 
 

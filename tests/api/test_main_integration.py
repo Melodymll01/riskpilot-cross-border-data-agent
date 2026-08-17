@@ -2,19 +2,13 @@
 
 策略：
 - 不再用 fresh FastAPI + 全 Fake container（那是 unit-level 测试，见 tests/api/）
-- 这里走真 main.app，验证装配确实生效；为了避免触发 sk-placeholder 校验，
-  在 import main 之前把 LLM/EMBED provider 切到 local 通道。
+- 这里走真 main.app，验证装配确实生效；TestClient 启动会执行运行配置门禁，
+  因此在 import main 之前显式切换为无需外部密钥的 local 通道。
 """
 
 from __future__ import annotations
 
-import os
-
 import pytest
-
-# 必须在 import main 之前设置：config.py 在模块导入时校验 key
-os.environ.setdefault("LLM_PROVIDER", "local")
-os.environ.setdefault("EMBED_PROVIDER", "local")
 
 
 @pytest.fixture(scope="module")
@@ -50,12 +44,20 @@ def test_v2_health_works(main_client):
     assert resp.json() == {"status": "ok", "version": "v2"}
 
 
+def test_v2_liveness_works(main_client):
+    resp = main_client.get("/api/v2/health/live")
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "ok"}
+
+
 def test_v2_ready_lists_all_tools(main_client):
     resp = main_client.get("/api/v2/health/ready")
     assert resp.status_code == 200
     body = resp.json()
     assert body["status"] == "ok"
-    assert all(body["ports_loaded"].values())
+    assert body["checks"]["database"] is True
+    assert body["checks"]["redis"] == "disabled"
+    assert body["checks"]["ready"] is True
     assert set(body["tools"]) == {
         "search_law",
         "search_user_docs",

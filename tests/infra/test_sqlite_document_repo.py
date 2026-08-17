@@ -255,9 +255,7 @@ class TestParseSnapshotPersistence:
             ],
             parsed_at=102.0,
         )
-        parsed_version = version.model_copy(
-            update={"parser_version": "1.0.0", "page_count": 1}
-        )
+        parsed_version = version.model_copy(update={"parser_version": "1.0.0", "page_count": 1})
         document_repo.save_parse_result(
             parsed_version,
             snapshot,

@@ -21,10 +21,7 @@ def test_generate_small_synthetic_dataset(tmp_path) -> None:
 
 def test_perfect_ranking_passes(tmp_path) -> None:
     dataset = load_dataset(generate(tmp_path))
-    rankings = {
-        query.query_id: [*query.relevant_asset_ids]
-        for query in dataset.queries
-    }
+    rankings = {query.query_id: [*query.relevant_asset_ids] for query in dataset.queries}
 
     report = evaluate_rankings(dataset, rankings)
 

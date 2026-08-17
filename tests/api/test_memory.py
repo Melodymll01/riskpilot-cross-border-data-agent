@@ -31,13 +31,9 @@ def _inject_memory(client: TestClient, mem: FakeMemory) -> None:
     container.forget_memory = ForgetMemoryUseCase(mem, audit_log=container.audit_log)
 
 
-def _inject_settings(
-    client: TestClient, store: InMemoryMemorySettingsStore
-) -> None:
+def _inject_settings(client: TestClient, store: InMemoryMemorySettingsStore) -> None:
     container: AppContainer = client.app.state.container  # type: ignore[attr-defined]
-    container.memory_settings = MemorySettingsUseCase(
-        store, audit_log=container.audit_log
-    )
+    container.memory_settings = MemorySettingsUseCase(store, audit_log=container.audit_log)
 
 
 class TestAuthGating:
@@ -63,16 +59,12 @@ class TestProfile:
         body = resp.json()
         assert body["facts"] == {}
 
-    def test_returns_owner_profile(
-        self, authed_client: tuple[TestClient, dict[str, Any]]
-    ) -> None:
+    def test_returns_owner_profile(self, authed_client: tuple[TestClient, dict[str, Any]]) -> None:
         client, user = authed_client
         owner = user["user_id"]
         _inject_memory(
             client,
-            FakeMemory(
-                profiles={owner: SessionProfile(owner_id=owner, facts={"语言": "中文"})}
-            ),
+            FakeMemory(profiles={owner: SessionProfile(owner_id=owner, facts={"语言": "中文"})}),
         )
 
         resp = client.get("/api/v2/memory/profile")
@@ -82,9 +74,7 @@ class TestProfile:
 
 
 class TestForget:
-    def test_forget_returns_counts(
-        self, authed_client: tuple[TestClient, dict[str, Any]]
-    ) -> None:
+    def test_forget_returns_counts(self, authed_client: tuple[TestClient, dict[str, Any]]) -> None:
         client, user = authed_client
         owner = user["user_id"]
         mem = FakeMemory(
@@ -160,9 +150,7 @@ class TestSettingsAuthGating:
         assert client.get("/api/v2/memory/settings").status_code == 401
 
     def test_put_settings_unauthed_returns_401(self, client: TestClient) -> None:
-        resp = client.put(
-            "/api/v2/memory/settings", json={"use_saved_memory": False}
-        )
+        resp = client.put("/api/v2/memory/settings", json={"use_saved_memory": False})
         assert resp.status_code == 401
 
     def test_facts_unauthed_returns_401(self, client: TestClient) -> None:
@@ -177,9 +165,7 @@ class TestSettingsAuthGating:
 
 
 class TestSettings:
-    def test_default_fresh_owner(
-        self, authed_client: tuple[TestClient, dict[str, Any]]
-    ) -> None:
+    def test_default_fresh_owner(self, authed_client: tuple[TestClient, dict[str, Any]]) -> None:
         client, _ = authed_client
         _inject_settings(client, InMemoryMemorySettingsStore())
 
@@ -189,24 +175,18 @@ class TestSettings:
         body = resp.json()
         assert body["use_saved_memory"] is True
 
-    def test_put_then_get_roundtrip(
-        self, authed_client: tuple[TestClient, dict[str, Any]]
-    ) -> None:
+    def test_put_then_get_roundtrip(self, authed_client: tuple[TestClient, dict[str, Any]]) -> None:
         client, _ = authed_client
         _inject_settings(client, InMemoryMemorySettingsStore())
 
-        put = client.put(
-            "/api/v2/memory/settings", json={"use_saved_memory": False}
-        )
+        put = client.put("/api/v2/memory/settings", json={"use_saved_memory": False})
         assert put.status_code == 200
         assert put.json()["use_saved_memory"] is False
 
         got = client.get("/api/v2/memory/settings")
         assert got.json()["use_saved_memory"] is False
 
-    def test_owner_isolation(
-        self, authed_client: tuple[TestClient, dict[str, Any]]
-    ) -> None:
+    def test_owner_isolation(self, authed_client: tuple[TestClient, dict[str, Any]]) -> None:
         client, user = authed_client
         store = InMemoryMemorySettingsStore()
         store.upsert(
@@ -319,9 +299,7 @@ class TestDeleteFact:
         resp = client.delete("/api/v2/memory/facts/f1")
         assert resp.status_code == 401
 
-    def test_deletes_owner_fact_204(
-        self, authed_client: tuple[TestClient, dict[str, Any]]
-    ) -> None:
+    def test_deletes_owner_fact_204(self, authed_client: tuple[TestClient, dict[str, Any]]) -> None:
         client, user = authed_client
         owner = user["user_id"]
         fact = _fact(owner, "用户在跨境电商行业")

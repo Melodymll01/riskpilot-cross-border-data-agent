@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 def _tokenize(text: str) -> list[str]:
     """中英混合分词：jieba 搜索模式 + 小写化。"""
     import jieba
+
     if not text:
         return []
     tokens = [t.strip().lower() for t in jieba.cut_for_search(text)]
@@ -133,14 +134,16 @@ class BM25Index:
                 doc["metadata"].get("owner_id"), viewer_set
             ):
                 continue
-            results.append({
-                "id": doc["id"],
-                "text": doc["text"],
-                "metadata": doc["metadata"],
-                "bm25_score": score,
-                "bm25_rank": rank,
-                "match_type": "bm25",
-            })
+            results.append(
+                {
+                    "id": doc["id"],
+                    "text": doc["text"],
+                    "metadata": doc["metadata"],
+                    "bm25_score": score,
+                    "bm25_rank": rank,
+                    "match_type": "bm25",
+                }
+            )
             if len(results) >= top_k:
                 break
         return results

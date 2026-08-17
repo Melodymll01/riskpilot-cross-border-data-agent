@@ -1,10 +1,10 @@
 name: CI
 
 # CI 策略：
-# - test job：完整离线 pytest（仅排除真实 LLM 评测与重 IO smoke），强制必须绿；
-# - lint job：覆盖 DDD 核心层、V3 API、QA/Workflow 适配器和 Evidence QA 评测器；
-# - `run_verifier.py --live` 会产生模型费用，只允许人工按需执行，不进入 PR CI；
-# - 遗留 retrieval / processing / ingestion 暂不纳入 Ruff 强门禁。
+# - 所有 Python 文件进入 Ruff 与 format 门禁；
+# - domain/app/infra 进入 mypy 门禁；
+# - pytest 默认 local/Fake profile，零密钥、零网络、零模型下载；
+# - 显式 live 评测只允许人工运行，不进入普通 PR CI。
 on:
   push:
     branches: [main]
@@ -20,8 +20,8 @@ env:
   PYTHON_VERSION: "3.12"
 
 jobs:
-  lint:
-    name: Lint (ruff · scoped)
+  quality:
+    name: Quality (ruff · format · mypy)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,32 +29,22 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-      - name: Install ruff
-        run: pip install "ruff>=0.6.0"
-      - name: ruff check (scoped to refactored layers)
+      - name: Install dependencies
         run: |
-          ruff check \
-            domain app \
-            infra/auth infra/kb infra/risk_profile infra/audit infra/qa infra/workflows \
-            infra/agents infra/research infra/observability \
-            api/v2 api/v3 \
-            evaluations/evidence_qa evaluations/memory_extraction evaluations/memory_recall evaluations/visual_retrieval \
-            config.py main.py \
-            tests/api tests/app tests/domain tests/infra tests/fakes tests/evaluations
-      # NOTE: ruff format --check 暂未启用 —— scoped 路径下仍有 33 个文件待
-      # reformat，留待独立 Step 单独做一次性 cleanup commit，避免污染 CI 复活
-      # 这一步的 diff（参考 ruff format --check . 输出）
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+      - name: Ruff check
+        run: ruff check .
+      - name: Ruff format check
+        run: ruff format --check .
+      - name: Mypy
+        run: mypy domain app infra
 
   test:
     name: Tests (pytest · offline fakes)
     runs-on: ubuntu-latest
     env:
-      # 关闭一切真实外呼，全部走 Fake / mock
-      OPENAI_API_KEY: sk-test-fake
-      OPENAI_API_BASE: http://127.0.0.1:9/v1
-      CHAT_API_KEY: sk-test-fake
-      CHAT_API_BASE: http://127.0.0.1:9/v1
-      LLM_PROVIDER: api
+      # tests/conftest.py 默认 local profile；具体调用全部注入 Fake。
       ENABLE_RERANKER: "false"
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
@@ -76,8 +66,4 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
       - name: Run pytest
-        # smoke_bm25_rrf.py 是重 IO 烟雾脚本；Chinese-CLIP live 评测不在 pytest 中。
-        # 其余测试必须全 Fake、零外呼。
-        run: |
-          pytest -q \
-            --ignore=tests/smoke_bm25_rrf.py
+        run: pytest -q

@@ -51,9 +51,7 @@ def build_copilot_routes(
         collected: list[ChatEventOut] = []
         resolved_task_id = body.task_id or ""
         for ev in events_iter:
-            collected.append(
-                ChatEventOut(event_type=ev.event_type.value, payload=ev.payload)
-            )
+            collected.append(ChatEventOut(event_type=ev.event_type.value, payload=ev.payload))
             if ev.event_type.value == "task_created":
                 resolved_task_id = ev.payload.get("task_id", resolved_task_id)
         return ChatResponse(task_id=resolved_task_id, events=collected)

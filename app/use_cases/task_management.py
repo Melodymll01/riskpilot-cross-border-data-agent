@@ -61,9 +61,7 @@ class TaskManagementUseCase:
     def delete_task(self, task_id: str, owner_id: str) -> bool:
         return self._repo.delete(task_id, owner_id)
 
-    def update_facts(
-        self, task_id: str, owner_id: str, facts: dict[str, Any]
-    ) -> Task | None:
+    def update_facts(self, task_id: str, owner_id: str, facts: dict[str, Any]) -> Task | None:
         """合并 facts 到 task.collected_facts（浅 merge）。
 
         返回更新后的 Task；找不到（或不属于 owner）返回 None。
@@ -72,9 +70,7 @@ class TaskManagementUseCase:
         if task is None:
             return None
         merged = {**task.collected_facts, **facts}
-        updated = task.model_copy(
-            update={"collected_facts": merged, "updated_at": time.time()}
-        )
+        updated = task.model_copy(update={"collected_facts": merged, "updated_at": time.time()})
         self._repo.update(updated)
         return updated
 

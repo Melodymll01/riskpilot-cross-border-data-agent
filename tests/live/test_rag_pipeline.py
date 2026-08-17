@@ -64,6 +64,6 @@ def test_full_rag_pipeline_real_services(live_app) -> None:
         answer = next(e for e in events if e["event_type"] == "answer")["payload"]
         text = answer["text"]
         assert isinstance(text, str) and len(text.strip()) >= 20, f"答案过短: {text!r}"
-        assert any(
-            kw in text for kw in ("个人信息", "出境", "境外", "评估", "保护")
-        ), f"答案未命中领域关键词: {text!r}"
+        assert any(kw in text for kw in ("个人信息", "出境", "境外", "评估", "保护")), (
+            f"答案未命中领域关键词: {text!r}"
+        )

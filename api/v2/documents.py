@@ -240,12 +240,10 @@ def build_documents_routes(
         content = await file.read()
         if len(content) > max_upload_bytes:
             raise HTTPException(
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
                 detail={
                     "error_code": "FILE_TOO_LARGE",
-                    "message": (
-                        f"文件过大，最大支持 {container.settings.max_upload_mb}MB"
-                    ),
+                    "message": (f"文件过大，最大支持 {container.settings.max_upload_mb}MB"),
                 },
             )
 

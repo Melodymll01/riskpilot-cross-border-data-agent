@@ -33,9 +33,7 @@ class ThreadPoolMemoryScheduler:
         self._memory = memory
         self._threshold = summary_threshold
         self._consolidation_worker = consolidation_worker
-        self._pool = ThreadPoolExecutor(
-            max_workers=max_workers, thread_name_prefix="mem-job"
-        )
+        self._pool = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="mem-job")
 
     def schedule_summarization(self, owner_id: str, task_id: str) -> None:
         """提交一次 L2 摘要作业；提交本身也吞掉异常（如池已关闭）。"""

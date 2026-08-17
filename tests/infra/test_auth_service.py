@@ -30,7 +30,11 @@ def clock() -> _Clock:
 
 @pytest.fixture
 def jwt_issuer(clock: _Clock) -> JwtIssuer:
-    return JwtIssuer(secret="ci_test_secret_abcdef", ttl_seconds=3600, clock=clock)
+    return JwtIssuer(
+        secret="ci_test_secret_abcdef_32_chars_min",
+        ttl_seconds=3600,
+        clock=clock,
+    )
 
 
 @pytest.fixture

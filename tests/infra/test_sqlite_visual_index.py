@@ -60,9 +60,7 @@ def _asset(asset_id: str, workspace_id: str, case_id: str) -> VisualAsset:
 
 
 def test_search_ranks_cosine_and_filters_scope(tmp_path) -> None:
-    index, workspace_id, case_id = _seed(
-        SqliteConnectionPool(str(tmp_path / "visual.sqlite3"))
-    )
+    index, workspace_id, case_id = _seed(SqliteConnectionPool(str(tmp_path / "visual.sqlite3")))
     index.add(_asset("red", workspace_id, case_id), [1.0, 0.0])
     index.add(_asset("blue", workspace_id, case_id), [0.0, 1.0])
 
@@ -74,18 +72,19 @@ def test_search_ranks_cosine_and_filters_scope(tmp_path) -> None:
     )
 
     assert [hit.asset.asset_id for hit in hits] == ["red", "blue"]
-    assert index.search(
-        workspace_id=workspace_id,
-        case_id="case_other",
-        query_embedding=[1.0, 0.0],
-        top_k=2,
-    ) == []
+    assert (
+        index.search(
+            workspace_id=workspace_id,
+            case_id="case_other",
+            query_embedding=[1.0, 0.0],
+            top_k=2,
+        )
+        == []
+    )
 
 
 def test_get_round_trip(tmp_path) -> None:
-    index, workspace_id, case_id = _seed(
-        SqliteConnectionPool(str(tmp_path / "visual.sqlite3"))
-    )
+    index, workspace_id, case_id = _seed(SqliteConnectionPool(str(tmp_path / "visual.sqlite3")))
     asset = _asset("asset_001", workspace_id, case_id)
     index.add(asset, [1.0, 0.0])
 

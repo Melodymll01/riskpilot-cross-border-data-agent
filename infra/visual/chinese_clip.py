@@ -29,9 +29,7 @@ class ChineseCLIPEmbedder:
         if not images:
             return []
         model, processor = self._ensure_loaded()
-        decoded = [
-            Image.open(io.BytesIO(content)).convert("RGB") for content in images
-        ]
+        decoded = [Image.open(io.BytesIO(content)).convert("RGB") for content in images]
         inputs = processor(images=decoded, return_tensors="pt", padding=True)
         with torch.inference_mode():
             features = model.get_image_features(**inputs)
@@ -58,9 +56,7 @@ class ChineseCLIPEmbedder:
             if self._model is None or self._processor is None:
                 from transformers import ChineseCLIPModel, ChineseCLIPProcessor
 
-                self._processor = ChineseCLIPProcessor.from_pretrained(
-                    self._model_name
-                )
+                self._processor = ChineseCLIPProcessor.from_pretrained(self._model_name)
                 self._model = ChineseCLIPModel.from_pretrained(self._model_name)
                 self._model.eval()
         return self._model, self._processor

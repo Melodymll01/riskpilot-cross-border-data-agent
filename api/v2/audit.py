@@ -84,9 +84,7 @@ def build_audit_routes(container: AppContainer) -> APIRouter:
     def list_audit_logs(
         limit: int = Query(50, ge=1, le=500, description="返回上限，默认 50"),
         offset: int = Query(0, ge=0, description="分页偏移，从 0 开始"),
-        action: str | None = Query(
-            None, description="按 action 精确过滤，如 'kb.delete'"
-        ),
+        action: str | None = Query(None, description="按 action 精确过滤，如 'kb.delete'"),
         actor_id: str | None = Query(
             None, description="按 actor_id 精确过滤，如 'github:Melodymll01'"
         ),
@@ -121,9 +119,7 @@ def build_audit_routes(container: AppContainer) -> APIRouter:
         },
     )
     def export_audit_logs_csv(
-        action: str | None = Query(
-            None, description="按 action 精确过滤，如 'kb.delete'"
-        ),
+        action: str | None = Query(None, description="按 action 精确过滤，如 'kb.delete'"),
         actor_id: str | None = Query(
             None,
             description="按 actor_id 精确过滤，如 'github:Melodymll01'",
@@ -198,9 +194,7 @@ def _flush(buf: io.StringIO) -> bytes:
 
 def _entry_to_row(e: AuditEntry) -> list[str]:
     """将 ``AuditEntry`` 拆为 CSV 列字符串（与 ``CSV_HEADER`` 同顺序）。"""
-    iso = datetime.fromtimestamp(e.timestamp, tz=UTC).isoformat(
-        timespec="milliseconds"
-    )
+    iso = datetime.fromtimestamp(e.timestamp, tz=UTC).isoformat(timespec="milliseconds")
     return [
         iso,
         f"{e.timestamp:.3f}",

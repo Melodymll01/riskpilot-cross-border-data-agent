@@ -87,9 +87,7 @@ class TestRequestIdLogFilter:
         with request_context("rid", user_id="u1"):
             assert f.filter(rec2) is True
 
-    def test_emit_after_reset_loses_context(
-        self, isolated_root_logger: logging.Logger
-    ) -> None:
+    def test_emit_after_reset_loses_context(self, isolated_root_logger: logging.Logger) -> None:
         """契约固化：``reset_*`` 之后调 logger 会拿到哨兵 ``-``。
 
         Step 025g 真实 bug：main.py middleware 把 access log 放在
@@ -131,9 +129,7 @@ class TestRequestIdLogFilter:
 
 
 class TestConfigureLogging:
-    def test_attaches_filter_to_handlers(
-        self, isolated_root_logger: logging.Logger
-    ) -> None:
+    def test_attaches_filter_to_handlers(self, isolated_root_logger: logging.Logger) -> None:
         mem = MemoryHandler(capacity=10)
         configure_logging(level=logging.INFO, log_file=None, extra_handlers=[mem])
 
@@ -141,9 +137,7 @@ class TestConfigureLogging:
         assert mem in isolated_root_logger.handlers
         assert any(isinstance(f, RequestIdLogFilter) for f in mem.filters)
 
-    def test_format_includes_request_id(
-        self, isolated_root_logger: logging.Logger
-    ) -> None:
+    def test_format_includes_request_id(self, isolated_root_logger: logging.Logger) -> None:
         mem = MemoryHandler(capacity=100)
         configure_logging(level=logging.INFO, log_file=None, extra_handlers=[mem])
 
@@ -161,9 +155,7 @@ class TestConfigureLogging:
         assert "[uid:gh:99]" in formatted
         assert "hello world" in formatted
 
-    def test_dash_appears_when_outside_context(
-        self, isolated_root_logger: logging.Logger
-    ) -> None:
+    def test_dash_appears_when_outside_context(self, isolated_root_logger: logging.Logger) -> None:
         mem = MemoryHandler(capacity=100)
         configure_logging(level=logging.INFO, log_file=None, extra_handlers=[mem])
 
@@ -184,22 +176,16 @@ class TestConfigureLogging:
         # 没有 _step025f_owned 标记，过滤掉
         configure_logging(level=logging.INFO, log_file=None)
         first_count = sum(
-            1
-            for h in isolated_root_logger.handlers
-            if getattr(h, "_step025f_owned", False)
+            1 for h in isolated_root_logger.handlers if getattr(h, "_step025f_owned", False)
         )
         configure_logging(level=logging.INFO, log_file=None)
         second_count = sum(
-            1
-            for h in isolated_root_logger.handlers
-            if getattr(h, "_step025f_owned", False)
+            1 for h in isolated_root_logger.handlers if getattr(h, "_step025f_owned", False)
         )
         assert first_count == 1
         assert second_count == 1
 
-    def test_nested_context_in_log_record(
-        self, isolated_root_logger: logging.Logger
-    ) -> None:
+    def test_nested_context_in_log_record(self, isolated_root_logger: logging.Logger) -> None:
         mem = MemoryHandler(capacity=100)
         configure_logging(level=logging.INFO, log_file=None, extra_handlers=[mem])
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from app.use_cases.case_management import CaseManagementUseCase
@@ -32,13 +32,10 @@ class EvidenceSearchUseCase:
     ) -> list[EvidenceSearchHit]:
         case = self._case_management.get_case(case_id, actor_id)
         query_embedding = self._embedder.embed([query])[0]
-        return cast(
-            "list[EvidenceSearchHit]",
-            self._index.search(
-                workspace_id=case.workspace_id,
-                case_id=case.case_id,
-                query=query,
-                query_embedding=query_embedding,
-                top_k=top_k,
-            ),
+        return self._index.search(
+            workspace_id=case.workspace_id,
+            case_id=case.case_id,
+            query=query,
+            query_embedding=query_embedding,
+            top_k=top_k,
         )

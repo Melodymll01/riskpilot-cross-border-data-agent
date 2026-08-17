@@ -37,9 +37,7 @@ class TestLangGraphInterruptResume:
             workspace_id="ws_sensitive",
             actor_id="github:alice",
             ruleset_version="synthetic-v1",
-            document_readiness=CaseDocumentReadiness(
-                pending_document_ids=["document_sensitive"]
-            ),
+            document_readiness=CaseDocumentReadiness(pending_document_ids=["document_sensitive"]),
             missing_fact_fields=["important_data_involved"],
         )
         resumed = runtime.resume_case_assessment(

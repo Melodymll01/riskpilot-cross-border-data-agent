@@ -1,19 +1,21 @@
 """文本清洗模块：对原始文本做标准化处理。"""
 
-import re
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
 # 需要统一为普通空格的 Unicode 空白字符
-_UNICODE_SPACES = str.maketrans({
-    "\u3000": " ",   # 全角空格（ideographic space，常见于中文格式文档）
-    "\u00a0": " ",   # 不换行空格（non-breaking space，常见于网页复制）
-    "\u200b": "",    # 零宽空格（zero-width space，常见于复制粘贴）
-    "\u200c": "",    # 零宽不连字
-    "\u200d": "",    # 零宽连字
-    "\ufeff": "",    # BOM（Byte Order Mark）
-})
+_UNICODE_SPACES = str.maketrans(
+    {
+        "\u3000": " ",  # 全角空格（ideographic space，常见于中文格式文档）
+        "\u00a0": " ",  # 不换行空格（non-breaking space，常见于网页复制）
+        "\u200b": "",  # 零宽空格（zero-width space，常见于复制粘贴）
+        "\u200c": "",  # 零宽不连字
+        "\u200d": "",  # 零宽连字
+        "\ufeff": "",  # BOM（Byte Order Mark）
+    }
+)
 
 
 class TextCleaner:

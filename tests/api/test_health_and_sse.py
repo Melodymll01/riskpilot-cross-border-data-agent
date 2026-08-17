@@ -11,19 +11,46 @@ def test_health(client: TestClient) -> None:
     assert resp.json() == {"status": "ok", "version": "v2"}
 
 
-def test_ready_lists_tools(client: TestClient) -> None:
+def test_live_does_not_check_dependencies(client: TestClient) -> None:
+    readiness = client.app.state.container.readiness  # type: ignore[attr-defined]
+    calls_before = readiness.calls
+
+    resp = client.get("/api/v2/health/live")
+
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "ok"}
+    assert readiness.calls == calls_before
+
+
+def test_ready_checks_dependencies_and_lists_tools(client: TestClient) -> None:
     resp = client.get("/api/v2/health/ready")
     assert resp.status_code == 200
     body = resp.json()
     assert body["status"] == "ok"
-    # 全部 8 个 Port 装配完毕
-    assert all(body["ports_loaded"].values())
+    assert body["checks"] == {
+        "database": True,
+        "redis": "disabled",
+        "ready": True,
+    }
     assert set(body["tools"]) == {
         "search_law",
         "search_user_docs",
         "web_search",
         "risk_profile_assess",
     }
+
+
+def test_ready_returns_503_when_database_is_unavailable(client: TestClient) -> None:
+    readiness = client.app.state.container.readiness  # type: ignore[attr-defined]
+    readiness._database = False
+    try:
+        resp = client.get("/api/v2/health/ready")
+    finally:
+        readiness._database = True
+
+    assert resp.status_code == 503
+    assert resp.json()["status"] == "not_ready"
+    assert resp.json()["checks"]["database"] is False
 
 
 def test_sse_serialization() -> None:

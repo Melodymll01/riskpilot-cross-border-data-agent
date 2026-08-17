@@ -2,6 +2,7 @@
 
 import os
 import tempfile
+
 import pytest
 
 
@@ -12,6 +13,7 @@ def temp_db(monkeypatch):
     monkeypatch.setattr("data.chat_db.DB_PATH", tmp)
     # 重新初始化
     import data.chat_db as db
+
     db.DB_PATH = tmp
     # 清除线程本地缓存的连接
     if hasattr(db._local, "conn"):
@@ -41,6 +43,7 @@ class TestConversations:
 
     def test_create_conversation(self):
         from data.chat_db import create_conversation
+
         conv = create_conversation("测试对话")
         assert conv.id
         assert conv.title == "测试对话"
@@ -48,6 +51,7 @@ class TestConversations:
 
     def test_list_conversations(self):
         from data.chat_db import create_conversation, list_conversations
+
         create_conversation("对话1")
         create_conversation("对话2")
         convs = list_conversations()
@@ -57,6 +61,7 @@ class TestConversations:
 
     def test_get_conversation(self):
         from data.chat_db import create_conversation, get_conversation
+
         conv = create_conversation("获取测试")
         result = get_conversation(conv.id)
         assert result is not None
@@ -65,20 +70,24 @@ class TestConversations:
 
     def test_get_nonexistent(self):
         from data.chat_db import get_conversation
+
         assert get_conversation("nonexistent-id") is None
 
     def test_delete_conversation(self):
         from data.chat_db import create_conversation, delete_conversation, get_conversation
+
         conv = create_conversation("删除测试")
         assert delete_conversation(conv.id) is True
         assert get_conversation(conv.id) is None
 
     def test_delete_nonexistent(self):
         from data.chat_db import delete_conversation
+
         assert delete_conversation("nonexistent") is False
 
     def test_update_title(self):
-        from data.chat_db import create_conversation, update_conversation_title, get_conversation
+        from data.chat_db import create_conversation, get_conversation, update_conversation_title
+
         conv = create_conversation("旧标题")
         assert update_conversation_title(conv.id, "新标题") is True
         updated = get_conversation(conv.id)
@@ -89,7 +98,8 @@ class TestMessages:
     """消息 CRUD 测试。"""
 
     def test_add_message(self):
-        from data.chat_db import create_conversation, add_message, get_conversation
+        from data.chat_db import add_message, create_conversation, get_conversation
+
         conv = create_conversation("消息测试")
         msg = add_message(conv.id, "user", "你好")
         assert msg.role == "user"
@@ -100,7 +110,8 @@ class TestMessages:
         assert result.messages[0].content == "你好"
 
     def test_message_order(self):
-        from data.chat_db import create_conversation, add_message, get_conversation
+        from data.chat_db import add_message, create_conversation, get_conversation
+
         conv = create_conversation("顺序测试")
         add_message(conv.id, "user", "问题1")
         add_message(conv.id, "ai", "回答1")
@@ -112,7 +123,8 @@ class TestMessages:
         assert result.messages[1].role == "ai"
 
     def test_message_with_citations(self):
-        from data.chat_db import create_conversation, add_message, get_conversation
+        from data.chat_db import add_message, create_conversation, get_conversation
+
         conv = create_conversation("引用测试")
         citations = [{"source": "test.pdf", "text": "片段"}]
         add_message(conv.id, "ai", "回答", citations)
@@ -122,7 +134,13 @@ class TestMessages:
 
     def test_cascade_delete(self):
         """删除对话应级联删除所有消息。"""
-        from data.chat_db import create_conversation, add_message, delete_conversation, get_conversation
+        from data.chat_db import (
+            add_message,
+            create_conversation,
+            delete_conversation,
+            get_conversation,
+        )
+
         conv = create_conversation("级联测试")
         add_message(conv.id, "user", "消息1")
         add_message(conv.id, "ai", "消息2")
@@ -133,7 +151,9 @@ class TestMessages:
     def test_updated_at_changes(self):
         """添加消息应更新对话的 updated_at。"""
         import time
-        from data.chat_db import create_conversation, add_message, get_conversation
+
+        from data.chat_db import add_message, create_conversation, get_conversation
+
         conv = create_conversation("时间测试")
         original_time = conv.updated_at
 

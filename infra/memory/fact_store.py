@@ -15,13 +15,25 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import Any, Protocol, cast
 
 from domain.models import Fact
 
 logger = logging.getLogger(__name__)
 
 FACTS_COLLECTION = "memory_facts"
+
+
+class _ChromaCollectionLike(Protocol):
+    def upsert(self, **kwargs: Any) -> Any: ...
+
+    def update(self, **kwargs: Any) -> Any: ...
+
+    def delete(self, **kwargs: Any) -> Any: ...
+
+    def query(self, **kwargs: Any) -> dict[str, Any]: ...
+
+    def get(self, **kwargs: Any) -> dict[str, Any]: ...
 
 
 class ChromaFactStore:
@@ -38,7 +50,7 @@ class ChromaFactStore:
                 name=FACTS_COLLECTION,
                 metadata={"hnsw:space": "cosine"},
             )
-        self._col = collection
+        self._col = cast("_ChromaCollectionLike", collection)
 
     # ── 写 ────────────────────────────────────────────────────────────────
 
@@ -50,9 +62,7 @@ class ChromaFactStore:
             metadatas=[self._to_meta(fact)],
         )
 
-    def mark_superseded(
-        self, owner_id: str, fact_id: str, superseded_by: str
-    ) -> None:
+    def mark_superseded(self, owner_id: str, fact_id: str, superseded_by: str) -> None:
         fact = self.get(owner_id, fact_id)
         if fact is None:
             return
@@ -77,9 +87,7 @@ class ChromaFactStore:
 
     # ── 读 ────────────────────────────────────────────────────────────────
 
-    def query(
-        self, owner_id: str, embedding: list[float], k: int
-    ) -> list[tuple[Fact, float]]:
+    def query(self, owner_id: str, embedding: list[float], k: int) -> list[tuple[Fact, float]]:
         if k <= 0:
             return []
         res = self._col.query(
@@ -108,9 +116,7 @@ class ChromaFactStore:
         )
         if not res or not res.get("ids"):
             return None
-        return self._from_record(
-            res["ids"][0], res["documents"][0], res["metadatas"][0]
-        )
+        return self._from_record(res["ids"][0], res["documents"][0], res["metadatas"][0])
 
     def list_owner(self, owner_id: str) -> list[Fact]:
         res = self._col.get(

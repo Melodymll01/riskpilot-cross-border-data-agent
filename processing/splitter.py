@@ -1,8 +1,7 @@
 """文本切分模块：将清洗后的文本按递归分句策略切分为 chunk 列表。"""
 
-import re
 import logging
-from typing import List
+import re
 
 from config import settings
 
@@ -30,7 +29,7 @@ class TextSplitter:
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
 
-    def split(self, text: str) -> List[str]:
+    def split(self, text: str) -> list[str]:
         """将文本切分为多个 chunk。"""
         if not text.strip():
             return []
@@ -85,10 +84,10 @@ class TextSplitter:
             return padded_key
 
         # 保护 Markdown 代码块 ```...```
-        text = re.sub(r'```[\s\S]*?```', replace_block, text)
+        text = re.sub(r"```[\s\S]*?```", replace_block, text)
 
         # 保护 Markdown 表格（连续的以 | 开头和结尾的行）
-        text = re.sub(r'(?:^\|.+\|$\n?){2,}', replace_block, text, flags=re.MULTILINE)
+        text = re.sub(r"(?:^\|.+\|$\n?){2,}", replace_block, text, flags=re.MULTILINE)
 
         return text, protected
 
@@ -98,7 +97,7 @@ class TextSplitter:
             text = text.replace(key, value)
         return text
 
-    def _recursive_split(self, text: str, separators: List[str]) -> List[str]:
+    def _recursive_split(self, text: str, separators: list[str]) -> list[str]:
         """核心递归拆分：尝试当前分隔符，拆不动则降级。"""
         if len(text) <= self.chunk_size:
             return [text] if text.strip() else []
@@ -109,7 +108,7 @@ class TextSplitter:
         for i, s in enumerate(separators):
             if s in text:
                 sep = s
-                remaining_seps = separators[i + 1:]
+                remaining_seps = separators[i + 1 :]
                 break
 
         # 如果没有任何分隔符可用，按字符强制截断
@@ -119,8 +118,8 @@ class TextSplitter:
         # 用当前分隔符拆分
         parts = text.split(sep)
 
-        chunks: List[str] = []
-        current_parts: List[str] = []
+        chunks: list[str] = []
+        current_parts: list[str] = []
         current_len = 0
 
         sep_len = len(sep)
@@ -172,12 +171,12 @@ class TextSplitter:
 
         return chunks
 
-    def _get_overlap_parts(self, parts: List[str], sep: str) -> List[str]:
+    def _get_overlap_parts(self, parts: list[str], sep: str) -> list[str]:
         """从 parts 末尾向前取片段，累积长度不超过 chunk_overlap。"""
         if self.chunk_overlap <= 0:
             return []
 
-        overlap_parts = []
+        overlap_parts: list[str] = []
         total = 0
         for part in reversed(parts):
             added = len(part) + len(sep)
@@ -189,25 +188,25 @@ class TextSplitter:
         return overlap_parts
 
     @staticmethod
-    def _joined_len(parts: List[str], sep_len: int) -> int:
+    def _joined_len(parts: list[str], sep_len: int) -> int:
         """计算 sep.join(parts) 的真实长度：各 part 长度 + (n-1) 个 sep。"""
         if not parts:
             return 0
         return sum(len(p) for p in parts) + sep_len * (len(parts) - 1)
 
-    def _force_split(self, text: str) -> List[str]:
+    def _force_split(self, text: str) -> list[str]:
         """无可用分隔符时，按字符强制切分。"""
         chunks = []
         step = self.chunk_size - self.chunk_overlap
         if step <= 0:
             step = self.chunk_size
         for i in range(0, len(text), step):
-            piece = text[i: i + self.chunk_size]
+            piece = text[i : i + self.chunk_size]
             if piece.strip():
                 chunks.append(piece)
         return chunks
 
-    def _merge_small_chunks(self, chunks: List[str]) -> List[str]:
+    def _merge_small_chunks(self, chunks: list[str]) -> list[str]:
         """将过短的尾部 chunk 合并到前一个 chunk（若合并后不超限）。"""
         if len(chunks) <= 1:
             return chunks

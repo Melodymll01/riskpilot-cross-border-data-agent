@@ -71,9 +71,7 @@ class TestOpenAIChatAdapter:
         model = FakeToolCallingModel(responses=[AIMessage(content="{}")])
         adapter = OpenAIChatAdapter(model)
         adapter.chat([{"role": "user", "content": "hi"}], json_mode=True)
-        assert model.generation_kwargs[0]["response_format"] == {
-            "type": "json_object"
-        }
+        assert model.generation_kwargs[0]["response_format"] == {"type": "json_object"}
 
 
 # ── Embed ─────────────────────────────────────────────────────────────

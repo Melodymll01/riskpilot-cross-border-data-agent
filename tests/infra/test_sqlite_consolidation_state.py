@@ -56,9 +56,7 @@ def _state(task_id: str, owner_id: str, wm: int) -> ConsolidationState:
 
 
 class TestProtocolConformance:
-    def test_is_consolidation_state_port(
-        self, store: SqliteConsolidationStateStore
-    ) -> None:
+    def test_is_consolidation_state_port(self, store: SqliteConsolidationStateStore) -> None:
         assert isinstance(store, ConsolidationStatePort)
 
 

@@ -102,6 +102,7 @@ def install_request_id_middleware(app: FastAPI) -> None:
     main.py 在自己的 inline middleware 里手工做了同样的 set/reset，不再调本函数；
     本函数留给测试 fixture / 其它独立 FastAPI app 复用。
     """
+
     @app.middleware("http")
     async def _request_id_middleware(request, call_next):  # type: ignore[no-untyped-def]
         request_id = request.headers.get("X-Request-ID", uuid.uuid4().hex[:12])

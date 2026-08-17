@@ -84,9 +84,18 @@ def _make_cwm(
 def _seed(vs: VectorStore) -> None:
     chunks = [
         _make_cwm(chunk_id="pub-0", text="公共条款一", source_name="pub.txt", owner_id=None),
-        _make_cwm(chunk_id="pub-1", text="公共条款二", source_name="pub.txt", owner_id=None, chunk_index=1),
-        _make_cwm(chunk_id="alice-0", text="爱丽丝的私人笔记", source_name="alice.txt", owner_id="github:alice"),
-        _make_cwm(chunk_id="bob-0", text="鲍勃的合同草稿", source_name="bob.txt", owner_id="github:bob"),
+        _make_cwm(
+            chunk_id="pub-1", text="公共条款二", source_name="pub.txt", owner_id=None, chunk_index=1
+        ),
+        _make_cwm(
+            chunk_id="alice-0",
+            text="爱丽丝的私人笔记",
+            source_name="alice.txt",
+            owner_id="github:alice",
+        ),
+        _make_cwm(
+            chunk_id="bob-0", text="鲍勃的合同草稿", source_name="bob.txt", owner_id="github:bob"
+        ),
     ]
     embeddings = [
         [1.0, 0.0, 0.0, 0.0],
@@ -114,22 +123,16 @@ class TestQueryOwners:
 
     def test_single_owner(self, isolated_vs: VectorStore) -> None:
         _seed(isolated_vs)
-        res = isolated_vs.query(
-            [0.0, 1.0, 0.0, 0.0], top_k=10, owners=["github:alice"]
-        )
+        res = isolated_vs.query([0.0, 1.0, 0.0, 0.0], top_k=10, owners=["github:alice"])
         assert [r["id"] for r in res] == ["alice-0"]
 
     def test_public_plus_owner(self, isolated_vs: VectorStore) -> None:
         _seed(isolated_vs)
-        res = isolated_vs.query(
-            [1.0, 0.0, 0.0, 0.0], top_k=10, owners=[None, "github:alice"]
-        )
+        res = isolated_vs.query([1.0, 0.0, 0.0, 0.0], top_k=10, owners=[None, "github:alice"])
         ids = {r["id"] for r in res}
         assert ids == {"pub-0", "pub-1", "alice-0"}
 
-    def test_empty_owners_returns_nothing(
-        self, isolated_vs: VectorStore
-    ) -> None:
+    def test_empty_owners_returns_nothing(self, isolated_vs: VectorStore) -> None:
         _seed(isolated_vs)
         res = isolated_vs.query([1.0, 0.0, 0.0, 0.0], top_k=10, owners=[])
         assert res == []
@@ -174,15 +177,16 @@ class TestGetAllSourcesOwners:
 
 
 class TestDeleteByOwner:
-    def test_default_deletes_all_owners(
-        self, isolated_vs: VectorStore
-    ) -> None:
+    def test_default_deletes_all_owners(self, isolated_vs: VectorStore) -> None:
         """未传 owner_id → admin 视角全删（含公共 + 所有 owner）。"""
         _seed(isolated_vs)
         # 额外加一条 alice 同 source_name 但不同 chunk
         extra = _make_cwm(
-            chunk_id="pub-alice", text="x", source_name="pub.txt",
-            owner_id="github:alice", chunk_index=2,
+            chunk_id="pub-alice",
+            text="x",
+            source_name="pub.txt",
+            owner_id="github:alice",
+            chunk_index=2,
         )
         isolated_vs.add_chunks([extra], [[0.5, 0.5, 0.0, 0.0]])
         n = isolated_vs.delete_by_source("pub.txt")
@@ -193,8 +197,11 @@ class TestDeleteByOwner:
         _seed(isolated_vs)
         # 再注一条 alice 同名 pub.txt
         extra = _make_cwm(
-            chunk_id="pub-alice", text="x", source_name="pub.txt",
-            owner_id="github:alice", chunk_index=2,
+            chunk_id="pub-alice",
+            text="x",
+            source_name="pub.txt",
+            owner_id="github:alice",
+            chunk_index=2,
         )
         isolated_vs.add_chunks([extra], [[0.5, 0.5, 0.0, 0.0]])
         n = isolated_vs.delete_by_source("pub.txt", owner_id=None)
@@ -204,9 +211,7 @@ class TestDeleteByOwner:
         keys = {(r["source_name"], r["owner_id"]) for r in rows}
         assert ("pub.txt", "github:alice") in keys
 
-    def test_delete_only_specific_user(
-        self, isolated_vs: VectorStore
-    ) -> None:
+    def test_delete_only_specific_user(self, isolated_vs: VectorStore) -> None:
         _seed(isolated_vs)
         n = isolated_vs.delete_by_source("alice.txt", owner_id="github:alice")
         assert n == 1
@@ -219,18 +224,14 @@ class TestDeleteByOwner:
 
 
 class TestMigrate:
-    def test_migrate_zero_when_all_have_owner(
-        self, isolated_vs: VectorStore
-    ) -> None:
+    def test_migrate_zero_when_all_have_owner(self, isolated_vs: VectorStore) -> None:
         """新增的 chunk 已带 owner_id（PUBLIC 或某用户），迁移应返回 0。"""
         _seed(isolated_vs)
         assert isolated_vs.migrate_owner_id_marker() == 0
         # 再次调用仍为 0（幂等）
         assert isolated_vs.migrate_owner_id_marker() == 0
 
-    def test_migrate_back_fills_legacy_metadata(
-        self, isolated_vs: VectorStore
-    ) -> None:
+    def test_migrate_back_fills_legacy_metadata(self, isolated_vs: VectorStore) -> None:
         """模拟旧库：直接走 collection.add 写入不含 owner_id 的 metadata，
         迁移后应被标记为 PUBLIC_OWNER_MARKER。"""
         isolated_vs.collection.add(
@@ -246,9 +247,7 @@ class TestMigrate:
         assert n == 2
 
         # 验证 metadata 已落 PUBLIC_OWNER_MARKER
-        got = isolated_vs.collection.get(
-            ids=["legacy-1", "legacy-2"], include=["metadatas"]
-        )
+        got = isolated_vs.collection.get(ids=["legacy-1", "legacy-2"], include=["metadatas"])
         assert got["metadatas"] is not None
         assert all(m["owner_id"] == PUBLIC_OWNER_MARKER for m in got["metadatas"])
 

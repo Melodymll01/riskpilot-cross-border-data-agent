@@ -21,9 +21,7 @@ class FakeFactStore:
     def add(self, fact: Fact, embedding: list[float]) -> None:
         self._store[fact.fact_id] = (fact, list(embedding))
 
-    def query(
-        self, owner_id: str, embedding: list[float], k: int
-    ) -> list[tuple[Fact, float]]:
+    def query(self, owner_id: str, embedding: list[float], k: int) -> list[tuple[Fact, float]]:
         if k <= 0:
             return []
         scored: list[tuple[Fact, float]] = []
@@ -40,9 +38,7 @@ class FakeFactStore:
             return None
         return item[0]
 
-    def mark_superseded(
-        self, owner_id: str, fact_id: str, superseded_by: str
-    ) -> None:
+    def mark_superseded(self, owner_id: str, fact_id: str, superseded_by: str) -> None:
         item = self._store.get(fact_id)
         if item is None or item[0].owner_id != owner_id:
             return
@@ -61,9 +57,7 @@ class FakeFactStore:
             del self._store[fact_id]
 
     def delete_owner(self, owner_id: str) -> int:
-        ids = [
-            fid for fid, (f, _) in self._store.items() if f.owner_id == owner_id
-        ]
+        ids = [fid for fid, (f, _) in self._store.items() if f.owner_id == owner_id]
         for fid in ids:
             del self._store[fid]
         return len(ids)
@@ -97,9 +91,7 @@ class FakeConsolidationStateStore:
         self._states[state.task_id] = state
 
     def delete_owner(self, owner_id: str) -> int:
-        ids = [
-            tid for tid, s in self._states.items() if s.owner_id == owner_id
-        ]
+        ids = [tid for tid, s in self._states.items() if s.owner_id == owner_id]
         for tid in ids:
             del self._states[tid]
         return len(ids)

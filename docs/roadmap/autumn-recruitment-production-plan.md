@@ -1,6 +1,7 @@
 # RiskPilot 2026 秋招生产化路线
 
 - 状态：执行中
+- 当前进度：Phase 0、Phase 1 已完成；下一阶段为 Phase 2 PostgreSQL 核心存储
 - 基线日期：2026-08-17
 - 基线提交：`50272310957467bb21eee8d7ca525e4b3ac71c6c`
 - 主分支：`main`
@@ -99,7 +100,7 @@ flowchart TB
     Browser[原生 Web 前端]
     API[FastAPI<br/>api/v2 + api/v3]
     App[AppContainer + Use Cases]
-    Domain[Domain Models + 40 Ports]
+    Domain[Domain Models + Ports]
     SQLite[(SQLite<br/>业务数据 + Run/Event)]
     Checkpoint[(SQLite<br/>LangGraph Checkpoint)]
     Chroma[(ChromaDB)]

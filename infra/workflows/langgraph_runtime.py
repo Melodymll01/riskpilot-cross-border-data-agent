@@ -100,9 +100,7 @@ class LangGraphWorkflowRuntime:
                 "case_id": case_id,
                 "framework": "langgraph",
                 "missing_fact_count": len(missing_fact_fields),
-                "pending_document_count": len(
-                    document_readiness.pending_document_ids
-                ),
+                "pending_document_count": len(document_readiness.pending_document_ids),
                 "ready_document_count": len(document_readiness.ready_document_ids),
                 "ruleset_version": ruleset_version,
                 "thread_id": thread_id,
@@ -121,9 +119,7 @@ class LangGraphWorkflowRuntime:
                     missing_fact_fields=missing_fact_fields,
                 )
             except Exception as exc:
-                span.add_metadata(
-                    {"error_type": type(exc).__name__, "status": "failed"}
-                )
+                span.add_metadata({"error_type": type(exc).__name__, "status": "failed"})
                 raise
             span.add_metadata(_result_metadata(result))
             return result
@@ -184,9 +180,7 @@ class LangGraphWorkflowRuntime:
                     state_update=state_update,
                 )
             except Exception as exc:
-                span.add_metadata(
-                    {"error_type": type(exc).__name__, "status": "failed"}
-                )
+                span.add_metadata({"error_type": type(exc).__name__, "status": "failed"})
                 raise
             span.add_metadata(_result_metadata(result))
             return result

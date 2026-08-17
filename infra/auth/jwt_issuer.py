@@ -16,6 +16,7 @@ import jwt
 
 DEFAULT_TTL_SECONDS = 24 * 3600
 _ALG = "HS256"
+_MIN_SECRET_LENGTH = 32
 
 
 class JwtIssuer:
@@ -28,8 +29,8 @@ class JwtIssuer:
         *,
         clock: Callable[[], float] = time.time,
     ) -> None:
-        if not secret or len(secret) < 16:
-            msg = "JWT secret must be at least 16 chars"
+        if not secret or len(secret) < _MIN_SECRET_LENGTH:
+            msg = f"JWT secret must be at least {_MIN_SECRET_LENGTH} chars"
             raise ValueError(msg)
         if ttl_seconds <= 0:
             msg = f"ttl_seconds must be positive, got {ttl_seconds}"

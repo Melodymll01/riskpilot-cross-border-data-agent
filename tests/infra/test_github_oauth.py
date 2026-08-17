@@ -75,7 +75,8 @@ class TestExchangeSuccess:
     def test_name_falls_back_to_login(self, provider: GitHubOAuthProvider) -> None:
         responses.post(
             "https://github.com/login/oauth/access_token",
-            json={"access_token": "ghu_xxx"}, status=200,
+            json={"access_token": "ghu_xxx"},
+            status=200,
         )
         responses.get(
             "https://api.github.com/user",
@@ -100,7 +101,8 @@ class TestExchangeErrors:
     def test_token_endpoint_5xx(self, provider: GitHubOAuthProvider) -> None:
         responses.post(
             "https://github.com/login/oauth/access_token",
-            body="oops", status=500,
+            body="oops",
+            status=500,
         )
         with pytest.raises(OAuthFlowError):
             provider.exchange(code="c", state="s")
@@ -109,7 +111,8 @@ class TestExchangeErrors:
     def test_token_endpoint_returns_error(self, provider: GitHubOAuthProvider) -> None:
         responses.post(
             "https://github.com/login/oauth/access_token",
-            json={"error": "bad_verification_code"}, status=200,
+            json={"error": "bad_verification_code"},
+            status=200,
         )
         with pytest.raises(OAuthFlowError):
             provider.exchange(code="c", state="s")
@@ -118,10 +121,13 @@ class TestExchangeErrors:
     def test_user_endpoint_4xx(self, provider: GitHubOAuthProvider) -> None:
         responses.post(
             "https://github.com/login/oauth/access_token",
-            json={"access_token": "tok"}, status=200,
+            json={"access_token": "tok"},
+            status=200,
         )
         responses.get(
-            "https://api.github.com/user", json={"message": "Bad credentials"}, status=401,
+            "https://api.github.com/user",
+            json={"message": "Bad credentials"},
+            status=401,
         )
         with pytest.raises(OAuthFlowError):
             provider.exchange(code="c", state="s")
@@ -130,11 +136,13 @@ class TestExchangeErrors:
     def test_user_payload_missing_login(self, provider: GitHubOAuthProvider) -> None:
         responses.post(
             "https://github.com/login/oauth/access_token",
-            json={"access_token": "tok"}, status=200,
+            json={"access_token": "tok"},
+            status=200,
         )
         responses.get(
             "https://api.github.com/user",
-            json={"id": 1, "name": "no login here"}, status=200,
+            json={"id": 1, "name": "no login here"},
+            status=200,
         )
         with pytest.raises(OAuthFlowError):
             provider.exchange(code="c", state="s")

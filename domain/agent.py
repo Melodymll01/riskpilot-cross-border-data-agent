@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 
-class AgentEventType(str, Enum):
+class AgentEventType(StrEnum):
     TASK_CREATED = "task_created"
     THOUGHT = "thought"
     TOOL_CALL = "tool_call"

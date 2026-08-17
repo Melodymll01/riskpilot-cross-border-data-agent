@@ -118,9 +118,7 @@ def build_memory_extraction_episode(
         content = (message.content or "").strip()
         if len(content) < 4:
             continue
-        if contains_sensitive_memory_content(content) or contains_prompt_injection(
-            content
-        ):
+        if contains_sensitive_memory_content(content) or contains_prompt_injection(content):
             continue
         user_messages[message.msg_id] = content
         payload.append({"message_id": message.msg_id, "content": content})
@@ -196,7 +194,9 @@ def validate_memory_candidate(
 
 
 def contains_sensitive_memory_content(text: str) -> bool:
-    return any(pattern.search(text) for pattern in (*_SENSITIVE_PATTERNS, *_SENSITIVE_ATTRIBUTE_PATTERNS))
+    return any(
+        pattern.search(text) for pattern in (*_SENSITIVE_PATTERNS, *_SENSITIVE_ATTRIBUTE_PATTERNS)
+    )
 
 
 def contains_prompt_injection(text: str) -> bool:
@@ -204,9 +204,7 @@ def contains_prompt_injection(text: str) -> bool:
 
 
 def contains_transient_or_hypothetical_content(text: str) -> bool:
-    return any(
-        pattern.search(text) for pattern in _TRANSIENT_OR_HYPOTHETICAL_PATTERNS
-    )
+    return any(pattern.search(text) for pattern in _TRANSIENT_OR_HYPOTHETICAL_PATTERNS)
 
 
 class ConsolidationWorker:

@@ -99,7 +99,5 @@ class TestSseToolLoop:
 
 class TestSseAuth:
     def test_stream_requires_auth(self, client: TestClient) -> None:
-        resp = client.post(
-            "/api/v2/copilot/chat/stream", json={"message": "hi"}
-        )
+        resp = client.post("/api/v2/copilot/chat/stream", json={"message": "hi"})
         assert resp.status_code == 401

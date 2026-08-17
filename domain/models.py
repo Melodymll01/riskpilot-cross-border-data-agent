@@ -298,6 +298,7 @@ class KbChunk(BaseDomainModel):
     category: str = ""
     owner_id: str | None = None
 
+
 # === 记忆 ===
 
 
@@ -429,7 +430,6 @@ class MemorySettings(BaseDomainModel):
     owner_id: str = Field(min_length=1)
     use_saved_memory: bool = True
     updated_at: float = Field(default_factory=lambda: time.time())
-
 
 
 # === 审计（Step 021） ===

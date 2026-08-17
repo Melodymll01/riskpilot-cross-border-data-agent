@@ -63,8 +63,7 @@ class SqliteTaskRepo:
     def list_for_owner(self, owner_id: str, limit: int = 50) -> list[Task]:
         conn = self._pool.get()
         rows = conn.execute(
-            "SELECT * FROM tasks WHERE owner_id = ? "
-            "ORDER BY updated_at DESC LIMIT ?",
+            "SELECT * FROM tasks WHERE owner_id = ? ORDER BY updated_at DESC LIMIT ?",
             (owner_id, limit),
         ).fetchall()
         return [_row_to_task(r) for r in rows]
@@ -108,9 +107,7 @@ class SqliteTaskRepo:
 
     def append_message(self, msg: Message) -> None:
         conn = self._pool.get()
-        citations_json = json.dumps(
-            [c.model_dump() for c in msg.citations], ensure_ascii=False
-        )
+        citations_json = json.dumps([c.model_dump() for c in msg.citations], ensure_ascii=False)
         conn.execute(
             """
             INSERT INTO messages
@@ -196,7 +193,10 @@ class SqliteTaskRepo:
 
 def _row_to_task(row: Any) -> Task:
     # mode 在老库迁移后不会为 NULL（DEFAULT 'qa'）；充作防御。
-    raw_mode = row["mode"] if "mode" in row.keys() else "qa"
+    try:
+        raw_mode = row["mode"]
+    except (IndexError, KeyError):
+        raw_mode = "qa"
     mode = _validate_mode(raw_mode or "qa")
     return Task(
         task_id=row["task_id"],

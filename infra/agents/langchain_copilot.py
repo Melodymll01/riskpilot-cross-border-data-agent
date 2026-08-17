@@ -15,7 +15,7 @@ from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools import tool
 
 from domain.agent import AgentEvent
-from domain.models import Citation, Message, ToolCall
+from domain.models import Citation, Message, ToolCall, ToolCallStatus
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -71,7 +71,7 @@ class LangChainComplianceAgent:
         self._memory_assembler = memory_assembler
         self._trace = trace or NoopTraceAdapter()
         self._tools = self._build_tools(retriever, web_search, risk_profile)
-        self._graph = create_agent(
+        self._graph: Any = create_agent(
             model=model,
             tools=self._tools,
             system_prompt=_SYSTEM_PROMPT,
@@ -349,7 +349,7 @@ def _run_audited_tool(
     invoke: Any,
 ) -> str:
     started = time.perf_counter()
-    status = "success"
+    status: ToolCallStatus = "success"
     output_json: dict[str, Any] | None = None
     try:
         result = invoke()
@@ -369,7 +369,7 @@ def _run_audited_tool(
                 tool_name=tool_name,
                 input_json=input_json,
                 output_json=output_json,
-                status=status,  # type: ignore[arg-type]
+                status=status,
                 duration_ms=int((time.perf_counter() - started) * 1000),
             )
         )

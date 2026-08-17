@@ -229,9 +229,7 @@ def test_memory_is_injected_as_system_message_without_current_query_duplication(
     )
 
     system_text = "\n".join(
-        str(message.content)
-        for message in model.calls[0]
-        if isinstance(message, SystemMessage)
+        str(message.content) for message in model.calls[0] if isinstance(message, SystemMessage)
     )
     assert "我偏好中文回答" in system_text
     assert "本轮独特问题" not in system_text

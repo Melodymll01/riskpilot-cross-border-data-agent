@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 from PIL import Image, UnidentifiedImageError
 
 from domain.visual import VisualAsset, VisualSearchHit
+from domain.workspaces import WorkspaceRole
 
 if TYPE_CHECKING:
     from app.use_cases.case_management import CaseManagementUseCase
@@ -28,7 +29,7 @@ _SUFFIX_BY_MIME = {
     "image/jpeg": ".jpg",
     "image/webp": ".webp",
 }
-_WRITE_ROLES = {"editor", "reviewer", "admin"}
+_WRITE_ROLES: set[WorkspaceRole] = {"editor", "reviewer", "admin"}
 
 
 class VisualEvidenceUseCase:

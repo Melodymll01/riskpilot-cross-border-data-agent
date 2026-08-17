@@ -117,9 +117,7 @@ class RunCopilotUseCase:
     def _run_profile(self, *, target: str) -> Iterator[AgentEvent]:
         """profile 模式分流：调 RiskProfilePort，把结果或未就绪提示渲染成 answer。"""
         if self._risk_profile is None:
-            yield AgentEvent.answer(
-                "⚠️ 风险画像服务未在容器中装配，请联系运维。"
-            )
+            yield AgentEvent.answer("⚠️ 风险画像服务未在容器中装配，请联系运维。")
             return
         try:
             result = self._risk_profile.assess(target=target)
@@ -142,9 +140,7 @@ class RunCopilotUseCase:
         （表现为"深度研究无反应"）。端口未实现流式时回退到一次性 ``research()``。
         """
         if self._research is None:
-            yield AgentEvent.answer(
-                "⚠️ 深度研究服务未在容器中装配，请联系运维。"
-            )
+            yield AgentEvent.answer("⚠️ 深度研究服务未在容器中装配，请联系运维。")
             return
 
         # 立即给一帧 thought：让前端马上渲染"推理中"过程卡，确认请求已被受理。
@@ -221,4 +217,3 @@ def _format_risk_profile_md(rp: RiskProfile) -> str:
             )
             lines.append(f"- {sp.text}{offset}")
     return "\n".join(lines)
-

@@ -67,9 +67,7 @@ class FakeMemory:
             return None
         return self._summaries.get(task_id)
 
-    def maybe_summarize(
-        self, owner_id: str, task_id: str, threshold: int = 20
-    ) -> None:
+    def maybe_summarize(self, owner_id: str, task_id: str, threshold: int = 20) -> None:
         self.summarize_calls.append((owner_id, task_id, threshold))
 
     # ── L3/L4 ────────────────────────────────────────────────────────────

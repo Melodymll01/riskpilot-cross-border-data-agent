@@ -131,4 +131,3 @@ class TestDeleteFact:
         assert audit.entries[0].action == AuditAction.MEMORY_FACT_DELETE
         assert audit.entries[0].success is False
         assert audit.entries[0].error == "boom"
-

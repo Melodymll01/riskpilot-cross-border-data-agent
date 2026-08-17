@@ -43,9 +43,7 @@ def sse_keepalive() -> str:
 
 def sse_error(error_code: str, message: str) -> str:
     """以 SSE 帧形式回报错误（用于 Agent 流中途异常时）。"""
-    body = json.dumps(
-        {"error_code": error_code, "message": message}, ensure_ascii=False
-    )
+    body = json.dumps({"error_code": error_code, "message": message}, ensure_ascii=False)
     return f"event: error\ndata: {body}\n\n"
 
 

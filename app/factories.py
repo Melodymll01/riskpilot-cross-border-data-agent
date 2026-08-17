@@ -44,6 +44,7 @@ from domain.ports import (
     ObjectStorePort,
     PolicyRuleRepoPort,
     ProfileStorePort,
+    ReadinessPort,
     ResearchPort,
     RetrievePort,
     RiskProfilePort,
@@ -51,6 +52,8 @@ from domain.ports import (
     TaskRepoPort,
     TracePort,
     UserRepoPort,
+    VisualEmbedPort,
+    VisualIndexPort,
     WebSearchPort,
     WorkflowRuntimePort,
     WorkspaceRepoPort,
@@ -61,6 +64,7 @@ from infra.auth import AnonymousProvider, AuthService, GitHubOAuthProvider, JwtI
 from infra.chat import OpenAIChatAdapter
 from infra.document_processing import RiskPilotDocumentParser
 from infra.evidence import PageEvidenceChunker, SqliteEvidenceIndex
+from infra.health import ApplicationReadiness
 from infra.kb import ChromaKbRepo, UnifiedLoaderAdapter
 from infra.memory import (
     ChromaFactStore,
@@ -107,6 +111,17 @@ if TYPE_CHECKING:
 def build_sqlite_pool(settings: Settings) -> SqliteConnectionPool:
     """单例 SQLite 连接池：所有 repo 共享。"""
     return SqliteConnectionPool(settings.sqlite_db_path)
+
+
+def build_readiness(
+    settings: Settings,
+    *,
+    pool: SqliteConnectionPool | None,
+) -> ReadinessPort:
+    return ApplicationReadiness(
+        sqlite_pool=pool,
+        redis_url=settings.redis_url,
+    )
 
 
 def build_assessment_repo(
@@ -169,11 +184,11 @@ def build_object_store(settings: Settings) -> ObjectStorePort:
 
 def build_visual_index(
     settings: Settings, *, pool: SqliteConnectionPool | None = None
-):
+) -> VisualIndexPort:
     return SqliteVisualIndex(pool or build_sqlite_pool(settings))
 
 
-def build_visual_embedder(settings: Settings):
+def build_visual_embedder(settings: Settings) -> VisualEmbedPort:
     return ChineseCLIPEmbedder(settings.visual_model_name)
 
 
@@ -367,17 +382,13 @@ def build_memory(
             freshness_weight=settings.memory_recall_freshness_weight,
             min_semantic_score=settings.memory_recall_min_semantic_score,
             min_final_score=settings.memory_recall_min_final_score,
-            freshness_half_life_days=(
-                settings.memory_recall_freshness_half_life_days
-            ),
+            freshness_half_life_days=(settings.memory_recall_freshness_half_life_days),
         ),
         recall_candidate_multiplier=settings.memory_recall_candidate_multiplier,
     )
 
 
-def build_profile_store(
-    settings: Settings, *, task_repo: TaskRepoPort
-) -> ProfileStorePort | None:
+def build_profile_store(settings: Settings, *, task_repo: TaskRepoPort) -> ProfileStorePort | None:
     """构造 L3 画像存储；禁用记忆 / 画像时返回 None。复用 task 连接池。"""
     if not (settings.memory_enabled and settings.memory_profile_enabled):
         return None
@@ -401,9 +412,7 @@ def build_memory_settings_store(
     return SqliteMemorySettingsStore(build_sqlite_pool(settings))
 
 
-def build_summary_store(
-    settings: Settings, *, task_repo: TaskRepoPort
-) -> SummaryStorePort | None:
+def build_summary_store(settings: Settings, *, task_repo: TaskRepoPort) -> SummaryStorePort | None:
     """构造 L2 摘要存储；禁用摘要时返回 None。
 
     复用 ``SqliteTaskRepo`` 的连接池，与 task 同库同事务边界。
@@ -577,6 +586,7 @@ __all__ = [
     "build_policy_rule_repo",
     "build_profile_store",
     "build_research",
+    "build_readiness",
     "build_retriever",
     "build_risk_profile",
     "build_sqlite_pool",

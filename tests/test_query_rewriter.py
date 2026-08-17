@@ -1,7 +1,6 @@
 """test_query_rewriter.py — QueryRewriter 规则层测试（不调用 LLM）。"""
 
-import pytest
-from retrieval.search.query_rewriter import QueryRewriter, DOMAIN_SYNONYMS
+from retrieval.search.query_rewriter import QueryRewriter
 
 
 class TestDomainSynonyms:
@@ -82,6 +81,7 @@ class TestCache:
         """超过容量时应淘汰最旧条目。"""
         # 手动缩小缓存容量测试淘汰
         import retrieval.search.query_rewriter as qr
+
         original_size = qr._CACHE_MAX_SIZE
         qr._CACHE_MAX_SIZE = 3
         try:

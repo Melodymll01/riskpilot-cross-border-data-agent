@@ -122,9 +122,7 @@ class ChromaKbRepo:
             return
 
         # 先删后插：按 (source_name, owner_id) 维度替换（同名跨 owner 互不干扰）
-        keys: set[tuple[str, str | None]] = {
-            (c.source_name, c.owner_id) for c in chunks
-        }
+        keys: set[tuple[str, str | None]] = {(c.source_name, c.owner_id) for c in chunks}
         for src, owner in keys:
             self._vs.delete_by_source(src, owner_id=owner)
 
@@ -144,9 +142,7 @@ class ChromaKbRepo:
         src_type: KbSourceType = "web" if raw_type == "web" else "file"
         raw_owner = raw.get("owner_id")
         owner_id: str | None = (
-            None
-            if raw_owner in (None, "", PUBLIC_OWNER_MARKER)
-            else str(raw_owner)
+            None if raw_owner in (None, "", PUBLIC_OWNER_MARKER) else str(raw_owner)
         )
         return KbDocument(
             source_name=str(raw.get("source_name") or "unknown"),

@@ -79,9 +79,7 @@ class Retriever:
         seen_vec_ids = set()
         for q in queries:
             q_embedding = self.embedder.embed_query(q)
-            results = self.vector_store.query(
-                q_embedding, top_k=top_k, owners=viewers_list
-            )
+            results = self.vector_store.query(q_embedding, top_k=top_k, owners=viewers_list)
             for r in results:
                 if r["id"] not in seen_vec_ids:
                     seen_vec_ids.add(r["id"])
@@ -94,9 +92,7 @@ class Retriever:
         # 3. 混合检索融合
         if settings.enable_bm25_rrf and self.bm25_index is not None:
             # 3a. BM25 全文检索（基于词频的加权打分）
-            bm25_ranking = self.bm25_index.search(
-                query, top_k=top_k * 3, viewers=viewers_list
-            )
+            bm25_ranking = self.bm25_index.search(query, top_k=top_k * 3, viewers=viewers_list)
             logger.debug(f"BM25 检索: {len(bm25_ranking)} 条结果")
 
             # 3b. RRF 融合（Reciprocal Rank Fusion）
@@ -173,15 +169,12 @@ class Retriever:
             return results
 
         threshold = settings.text_overlap_threshold
-        deduplicated = []
-        seen_texts = []
+        deduplicated: list[dict[str, Any]] = []
+        seen_texts: list[str] = []
 
         for item in results:
             text = item.get("text", "")
-            is_dup = any(
-                self._text_overlap_ratio(text, seen) > threshold
-                for seen in seen_texts
-            )
+            is_dup = any(self._text_overlap_ratio(text, seen) > threshold for seen in seen_texts)
             if not is_dup:
                 deduplicated.append(item)
                 seen_texts.append(text)
@@ -204,7 +197,7 @@ class Retriever:
 
         # 字符级 bigram 集合——对中英文都有效
         def bigrams(text: str) -> set:
-            return {text[i:i+2] for i in range(len(text) - 1)} if len(text) >= 2 else {text}
+            return {text[i : i + 2] for i in range(len(text) - 1)} if len(text) >= 2 else {text}
 
         set_a = bigrams(a)
         set_b = bigrams(b)

@@ -52,13 +52,13 @@ class ForgetMemoryUseCase:
             result = self._memory.forget(owner_id, scope=scope)
         except Exception as exc:  # noqa: BLE001 — 失败也要留痕，再抛给上层
             self._record_audit(
-            action=AuditAction.MEMORY_FORGET,
-            actor_id=owner_id,
-            resource=owner_id,
-            request_id=request_id,
-            success=False,
-            error=str(exc),
-            extra={"scope": scope},
+                action=AuditAction.MEMORY_FORGET,
+                actor_id=owner_id,
+                resource=owner_id,
+                request_id=request_id,
+                success=False,
+                error=str(exc),
+                extra={"scope": scope},
             )
             raise
         self._record_audit(
@@ -120,6 +120,7 @@ class ForgetMemoryUseCase:
                 extra={"fact_id": fact_id},
             )
         return deleted
+
     def _record_audit(
         self,
         *,

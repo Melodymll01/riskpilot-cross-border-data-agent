@@ -58,9 +58,7 @@ class MemorySettingsUseCase:
         未配置 store 时直接返回基于当前值合成的结果（不持久化、不抛）。
         """
         current = self.get(owner_id)
-        new_use_saved = (
-            current.use_saved_memory if use_saved_memory is None else use_saved_memory
-        )
+        new_use_saved = current.use_saved_memory if use_saved_memory is None else use_saved_memory
         updated = MemorySettings(
             owner_id=owner_id,
             use_saved_memory=new_use_saved,

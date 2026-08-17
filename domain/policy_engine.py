@@ -40,9 +40,7 @@ class PolicyRuleEngine:
         confirmed_facts = [fact for fact in facts if fact.usable_for_rules]
         field_names = [fact.field_name for fact in confirmed_facts]
         duplicate_fields = sorted(
-            field_name
-            for field_name in set(field_names)
-            if field_names.count(field_name) > 1
+            field_name for field_name in set(field_names) if field_names.count(field_name) > 1
         )
         if duplicate_fields:
             fields = ", ".join(duplicate_fields)

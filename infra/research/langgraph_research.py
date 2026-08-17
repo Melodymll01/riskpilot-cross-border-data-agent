@@ -148,9 +148,7 @@ class LangGraphResearchAdapter:
                 if final_report is None:
                     raise RuntimeError("LangGraph Deep Research 未生成报告")
             except Exception as exc:
-                span.add_metadata(
-                    {"error_type": type(exc).__name__, "status": "failed"}
-                )
+                span.add_metadata({"error_type": type(exc).__name__, "status": "failed"})
                 raise
             span.add_metadata(
                 {
@@ -250,7 +248,7 @@ class LangGraphResearchAdapter:
 只输出 JSON：{{"verdict": "sufficient|partial|insufficient", "supplement_queries": ["..."]}}
 补充查询最多 2 个，不能重复原问题。
 
-问题：{state['query']}
+问题：{state["query"]}
 证据：
 {excerpts}"""
         data = _safe_json(
@@ -266,9 +264,7 @@ class LangGraphResearchAdapter:
         raw_supplements = data.get("supplement_queries")
         supplements = [
             str(item).strip()
-            for item in (
-                raw_supplements if isinstance(raw_supplements, list) else []
-            )
+            for item in (raw_supplements if isinstance(raw_supplements, list) else [])
             if str(item).strip()
         ][:2]
         return {
@@ -281,11 +277,7 @@ class LangGraphResearchAdapter:
     def _route_after_assessment(state: _ResearchState) -> str:
         verdict = state.get("verdict", "sufficient")
         round_number = state.get("retrieval_round", 0)
-        if (
-            verdict == "partial"
-            and round_number < _MAX_ROUNDS
-            and state.get("supplement_queries")
-        ):
+        if verdict == "partial" and round_number < _MAX_ROUNDS and state.get("supplement_queries"):
             return "retrieve"
         if (
             verdict != "sufficient"
@@ -298,9 +290,7 @@ class LangGraphResearchAdapter:
     def _search_web(self, state: _ResearchState) -> dict[str, Any]:
         documents = list(state.get("documents", []))
         seen_urls = {
-            str(document.get("source_url"))
-            for document in documents
-            if document.get("source_url")
+            str(document.get("source_url")) for document in documents if document.get("source_url")
         }
         for result in self._web_search.search(state["query"], max_results=3):
             if result.url in seen_urls:
@@ -356,14 +346,13 @@ class LangGraphResearchAdapter:
             )
             return {"report": report}
         evidence = "\n\n".join(
-            f"[{document['source_name']}]\n{document['text'][:1200]}"
-            for document in documents[:12]
+            f"[{document['source_name']}]\n{document['text'][:1200]}" for document in documents[:12]
         )
         prompt = f"""基于以下证据撰写数据出境合规研究报告。
 要求：结构化 Markdown；关键结论后使用 [来源名]；区分事实、规则和建议；
 证据不足时明确保留意见；不得添加证据中不存在的法规条文。
 
-研究问题：{state['query']}
+研究问题：{state["query"]}
 
 证据：
 {evidence}"""
@@ -405,8 +394,6 @@ def _to_citation(document: dict[str, Any]) -> Citation:
         source_type=str(document.get("source_type") or "unknown"),
         source_name=str(document.get("source_name") or "未知来源"),
         title=str(document.get("title") or ""),
-        source_url=(
-            str(document["source_url"]) if document.get("source_url") else None
-        ),
+        source_url=(str(document["source_url"]) if document.get("source_url") else None),
         text_snippet=str(document.get("text") or "")[:500],
     )

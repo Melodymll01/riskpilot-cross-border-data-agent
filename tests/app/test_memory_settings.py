@@ -25,9 +25,7 @@ class TestGet:
 
     def test_returns_persisted(self) -> None:
         store = InMemoryMemorySettingsStore()
-        store.upsert(
-            MemorySettings(owner_id="o1", use_saved_memory=False)
-        )
+        store.upsert(MemorySettings(owner_id="o1", use_saved_memory=False))
         uc = MemorySettingsUseCase(store)
         s = uc.get("o1")
         assert s.use_saved_memory is False
@@ -36,9 +34,7 @@ class TestGet:
 class TestUpdate:
     def test_partial_update_keeps_unset_field(self) -> None:
         store = InMemoryMemorySettingsStore()
-        store.upsert(
-            MemorySettings(owner_id="o1", use_saved_memory=True)
-        )
+        store.upsert(MemorySettings(owner_id="o1", use_saved_memory=True))
         uc = MemorySettingsUseCase(store)
 
         updated = uc.update("o1", use_saved_memory=False)

@@ -54,7 +54,6 @@ class HybridRetrieverAdapter:
             )
         return self._retriever
 
-
     def retrieve(
         self,
         query: str,

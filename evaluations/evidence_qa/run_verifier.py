@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -58,7 +58,7 @@ def main(argv: list[str] | None = None) -> int:
         system=f"independent_llm_v1:{settings.effective_chat_model}",
     )
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     predictions_path = args.output_dir / f"evidence_qa_predictions_{timestamp}.json"
     predictions_path.write_text(
         json.dumps(predictions.model_dump(), ensure_ascii=False, indent=2) + "\n",

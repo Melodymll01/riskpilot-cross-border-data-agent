@@ -9,26 +9,20 @@ from fastapi.testclient import TestClient
 from app.container import AppContainer
 
 
-def _seed_task(
-    client: TestClient, owner_id: str, *, title: str = "t", goal: str = ""
-) -> str:
+def _seed_task(client: TestClient, owner_id: str, *, title: str = "t", goal: str = "") -> str:
     container: AppContainer = client.app.state.container  # type: ignore[attr-defined]
     task = container.task_management.create_task(owner_id, title=title, user_goal=goal)
     return task.task_id
 
 
 class TestListTasks:
-    def test_empty_owner(
-        self, authed_client: tuple[TestClient, dict[str, Any]]
-    ) -> None:
+    def test_empty_owner(self, authed_client: tuple[TestClient, dict[str, Any]]) -> None:
         client, _ = authed_client
         resp = client.get("/api/v2/tasks")
         assert resp.status_code == 200
         assert resp.json() == {"tasks": []}
 
-    def test_lists_own_tasks_only(
-        self, authed_client: tuple[TestClient, dict[str, Any]]
-    ) -> None:
+    def test_lists_own_tasks_only(self, authed_client: tuple[TestClient, dict[str, Any]]) -> None:
         client, user = authed_client
         owner_id = user["user_id"]
         # 我自己 2 个
@@ -45,18 +39,14 @@ class TestListTasks:
         assert all(t["owner_id"] == owner_id for t in body["tasks"])
         assert {t["title"] for t in body["tasks"]} == {"mine-0", "mine-1"}
 
-    def test_limit_param_clamped(
-        self, authed_client: tuple[TestClient, dict[str, Any]]
-    ) -> None:
+    def test_limit_param_clamped(self, authed_client: tuple[TestClient, dict[str, Any]]) -> None:
         client, user = authed_client
         resp = client.get("/api/v2/tasks?limit=5000")
         assert resp.status_code == 200  # 不报错，内部夹紧到 200
 
 
 class TestGetTask:
-    def test_owner_can_get_own_task(
-        self, authed_client: tuple[TestClient, dict[str, Any]]
-    ) -> None:
+    def test_owner_can_get_own_task(self, authed_client: tuple[TestClient, dict[str, Any]]) -> None:
         client, user = authed_client
         tid = _seed_task(client, user["user_id"], title="hello")
         resp = client.get(f"/api/v2/tasks/{tid}")
@@ -86,9 +76,7 @@ class TestGetTask:
 
 
 class TestPatchTask:
-    def test_update_title(
-        self, authed_client: tuple[TestClient, dict[str, Any]]
-    ) -> None:
+    def test_update_title(self, authed_client: tuple[TestClient, dict[str, Any]]) -> None:
         client, user = authed_client
         tid = _seed_task(client, user["user_id"], title="old")
         resp = client.patch(f"/api/v2/tasks/{tid}", json={"title": "new-title"})
@@ -98,9 +86,7 @@ class TestPatchTask:
         resp2 = client.get(f"/api/v2/tasks/{tid}")
         assert resp2.json()["task"]["title"] == "new-title"
 
-    def test_update_facts_merges(
-        self, authed_client: tuple[TestClient, dict[str, Any]]
-    ) -> None:
+    def test_update_facts_merges(self, authed_client: tuple[TestClient, dict[str, Any]]) -> None:
         client, user = authed_client
         tid = _seed_task(client, user["user_id"])
         client.patch(f"/api/v2/tasks/{tid}", json={"collected_facts": {"a": 1}})
@@ -114,16 +100,12 @@ class TestPatchTask:
         client, _ = authed_client
         container: AppContainer = client.app.state.container  # type: ignore[attr-defined]
         other_task = container.task_management.create_task("anon:other", title="x")
-        resp = client.patch(
-            f"/api/v2/tasks/{other_task.task_id}", json={"title": "hijack"}
-        )
+        resp = client.patch(f"/api/v2/tasks/{other_task.task_id}", json={"title": "hijack"})
         assert resp.status_code == 404
 
 
 class TestDeleteTask:
-    def test_owner_can_delete(
-        self, authed_client: tuple[TestClient, dict[str, Any]]
-    ) -> None:
+    def test_owner_can_delete(self, authed_client: tuple[TestClient, dict[str, Any]]) -> None:
         client, user = authed_client
         tid = _seed_task(client, user["user_id"])
         resp = client.delete(f"/api/v2/tasks/{tid}")

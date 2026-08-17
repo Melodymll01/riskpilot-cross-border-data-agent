@@ -126,7 +126,9 @@ class TestWrite:
             repo.delete_document("")
 
     def test_delete_document_proxies(self) -> None:
-        vs = _StubVectorStore(sources=[{"source_type": "file", "source_name": "x", "chunk_count": 5}])
+        vs = _StubVectorStore(
+            sources=[{"source_type": "file", "source_name": "x", "chunk_count": 5}]
+        )
         repo = ChromaKbRepo(vs)  # type: ignore[arg-type]
         repo.delete_document("x")
         # Step 025a：repo.delete_document() 默认不传 owner_id → _UNSET，透传给 vs 后底层不限 owner

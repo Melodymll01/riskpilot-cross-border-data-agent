@@ -49,6 +49,7 @@ from app.factories import (
     build_object_store,
     build_policy_rule_repo,
     build_profile_store,
+    build_readiness,
     build_research,
     build_retriever,
     build_risk_profile,
@@ -112,12 +113,15 @@ if TYPE_CHECKING:
         ObjectStorePort,
         PolicyRuleRepoPort,
         ProfileStorePort,
+        ReadinessPort,
         ResearchPort,
         RetrievePort,
         RiskProfilePort,
         TaskRepoPort,
         TracePort,
         UserRepoPort,
+        VisualEmbedPort,
+        VisualIndexPort,
         WebSearchPort,
         WorkflowRuntimePort,
         WorkspaceRepoPort,
@@ -157,11 +161,12 @@ class AppContainer:
         policy_rule_repo: PolicyRuleRepoPort | None = None,
         object_store: ObjectStorePort | None = None,
         workflow_runtime: WorkflowRuntimePort | None = None,
-        visual_index=None,
-        visual_embedder=None,
+        visual_index: VisualIndexPort | None = None,
+        visual_embedder: VisualEmbedPort | None = None,
         auth: AuthPort | None = None,
         memory: MemoryPort | None = None,
         trace: TracePort | None = None,
+        readiness: ReadinessPort | None = None,
         agent_model: Any | None = None,
     ) -> None:
         self.settings = settings
@@ -185,38 +190,34 @@ class AppContainer:
             )
             else None
         )
-        self.agent_run_repo: AgentRunRepoPort = (
-            agent_run_repo or build_agent_run_repo(settings, pool=pool)
-        )
-        self.assessment_repo: AssessmentRepoPort = (
-            assessment_repo or build_assessment_repo(settings, pool=pool)
-        )
-        self.user_repo: UserRepoPort = user_repo or build_user_repo(
+        self.agent_run_repo: AgentRunRepoPort = agent_run_repo or build_agent_run_repo(
             settings, pool=pool
         )
-        self.task_repo: TaskRepoPort = task_repo or build_task_repo(
+        self.assessment_repo: AssessmentRepoPort = assessment_repo or build_assessment_repo(
             settings, pool=pool
         )
-        self.workspace_repo: WorkspaceRepoPort = (
-            workspace_repo or build_workspace_repo(settings, pool=pool)
-        )
-        self.case_repo: CaseRepoPort = case_repo or build_case_repo(
+        self.user_repo: UserRepoPort = user_repo or build_user_repo(settings, pool=pool)
+        self.task_repo: TaskRepoPort = task_repo or build_task_repo(settings, pool=pool)
+        self.workspace_repo: WorkspaceRepoPort = workspace_repo or build_workspace_repo(
             settings, pool=pool
         )
-        self.case_fact_repo: CaseFactRepoPort = (
-            case_fact_repo or build_case_fact_repo(settings, pool=pool)
+        self.case_repo: CaseRepoPort = case_repo or build_case_repo(settings, pool=pool)
+        self.case_fact_repo: CaseFactRepoPort = case_fact_repo or build_case_fact_repo(
+            settings, pool=pool
         )
         self.document_repo: DocumentRepoPort = document_repo or build_document_repo(
             settings, pool=pool
         )
-        self.evidence_index: EvidenceIndexPort = (
-            evidence_index or build_evidence_index(settings, pool=pool)
-        )
-        self.policy_rule_repo: PolicyRuleRepoPort = (
-            policy_rule_repo or build_policy_rule_repo(settings, pool=pool)
-        )
-        self.audit_log: AuditLogPort = audit_log or build_audit_log(
+        self.evidence_index: EvidenceIndexPort = evidence_index or build_evidence_index(
             settings, pool=pool
+        )
+        self.policy_rule_repo: PolicyRuleRepoPort = policy_rule_repo or build_policy_rule_repo(
+            settings, pool=pool
+        )
+        self.audit_log: AuditLogPort = audit_log or build_audit_log(settings, pool=pool)
+        self.readiness: ReadinessPort = readiness or build_readiness(
+            settings,
+            pool=pool,
         )
         # 消息反馈（点赞/点踩统计）复用同一连接池。
         self.feedback_repo = build_feedback_repo(settings, pool=pool)
@@ -225,16 +226,13 @@ class AppContainer:
         self.embedder: EmbedPort = embedder or build_embedder(settings)
         self.chat: ChatPort = chat or build_chat(settings)
         self.evidence_qa_generator: EvidenceQAGeneratorPort = (
-            evidence_qa_generator
-            or build_evidence_qa_generator(settings, chat=self.chat)
+            evidence_qa_generator or build_evidence_qa_generator(settings, chat=self.chat)
         )
         self.claim_support_verifier: ClaimSupportVerifierPort = (
-            claim_support_verifier
-            or build_claim_support_verifier(settings, chat=self.chat)
+            claim_support_verifier or build_claim_support_verifier(settings, chat=self.chat)
         )
         self.fact_proposal_generator: FactProposalGeneratorPort = (
-            fact_proposal_generator
-            or build_fact_proposal_generator(settings, chat=self.chat)
+            fact_proposal_generator or build_fact_proposal_generator(settings, chat=self.chat)
         )
         self.retriever: RetrievePort = retriever or build_retriever(settings)
         self.web_search: WebSearchPort = web_search or build_web_search(settings)
@@ -249,14 +247,14 @@ class AppContainer:
         self.object_store: ObjectStorePort = object_store or build_object_store(settings)
         self.visual_index = visual_index or build_visual_index(settings, pool=pool)
         self.visual_embedder = visual_embedder or build_visual_embedder(settings)
-        self.document_parser: DocumentParserPort = (
-            document_parser or build_document_parser(settings)
+        self.document_parser: DocumentParserPort = document_parser or build_document_parser(
+            settings
         )
-        self.evidence_chunker: EvidenceChunkerPort = (
-            evidence_chunker or build_evidence_chunker(settings)
+        self.evidence_chunker: EvidenceChunkerPort = evidence_chunker or build_evidence_chunker(
+            settings
         )
-        self.workflow_runtime: WorkflowRuntimePort = (
-            workflow_runtime or build_workflow_runtime(settings, trace=self.trace)
+        self.workflow_runtime: WorkflowRuntimePort = workflow_runtime or build_workflow_runtime(
+            settings, trace=self.trace
         )
         self.research: ResearchPort = research or build_research(
             settings,
@@ -279,8 +277,8 @@ class AppContainer:
         self.profile_store: ProfileStorePort | None = build_profile_store(
             settings, task_repo=self.task_repo
         )
-        self.memory_settings_store: MemorySettingsStorePort | None = (
-            build_memory_settings_store(settings, task_repo=self.task_repo)
+        self.memory_settings_store: MemorySettingsStorePort | None = build_memory_settings_store(
+            settings, task_repo=self.task_repo
         )
         self.memory: MemoryPort | None = memory or build_memory(
             settings,
@@ -337,9 +335,7 @@ class AppContainer:
             object_store=self.object_store,
             parser=self.document_parser,
         )
-        self.document_management.bind_processing_worker(
-            self.document_processing_worker
-        )
+        self.document_management.bind_processing_worker(self.document_processing_worker)
         self.evidence_index_worker = EvidenceIndexWorker(
             document_repo=self.document_repo,
             chunker=self.evidence_chunker,
@@ -403,9 +399,7 @@ class AppContainer:
             assessment_management=self.assessment_management,
         )
         self.feedback = FeedbackUseCase(self.feedback_repo)
-        self.forget_memory = ForgetMemoryUseCase(
-            self.memory, audit_log=self.audit_log
-        )
+        self.forget_memory = ForgetMemoryUseCase(self.memory, audit_log=self.audit_log)
         self.memory_settings = MemorySettingsUseCase(
             self.memory_settings_store, audit_log=self.audit_log
         )
@@ -432,5 +426,6 @@ class AppContainer:
             research=self.research,
             memory_scheduler=self.memory_scheduler,
         )
+
 
 __all__ = ["AppContainer"]

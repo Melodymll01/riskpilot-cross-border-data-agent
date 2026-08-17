@@ -19,9 +19,7 @@ class _RecordingMemory:
         self._boom = boom
         self.done = threading.Event()
 
-    def maybe_summarize(
-        self, owner_id: str, task_id: str, threshold: int = 20
-    ) -> None:
+    def maybe_summarize(self, owner_id: str, task_id: str, threshold: int = 20) -> None:
         try:
             if self._boom:
                 raise RuntimeError("故意炸")

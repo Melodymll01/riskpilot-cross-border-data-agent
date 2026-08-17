@@ -55,7 +55,6 @@ class TestLazyRetriever:
         assert stub.calls == [("q", 1)]
 
 
-
 # ── _dict_to_chunk 转换 ─────────────────────────────────────────────
 
 

@@ -39,6 +39,7 @@ from tests.fakes.fake_fact_proposals import FakeFactProposalGenerator
 from tests.fakes.fake_kb_repo import FakeKbRepo
 from tests.fakes.fake_object_store import FakeObjectStore
 from tests.fakes.fake_qa import FakeClaimSupportVerifier, FakeEvidenceQAGenerator
+from tests.fakes.fake_readiness import FakeReadiness
 from tests.fakes.fake_repos import (
     InMemoryAgentRunRepo,
     InMemoryAssessmentRepo,
@@ -110,9 +111,7 @@ def container(
         document_parser=FakeDocumentParser(),
         evidence_chunker=FakeEvidenceChunker(),
         evidence_index=FakeEvidenceIndex(document_repo),
-        workflow_runtime=LangGraphWorkflowRuntime(
-            str(tmp_path / "langgraph-checkpoints.sqlite3")
-        ),
+        workflow_runtime=LangGraphWorkflowRuntime(str(tmp_path / "langgraph-checkpoints.sqlite3")),
         audit_log=FakeAuditLogRepo(),
         embedder=FakeEmbed(),
         chat=FakeChat(responses=["done"]),
@@ -122,6 +121,7 @@ def container(
         retriever=FakeRetrieve(),
         web_search=FakeWebSearch(),
         risk_profile=FakeRiskProfile(),
+        readiness=FakeReadiness(),
         research=FakeResearch(),
         kb_repo=FakeKbRepo(),
         document_loader=FakeDocumentLoader(),

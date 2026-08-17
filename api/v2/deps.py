@@ -93,9 +93,7 @@ def make_require_admin(container: AppContainer) -> Callable[[Request], str]:
     return _require_admin
 
 
-def set_session_cookie(
-    response: Response, token: str, settings: Settings
-) -> None:
+def set_session_cookie(response: Response, token: str, settings: Settings) -> None:
     """统一签发 session cookie。"""
     response.set_cookie(
         key=settings.cookie_name,

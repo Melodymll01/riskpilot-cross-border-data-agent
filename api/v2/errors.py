@@ -142,9 +142,7 @@ def install_exception_handlers(
         # DomainError 是 v2 / app / domain 内部异常；理论上不会从老路由抛出。
         # 出现在老路由 = bug，给个 500。
         if not _in_scope(request):
-            return JSONResponse(
-                status_code=500, content={"detail": "Internal Server Error"}
-            )
+            return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
         status_code, code = _map_domain_error(exc)
         body = ErrorResponse(error_code=code, message=str(exc))
         return JSONResponse(status_code=status_code, content=body.model_dump())
@@ -154,18 +152,14 @@ def install_exception_handlers(
         if not _in_scope(request):
             return JSONResponse(status_code=500, content={"detail": str(exc)})
         body = ErrorResponse(error_code="FORBIDDEN", message=str(exc))
-        return JSONResponse(
-            status_code=status.HTTP_403_FORBIDDEN, content=body.model_dump()
-        )
+        return JSONResponse(status_code=status.HTTP_403_FORBIDDEN, content=body.model_dump())
 
     @app.exception_handler(ValueError)
     async def _value_handler(request: Request, exc: ValueError) -> JSONResponse:
         if not _in_scope(request):
             return JSONResponse(status_code=500, content={"detail": str(exc)})
         body = ErrorResponse(error_code="BAD_REQUEST", message=str(exc))
-        return JSONResponse(
-            status_code=status.HTTP_400_BAD_REQUEST, content=body.model_dump()
-        )
+        return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content=body.model_dump())
 
     @app.exception_handler(HTTPException)
     async def _http_handler(request: Request, exc: HTTPException) -> JSONResponse:

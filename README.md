@@ -60,8 +60,8 @@
 
 | 维度 | 数值 |
 | --- | --- |
-| 离线回归 | **1208 passed · 1 skipped**；真实模型/CLIP 评测显式 `--live` |
-| 架构规模 | **40 Port + 17 Use Case** · DDD 4 层 |
+| 离线回归 | **1219 passed · 1 skipped**；真实模型/CLIP 评测显式 `--live` |
+| 架构规模 | **41 Port + 17 Use Case** · DDD 4 层 |
 | V3 资源接口 | **45 个路由** · Workspace → Visual Evidence / Evidence QA / Assessment Run |
 | Agent/Graph | LangChain Tool Calling + 2 张 LangGraph（Research / Assessment） |
 | 记忆系统 | **4 层**（L1 最近消息 → L4 语义事实）+ `hybrid_v1` 可解释召回 |
@@ -76,7 +76,7 @@
 flowchart TB
     API[api/v2 + api/v3 · 入口层<br/>QA / Case / Evidence / Assessment Run]
     APP[app · 用例编排层<br/>AppContainer + 17 Use Case]
-    DOMAIN[domain · 纯模型 + 40 Port Protocol]
+    DOMAIN[domain · 纯模型 + 41 Port Protocol]
     INFRA[infra · 适配器<br/>LangChain / LangGraph / LangSmith / retrieval / memory / Chinese-CLIP]
 
     API --> APP --> DOMAIN
@@ -147,7 +147,7 @@ Prompt 或其他用户数据。`evaluations/memory_recall` 以版本化数据集
 
 ## 工程亮点
 
-- **DDD 4 层架构** + 40 Port Protocol + Container 依赖注入，domain 不依赖 FastAPI、
+- **DDD 4 层架构** + 41 Port Protocol + Container 依赖注入，domain 不依赖 FastAPI、
   LangGraph 或具体数据库
 - **标准 Agent 框架**：LangChain 负责模型和 Tool Calling；LangGraph 负责长程、有状态、
   可中断流程；领域层不依赖具体框架
@@ -162,8 +162,8 @@ Prompt 或其他用户数据。`evaluations/memory_recall` 以版本化数据集
 - **全链路审计**：admin 写操作全部落审计日志，可合规追责
 - **可替换可观测性**：`TracePort` 隔离 LangSmith，默认无网络；启用后强制客户端脱敏，
   不把案件正文、记忆原文、Prompt、回答或异常栈上传第三方
-- **CI 守护**：GitHub Actions scoped Ruff + 完整离线 pytest，`main` push / PR 自动运行；
-  research 等外部能力全部注入 Fake，假 API Key 不会产生真实外呼
+- **CI 守护**：GitHub Actions 全量 Ruff + format + mypy + 零密钥 pytest；
+  research 等外部能力全部注入 Fake，不访问网络、不下载模型、不产生费用
 
 ## 快速开始
 
@@ -172,7 +172,8 @@ Prompt 或其他用户数据。`evaluations/memory_recall` 以版本化数据集
 ```bash
 git clone https://github.com/Melodymll01/riskpilot-cross-border-data-agent.git
 cd riskpilot-cross-border-data-agent
-copy .env.example .env          # 编辑 .env，填入 OPENAI_API_KEY
+cp .env.example .env            # Windows PowerShell 使用 copy
+# 编辑 .env，填入 OPENAI_API_KEY
 docker compose up -d
 ```
 
@@ -182,13 +183,20 @@ docker compose up -d
 
 ```bash
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1     # macOS/Linux: source .venv/bin/activate
+source .venv/bin/activate        # Windows PowerShell: .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-copy .env.example .env           # 至少填 OPENAI_API_KEY / OPENAI_API_BASE
+cp .env.example .env             # Windows PowerShell 使用 copy
 uvicorn main:app --host 127.0.0.1 --port 8001 --reload
 ```
 
 - 前端：<http://localhost:8001>　·　API 文档：<http://localhost:8001/docs>
+
+零密钥质量验证（不会访问模型服务）：
+
+```bash
+pip install -r requirements-dev.txt
+make ci
+```
 
 最小 `.env`（智谱 GLM 通道，与 `config.py` 默认对齐）：
 
@@ -269,7 +277,7 @@ ADMIN_USER_IDS=github:your-github-login
 ## 技术栈
 
 - **后端**：FastAPI + Pydantic v2
-- **架构**：DDD 4 层 + 40 Port + Container DI + WorkflowRuntimePort + TracePort
+- **架构**：DDD 4 层 + 41 Port + Container DI + WorkflowRuntimePort + TracePort
 - **Agent**：LangChain 1.3 `create_agent` + OpenAI-compatible `ChatOpenAI`
 - **工作流**：LangGraph 1.2 + SQLite checkpointer + interrupt/resume
 - **可观测性**：可选 LangSmith + 客户端白名单/HMAC 脱敏；默认关闭

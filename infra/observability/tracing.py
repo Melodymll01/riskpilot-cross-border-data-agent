@@ -122,9 +122,7 @@ class _LangSmithTraceSpan:
         self._hash_salt = hash_salt
 
     def add_metadata(self, metadata: Mapping[str, Any]) -> None:
-        self._run.add_metadata(
-            sanitize_trace_metadata(metadata, hash_salt=self._hash_salt)
-        )
+        self._run.add_metadata(sanitize_trace_metadata(metadata, hash_salt=self._hash_salt))
 
 
 class _PrivacySafeClient(Client):
@@ -142,9 +140,7 @@ class _PrivacySafeClient(Client):
         transformed.pop("attachments", None)
         transformed["name"] = _safe_run_name(str(transformed.get("name") or ""))
         transformed["tags"] = [
-            tag
-            for tag in transformed.get("tags") or []
-            if tag in {"privacy-redacted", "riskpilot"}
+            tag for tag in transformed.get("tags") or [] if tag in {"privacy-redacted", "riskpilot"}
         ]
         metadata = {}
         extra = transformed.get("extra")
@@ -174,11 +170,7 @@ class LangSmithTraceAdapter:
             raise ValueError("LANGSMITH_HASH_SALT 至少 16 个字符")
         if not 0.0 <= sampling_rate <= 1.0:
             raise ValueError("LANGSMITH_SAMPLING_RATE 必须在 0 到 1 之间")
-        self._project = (
-            project
-            if re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", project)
-            else "riskpilot"
-        )
+        self._project = project if re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", project) else "riskpilot"
         self._hash_salt = hash_salt
         self._client = _PrivacySafeClient(
             api_url=endpoint,
@@ -203,19 +195,22 @@ class LangSmithTraceAdapter:
             metadata or {},
             hash_salt=self._hash_salt,
         )
-        with tracing_context(
-            project_name=self._project,
-            enabled=True,
-            client=self._client,
-            tags=["privacy-redacted", "riskpilot"],
-        ), trace(
-            _safe_run_name(name),
-            run_type=run_type,
-            inputs={},
-            project_name=self._project,
-            metadata=safe_metadata,
-            client=self._client,
-        ) as run:
+        with (
+            tracing_context(
+                project_name=self._project,
+                enabled=True,
+                client=self._client,
+                tags=["privacy-redacted", "riskpilot"],
+            ),
+            trace(
+                _safe_run_name(name),
+                run_type=run_type,
+                inputs={},
+                project_name=self._project,
+                metadata=safe_metadata,
+                client=self._client,
+            ) as run,
+        ):
             yield _LangSmithTraceSpan(run, hash_salt=self._hash_salt)
 
     def _anonymize(self, data: dict[str, Any]) -> dict[str, Any]:
@@ -241,15 +236,17 @@ def sanitize_trace_metadata(
         ):
             sanitized[key] = value
         elif key in _STRING_KEYS and isinstance(value, str):
-            sanitized[key] = (
-                value if _SAFE_STRING.fullmatch(value) else "[redacted]"
-            )
+            sanitized[key] = value if _SAFE_STRING.fullmatch(value) else "[redacted]"
         elif (
-            key in _NUMBER_KEYS
-            and isinstance(value, (int, float))
-            and not isinstance(value, bool)
-            and math.isfinite(value)
-        ) or key in _BOOLEAN_KEYS and isinstance(value, bool):
+            (
+                key in _NUMBER_KEYS
+                and isinstance(value, (int, float))
+                and not isinstance(value, bool)
+                and math.isfinite(value)
+            )
+            or key in _BOOLEAN_KEYS
+            and isinstance(value, bool)
+        ):
             sanitized[key] = value
     return sanitized
 

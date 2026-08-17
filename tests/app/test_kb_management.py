@@ -104,9 +104,7 @@ class TestIngestFile:
     def test_happy_path(self) -> None:
         chunks = _make_kb_chunks("PIPL", 3)
         uc, repo, loader, embedder = _make_uc(loader=FakeDocumentLoader(chunks=chunks))
-        result = uc.ingest_file(
-            "/tmp/PIPL.txt", original_filename="PIPL.txt", category="法规"
-        )
+        result = uc.ingest_file("/tmp/PIPL.txt", original_filename="PIPL.txt", category="法规")
         assert isinstance(result, KbIngestResult)
         assert result.success is True
         assert result.source_name == "PIPL"

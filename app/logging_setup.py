@@ -26,8 +26,7 @@ from collections.abc import Iterable
 from app.request_context import get_request_id, get_user_id
 
 DEFAULT_FORMAT = (
-    "%(asctime)s [%(levelname)s] [%(request_id)s] [uid:%(user_id)s] "
-    "%(name)s: %(message)s"
+    "%(asctime)s [%(levelname)s] [%(request_id)s] [uid:%(user_id)s] %(name)s: %(message)s"
 )
 """默认 logging 格式串：在 levelname 与 logger name 之间插入
 ``[request_id]`` 与 ``[uid:user_id]`` 两段（Step 025f / 025g）。"""
@@ -100,8 +99,7 @@ def configure_logging(
         _attach_filter_to_handler(h)
         # 幂等：同一类型 handler 已存在就不重复加（按类比对避免每次重启日志翻倍）
         if not any(
-            isinstance(existing, type(h))
-            and getattr(existing, "_step025f_owned", False)
+            isinstance(existing, type(h)) and getattr(existing, "_step025f_owned", False)
             for existing in root.handlers
         ):
             h._step025f_owned = True  # type: ignore[attr-defined]

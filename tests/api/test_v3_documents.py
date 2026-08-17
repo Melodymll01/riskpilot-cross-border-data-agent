@@ -248,12 +248,8 @@ class TestEvidenceIsolation:
             f"/api/v3/cases/{case_a}/documents",
             files={"file": ("a.txt", "普通说明".encode(), "text/plain")},
         ).json()
-        client.post(
-            f"/api/v3/processing-jobs/{uploaded_a['job']['job_id']}/parse"
-        )
-        client.post(
-            f"/api/v3/processing-jobs/{uploaded_a['job']['job_id']}/index"
-        )
+        client.post(f"/api/v3/processing-jobs/{uploaded_a['job']['job_id']}/parse")
+        client.post(f"/api/v3/processing-jobs/{uploaded_a['job']['job_id']}/index")
 
         uploaded_b = client.post(
             f"/api/v3/cases/{case_b}/documents",
@@ -265,12 +261,8 @@ class TestEvidenceIsolation:
                 )
             },
         ).json()
-        client.post(
-            f"/api/v3/processing-jobs/{uploaded_b['job']['job_id']}/parse"
-        )
-        client.post(
-            f"/api/v3/processing-jobs/{uploaded_b['job']['job_id']}/index"
-        )
+        client.post(f"/api/v3/processing-jobs/{uploaded_b['job']['job_id']}/parse")
+        client.post(f"/api/v3/processing-jobs/{uploaded_b['job']['job_id']}/index")
 
         response = client.get(
             f"/api/v3/cases/{case_a}/evidence/search",

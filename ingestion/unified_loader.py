@@ -5,7 +5,6 @@
 """
 
 from dataclasses import dataclass, field
-from typing import Optional
 
 
 @dataclass
@@ -20,11 +19,12 @@ class RawDocument:
         title: 文档标题
         source_url: 来源 URL（仅网页有）
     """
+
     content: str
-    source_type: str             # "file" | "web"
+    source_type: str  # "file" | "web"
     source_name: str
     title: str
-    source_url: Optional[str] = None
+    source_url: str | None = None
     extra_metadata: dict = field(default_factory=dict)
 
 
@@ -42,7 +42,7 @@ class UnifiedLoader:
         self.file_loader = FileLoader()
         self.web_loader = WebLoader()
 
-    def load_file(self, file_path: str, original_filename: Optional[str] = None) -> RawDocument:
+    def load_file(self, file_path: str, original_filename: str | None = None) -> RawDocument:
         """加载本地文件，返回统一文档对象。"""
         return self.file_loader.load(file_path, original_filename)
 

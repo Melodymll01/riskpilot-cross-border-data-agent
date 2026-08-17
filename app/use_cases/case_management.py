@@ -6,7 +6,7 @@ import time
 import uuid
 from collections.abc import Mapping
 from datetime import date
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from domain.cases import Case, CaseStatus
 from domain.errors import (
@@ -134,7 +134,7 @@ class CaseManagementUseCase:
         payload = case.model_dump()
         payload.update(changes)
         payload["updated_at"] = time.time()
-        updated = cast("Case", Case.model_validate(payload))
+        updated = Case.model_validate(payload)
         self._case_repo.update(updated)
         return updated
 

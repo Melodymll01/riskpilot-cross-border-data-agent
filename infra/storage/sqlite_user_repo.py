@@ -48,9 +48,7 @@ class SqliteUserRepo:
 
     def get(self, user_id: str) -> User | None:
         conn = self._pool.get()
-        row = conn.execute(
-            "SELECT * FROM users WHERE user_id = ?", (user_id,)
-        ).fetchone()
+        row = conn.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)).fetchone()
         if row is None:
             return None
         return _row_to_user(row)

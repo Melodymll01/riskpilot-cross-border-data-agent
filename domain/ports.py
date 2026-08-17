@@ -126,9 +126,7 @@ class WorkspaceRepoPort(Protocol):
 
     def list_for_user(self, user_id: str, limit: int = 50) -> list[Workspace]: ...
 
-    def get_membership(
-        self, workspace_id: str, user_id: str
-    ) -> WorkspaceMembership | None: ...
+    def get_membership(self, workspace_id: str, user_id: str) -> WorkspaceMembership | None: ...
 
     def upsert_membership(self, membership: WorkspaceMembership) -> None: ...
 
@@ -255,9 +253,7 @@ class DocumentRepoPort(Protocol):
         """原子保存解析快照，并推进版本、文档和任务状态。"""
         ...
 
-    def get_parse_snapshot(
-        self, document_version_id: str
-    ) -> DocumentParseSnapshot | None: ...
+    def get_parse_snapshot(self, document_version_id: str) -> DocumentParseSnapshot | None: ...
 
 
 @runtime_checkable
@@ -543,9 +539,7 @@ class FeedbackRepoPort(Protocol):
 
     def clear(self, msg_id: str, owner_id: str) -> bool: ...
 
-    def get_for_task(
-        self, task_id: str, owner_id: str
-    ) -> dict[str, str]: ...
+    def get_for_task(self, task_id: str, owner_id: str) -> dict[str, str]: ...
 
     def counts(self) -> dict[str, int]: ...
 
@@ -601,6 +595,13 @@ class TracePort(Protocol):
         run_type: Literal["chain", "llm", "tool", "retriever"] = "chain",
         metadata: Mapping[str, Any] | None = None,
     ) -> AbstractContextManager[TraceSpanPort]: ...
+
+
+@runtime_checkable
+class ReadinessPort(Protocol):
+    """应用必需依赖的就绪检查；不得检查可选 LLM 或外部搜索服务。"""
+
+    def check(self) -> dict[str, bool | str]: ...
 
 
 @runtime_checkable
@@ -806,9 +807,7 @@ class MemoryPort(Protocol):
     # L2 摘要：按 task_id
     def get_summary(self, owner_id: str, task_id: str) -> str | None: ...
 
-    def maybe_summarize(
-        self, owner_id: str, task_id: str, threshold: int = 20
-    ) -> None: ...
+    def maybe_summarize(self, owner_id: str, task_id: str, threshold: int = 20) -> None: ...
 
     # L3 用户画像：按 owner_id（跨 task / 跨设备）
     def get_profile(self, owner_id: str) -> SessionProfile: ...
@@ -894,17 +893,13 @@ class FactStorePort(Protocol):
 
     def add(self, fact: Fact, embedding: list[float]) -> None: ...
 
-    def query(
-        self, owner_id: str, embedding: list[float], k: int
-    ) -> list[tuple[Fact, float]]:
+    def query(self, owner_id: str, embedding: list[float], k: int) -> list[tuple[Fact, float]]:
         """按 owner 隔离的近邻检索，返回 ``(fact, 相似度)`` 倒序（含已 superseded，由调用方过滤）。"""
         ...
 
     def get(self, owner_id: str, fact_id: str) -> Fact | None: ...
 
-    def mark_superseded(
-        self, owner_id: str, fact_id: str, superseded_by: str
-    ) -> None: ...
+    def mark_superseded(self, owner_id: str, fact_id: str, superseded_by: str) -> None: ...
 
     def list_owner(self, owner_id: str) -> list[Fact]: ...
 

@@ -84,8 +84,7 @@ def build_visual_routes(container: AppContainer) -> APIRouter:
         )
         return VisualSearchResponse(
             hits=[
-                VisualSearchHitOut(asset=_to_asset_out(hit.asset), score=hit.score)
-                for hit in hits
+                VisualSearchHitOut(asset=_to_asset_out(hit.asset), score=hit.score) for hit in hits
             ]
         )
 

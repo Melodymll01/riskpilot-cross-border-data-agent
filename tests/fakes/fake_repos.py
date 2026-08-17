@@ -79,9 +79,7 @@ class InMemoryTaskRepo:
         self._messages.setdefault(msg.task_id, []).append(msg)
         t = self._tasks.get(msg.task_id)
         if t is not None:
-            self._tasks[msg.task_id] = t.model_copy(
-                update={"updated_at": msg.created_at}
-            )
+            self._tasks[msg.task_id] = t.model_copy(update={"updated_at": msg.created_at})
 
     def list_messages(self, task_id: str) -> list[Message]:
         return list(self._messages.get(task_id, []))
@@ -106,9 +104,9 @@ class InMemoryWorkspaceRepo:
         creator_membership: WorkspaceMembership,
     ) -> None:
         self._workspaces[workspace.workspace_id] = workspace
-        self._memberships[
-            (creator_membership.workspace_id, creator_membership.user_id)
-        ] = creator_membership
+        self._memberships[(creator_membership.workspace_id, creator_membership.user_id)] = (
+            creator_membership
+        )
 
     def get(self, workspace_id: str) -> Workspace | None:
         return self._workspaces.get(workspace_id)
@@ -127,9 +125,7 @@ class InMemoryWorkspaceRepo:
         items.sort(key=lambda workspace: workspace.updated_at, reverse=True)
         return items[:limit]
 
-    def get_membership(
-        self, workspace_id: str, user_id: str
-    ) -> WorkspaceMembership | None:
+    def get_membership(self, workspace_id: str, user_id: str) -> WorkspaceMembership | None:
         return self._memberships.get((workspace_id, user_id))
 
     def upsert_membership(self, membership: WorkspaceMembership) -> None:
@@ -165,8 +161,7 @@ class InMemoryCaseRepo:
         items = [
             case
             for case in self._cases.values()
-            if case.workspace_id == workspace_id
-            and (include_archived or case.status != "archived")
+            if case.workspace_id == workspace_id and (include_archived or case.status != "archived")
         ]
         items.sort(key=lambda case: case.updated_at, reverse=True)
         return items[:limit]
@@ -206,9 +201,7 @@ class InMemoryDocumentRepo:
 
     def list_versions(self, document_id: str) -> list[DocumentVersion]:
         versions = [
-            version
-            for version in self._versions.values()
-            if version.document_id == document_id
+            version for version in self._versions.values() if version.document_id == document_id
         ]
         versions.sort(key=lambda version: version.version_number, reverse=True)
         return versions
@@ -237,8 +230,7 @@ class InMemoryDocumentRepo:
         documents = [
             document
             for document_id, document in self._documents.items()
-            if document_id in document_ids
-            and (include_deleted or document.status != "deleted")
+            if document_id in document_ids and (include_deleted or document.status != "deleted")
         ]
         documents.sort(key=lambda document: document.updated_at, reverse=True)
         return documents
@@ -251,9 +243,7 @@ class InMemoryDocumentRepo:
         document_version_id: str,
     ) -> ProcessingJob | None:
         jobs = [
-            job
-            for job in self._jobs.values()
-            if job.document_version_id == document_version_id
+            job for job in self._jobs.values() if job.document_version_id == document_version_id
         ]
         return max(jobs, key=lambda job: (job.created_at, job.job_id), default=None)
 
@@ -285,9 +275,7 @@ class InMemoryDocumentRepo:
         self.update_document(document)
         self.update_job(job)
 
-    def get_parse_snapshot(
-        self, document_version_id: str
-    ) -> DocumentParseSnapshot | None:
+    def get_parse_snapshot(self, document_version_id: str) -> DocumentParseSnapshot | None:
         return self._snapshots.get(document_version_id)
 
 
@@ -343,8 +331,7 @@ class InMemoryCaseFactRepo:
         facts = [
             fact
             for fact in self._facts.values()
-            if fact.case_id == case_id
-            and (not statuses or fact.status in statuses)
+            if fact.case_id == case_id and (not statuses or fact.status in statuses)
         ]
         facts.sort(key=lambda fact: (fact.updated_at, fact.fact_id), reverse=True)
         return facts
@@ -394,9 +381,7 @@ class InMemoryCaseFactRepo:
             raise ValueError("批量状态更新 Fact ID 不能重复")
         if any(fact_id not in self._facts for fact_id in fact_ids):
             raise ValueError("待更新事实不存在")
-        if any(
-            fact.version != self._facts[fact.fact_id].version for fact in facts
-        ):
+        if any(fact.version != self._facts[fact.fact_id].version for fact in facts):
             raise ValueError("状态更新不能改变事实版本")
         for fact in facts:
             self._facts[fact.fact_id] = fact
@@ -529,11 +514,7 @@ class InMemoryAgentRunRepo:
             or run.checkpoint_id != checkpoint.checkpoint_id
         ):
             raise ValueError("初始 AgentRun 与 RunCheckpoint 不一致")
-        if (
-            event.run_id != run.run_id
-            or event.sequence != 1
-            or event.event_type != "run_started"
-        ):
+        if event.run_id != run.run_id or event.sequence != 1 or event.event_type != "run_started":
             raise ValueError("首个 RunEvent 必须是 sequence=1 的 run_started")
         self._runs[run.run_id] = run
         self._checkpoints[checkpoint.checkpoint_id] = checkpoint
@@ -547,9 +528,7 @@ class InMemoryAgentRunRepo:
 
     def get_latest_checkpoint(self, run_id: str) -> RunCheckpoint | None:
         checkpoints = [
-            checkpoint
-            for checkpoint in self._checkpoints.values()
-            if checkpoint.run_id == run_id
+            checkpoint for checkpoint in self._checkpoints.values() if checkpoint.run_id == run_id
         ]
         return max(checkpoints, key=lambda item: item.version, default=None)
 
@@ -565,11 +544,9 @@ class InMemoryAgentRunRepo:
         after_sequence: int = 0,
         limit: int = 200,
     ) -> list[RunEvent]:
-        return [
-            event
-            for event in self._events.get(run_id, [])
-            if event.sequence > after_sequence
-        ][:limit]
+        return [event for event in self._events.get(run_id, []) if event.sequence > after_sequence][
+            :limit
+        ]
 
     def next_checkpoint_version(self, run_id: str) -> int:
         checkpoint = self.get_latest_checkpoint(run_id)

@@ -9,6 +9,7 @@ from domain.qa import (
     ClaimCitationVerifier,
     ClaimRemovalReason,
     ClaimRepairReport,
+    ClaimRepairStatus,
     ClaimSupportJudgement,
     ClaimSupportResult,
     EvidenceQAAnswer,
@@ -406,12 +407,7 @@ class EvidenceQAUseCase:
             page_text = "\n\n".join(part for part in page_parts if part)
             if citation.quote not in page_text:
                 continue
-            verified.append(
-                cast(
-                    "EvidenceQACitation",
-                    citation.model_copy(update={"source_name": document.logical_name}),
-                )
-            )
+            verified.append(citation.model_copy(update={"source_name": document.logical_name}))
         return verified
 
 
@@ -424,45 +420,47 @@ def _normalize_citations(
     candidates: list[tuple[float, str, dict[str, object]]] = []
     for corpus, result in raw_results:
         if corpus == "regulatory":
-            for chunk in cast("list[Chunk]", result)[:per_corpus_limit]:
+            for regulatory_chunk in cast("list[Chunk]", result)[:per_corpus_limit]:
                 candidates.append(
                     (
-                        chunk.score,
-                        f"regulatory:{chunk.chunk_id}",
+                        regulatory_chunk.score,
+                        f"regulatory:{regulatory_chunk.chunk_id}",
                         {
                             "corpus": "regulatory",
-                            "source_id": chunk.chunk_id,
-                            "source_name": chunk.source_name,
-                            "title": chunk.title,
-                            "quote": chunk.text[:4000],
-                            "source_url": chunk.source_url,
-                            "clause_id": str(chunk.metadata.get("clause_id") or "") or None,
-                            "score": max(0.0, chunk.score),
+                            "source_id": regulatory_chunk.chunk_id,
+                            "source_name": regulatory_chunk.source_name,
+                            "title": regulatory_chunk.title,
+                            "quote": regulatory_chunk.text[:4000],
+                            "source_url": regulatory_chunk.source_url,
+                            "clause_id": (
+                                str(regulatory_chunk.metadata.get("clause_id") or "") or None
+                            ),
+                            "score": max(0.0, regulatory_chunk.score),
                         },
                     )
                 )
         elif corpus in {"workspace", "case"}:
             for hit in cast("list[EvidenceSearchHit]", result)[:per_corpus_limit]:
-                chunk = hit.chunk
+                evidence_chunk = hit.chunk
                 candidates.append(
                     (
                         hit.score,
                         (
-                            f"{corpus}:{chunk.document_version_id}:"
-                            f"{chunk.page_number}:{chunk.chunk_index}"
+                            f"{corpus}:{evidence_chunk.document_version_id}:"
+                            f"{evidence_chunk.page_number}:{evidence_chunk.chunk_index}"
                         ),
                         {
                             "corpus": corpus,
-                            "source_id": chunk.chunk_id,
-                            "source_name": chunk.document_id,
-                            "title": f"第 {chunk.page_number} 页",
-                            "quote": chunk.text[:4000],
-                            "workspace_id": chunk.workspace_id,
-                            "case_id": chunk.case_id if corpus == "case" else None,
-                            "document_id": chunk.document_id,
-                            "document_version_id": chunk.document_version_id,
-                            "page_number": chunk.page_number,
-                            "source_sha256": chunk.source_sha256,
+                            "source_id": evidence_chunk.chunk_id,
+                            "source_name": evidence_chunk.document_id,
+                            "title": f"第 {evidence_chunk.page_number} 页",
+                            "quote": evidence_chunk.text[:4000],
+                            "workspace_id": evidence_chunk.workspace_id,
+                            "case_id": (evidence_chunk.case_id if corpus == "case" else None),
+                            "document_id": evidence_chunk.document_id,
+                            "document_version_id": evidence_chunk.document_version_id,
+                            "page_number": evidence_chunk.page_number,
+                            "source_sha256": evidence_chunk.source_sha256,
                             "score": hit.score,
                         },
                     )
@@ -484,9 +482,11 @@ def _normalize_citations(
     citations: list[EvidenceQACitation] = []
     for index, (_, values) in enumerate(ordered, start=1):
         citations.append(
-            EvidenceQACitation(
-                citation_id=f"E{index}",
-                **values,
+            EvidenceQACitation.model_validate(
+                {
+                    "citation_id": f"E{index}",
+                    **values,
+                }
             )
         )
     return citations
@@ -591,7 +591,7 @@ def _repair_report(
     kept_id_set = set(kept_ids)
     removed_ids = [claim.claim_id for claim in original_claims if claim.claim_id not in kept_id_set]
     if not removed_ids:
-        status = "not_needed"
+        status: ClaimRepairStatus = "not_needed"
     elif kept_ids:
         status = "repaired"
     else:

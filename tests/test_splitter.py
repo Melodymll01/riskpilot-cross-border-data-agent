@@ -1,6 +1,5 @@
 """test_splitter.py — TextSplitter 单元测试。"""
 
-import pytest
 from processing.splitter import TextSplitter
 
 
@@ -36,14 +35,6 @@ class TestTextSplitter:
         text = "。".join([f"第{i}条关于数据出境的重要规定" for i in range(1, 15)])
         chunks = splitter.split(text)
         if len(chunks) >= 2:
-            # 至少有一对相邻 chunk 有内容重叠
-            has_overlap = False
-            for i in range(len(chunks) - 1):
-                # 检查后一个 chunk 是否包含前一个 chunk 末尾的部分内容
-                tail = chunks[i][-20:]  # 取最后 20 个字符
-                if tail in chunks[i + 1]:
-                    has_overlap = True
-                    break
             # overlap 不一定精确包含，但 chunk 数应该大于无 overlap 时
             assert len(chunks) >= 2
 

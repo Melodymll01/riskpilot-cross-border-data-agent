@@ -150,9 +150,7 @@ class TestTaskRepo:
         task_repo.create(_task("t1", "github:alice"))
         assert task_repo.get("t1", "github:bob") is None
 
-    def test_list_for_owner_orders_by_updated_at_desc(
-        self, task_repo: SqliteTaskRepo
-    ) -> None:
+    def test_list_for_owner_orders_by_updated_at_desc(self, task_repo: SqliteTaskRepo) -> None:
         for i, ts in enumerate([100.0, 200.0, 50.0]):
             t = _task(f"t{i}", "github:alice").model_copy(
                 update={"updated_at": ts, "created_at": ts}
@@ -185,7 +183,10 @@ class TestTaskRepo:
     def test_append_and_list_messages(self, task_repo: SqliteTaskRepo) -> None:
         task_repo.create(_task("t1", "github:alice"))
         m1 = Message(
-            msg_id="m1", task_id="t1", role="user", content="你好",
+            msg_id="m1",
+            task_id="t1",
+            role="user",
+            content="你好",
             citations=[Citation(source_type="law", source_name="PIPL", text_snippet="x")],
         )
         m2 = Message(msg_id="m2", task_id="t1", role="assistant", content="您好")
@@ -197,14 +198,10 @@ class TestTaskRepo:
         assert [m.msg_id for m in msgs] == ["m1", "m2"]
         assert msgs[0].citations[0].source_name == "PIPL"
 
-    def test_append_message_updates_task_updated_at(
-        self, task_repo: SqliteTaskRepo
-    ) -> None:
+    def test_append_message_updates_task_updated_at(self, task_repo: SqliteTaskRepo) -> None:
         t = _task("t1", "github:alice").model_copy(update={"updated_at": 100.0})
         task_repo.create(t)
-        m = Message(
-            msg_id="m1", task_id="t1", role="user", content="x", created_at=999.0
-        )
+        m = Message(msg_id="m1", task_id="t1", role="user", content="x", created_at=999.0)
         task_repo.append_message(m)
         loaded = task_repo.get("t1", "github:alice")
         assert loaded is not None
@@ -213,8 +210,11 @@ class TestTaskRepo:
     def test_append_tool_call_upsert(self, task_repo: SqliteTaskRepo) -> None:
         task_repo.create(_task("t1", "github:alice"))
         c1 = ToolCall(
-            tool_call_id="c1", task_id="t1", tool_name="retrieve",
-            input_json={"q": "x"}, status="pending",
+            tool_call_id="c1",
+            task_id="t1",
+            tool_name="retrieve",
+            input_json={"q": "x"},
+            status="pending",
         )
         task_repo.append_tool_call(c1)
         c1_done = c1.model_copy(
@@ -233,7 +233,9 @@ class TestTaskRepo:
     def test_append_artifact(self, task_repo: SqliteTaskRepo) -> None:
         task_repo.create(_task("t1", "github:alice"))
         a = Artifact(
-            artifact_id="a1", task_id="t1", artifact_type="risk_profile",
+            artifact_id="a1",
+            task_id="t1",
+            artifact_type="risk_profile",
             payload_json={"score": 0.8},
         )
         task_repo.append_artifact(a)
@@ -246,9 +248,7 @@ class TestTaskRepo:
 
     def test_cascade_delete_messages(self, task_repo: SqliteTaskRepo) -> None:
         task_repo.create(_task("t1", "github:alice"))
-        task_repo.append_message(
-            Message(msg_id="m1", task_id="t1", role="user", content="x")
-        )
+        task_repo.append_message(Message(msg_id="m1", task_id="t1", role="user", content="x"))
         task_repo.delete("t1", "github:alice")
         assert task_repo.list_messages("t1") == []
 
@@ -263,18 +263,14 @@ class TestTaskMode:
         assert loaded is not None
         assert loaded.mode == "qa"
 
-    def test_create_with_research_mode_persists(
-        self, task_repo: SqliteTaskRepo
-    ) -> None:
+    def test_create_with_research_mode_persists(self, task_repo: SqliteTaskRepo) -> None:
         t = _task("t1", "github:alice").model_copy(update={"mode": "research"})
         task_repo.create(t)
         loaded = task_repo.get("t1", "github:alice")
         assert loaded is not None
         assert loaded.mode == "research"
 
-    def test_create_with_profile_mode_persists(
-        self, task_repo: SqliteTaskRepo
-    ) -> None:
+    def test_create_with_profile_mode_persists(self, task_repo: SqliteTaskRepo) -> None:
         t = _task("t1", "github:alice").model_copy(update={"mode": "profile"})
         task_repo.create(t)
         loaded = task_repo.get("t1", "github:alice")
@@ -285,9 +281,7 @@ class TestTaskMode:
         task_repo.create(_task("t1", "github:alice"))
         loaded = task_repo.get("t1", "github:alice")
         assert loaded is not None
-        updated = loaded.model_copy(
-            update={"mode": "research", "updated_at": _now()}
-        )
+        updated = loaded.model_copy(update={"mode": "research", "updated_at": _now()})
         task_repo.update(updated)
         again = task_repo.get("t1", "github:alice")
         assert again is not None and again.mode == "research"
@@ -296,9 +290,7 @@ class TestTaskMode:
 class TestTaskModeMigration:
     """验证老库（无 mode 列）打开时自动 ALTER。"""
 
-    def test_legacy_db_without_mode_column_gets_migrated(
-        self, tmp_path: Path
-    ) -> None:
+    def test_legacy_db_without_mode_column_gets_migrated(self, tmp_path: Path) -> None:
         import sqlite3
 
         db_path = tmp_path / "legacy.db"
@@ -320,8 +312,7 @@ class TestTaskModeMigration:
         )
         now = _now()
         conn.execute(
-            "INSERT INTO tasks (task_id, owner_id, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?)",
+            "INSERT INTO tasks (task_id, owner_id, created_at, updated_at) VALUES (?, ?, ?, ?)",
             ("legacy-t1", "github:alice", now, now),
         )
         conn.commit()

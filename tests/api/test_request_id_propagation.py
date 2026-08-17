@@ -75,9 +75,7 @@ class TestRequestIdPropagatesToAudit:
         # 审计里的 request_id 集合与 response 头集合相同
         assert {e.request_id for e in anon} == set(rids)
 
-    def test_failed_oauth_callback_audit_also_has_request_id(
-        self, client: TestClient
-    ) -> None:
+    def test_failed_oauth_callback_audit_also_has_request_id(self, client: TestClient) -> None:
         # 不先 begin 拿 state，直接 callback → OAuthFlowError → AUTH_LOGIN_FAILURE
         resp = client.get(
             "/api/v2/auth/github/callback",

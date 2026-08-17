@@ -122,9 +122,7 @@ class TaskBackedMemory:
             return None  # 逻辑遗忘：过期摘要永不注入
         return record.summary
 
-    def maybe_summarize(
-        self, owner_id: str, task_id: str, threshold: int | None = None
-    ) -> None:
+    def maybe_summarize(self, owner_id: str, task_id: str, threshold: int | None = None) -> None:
         """未摘要消息数 ≥ 阈值时，LLM 增量精炼出新摘要并推进 watermark。
 
         幂等：watermark 记录“已摘要到第几条”，重试 / 漏摘都按差额自愈。
@@ -222,15 +220,12 @@ class TaskBackedMemory:
             logger.warning("L4 事实列举失败（已降级为空）", exc_info=True)
             return []
         cutoff = (
-            time.time() - self._l4_ttl_days * _SECONDS_PER_DAY
-            if self._l4_ttl_days > 0
-            else None
+            time.time() - self._l4_ttl_days * _SECONDS_PER_DAY if self._l4_ttl_days > 0 else None
         )
         facts = [
             f
             for f in all_facts
-            if f.superseded_by is None
-            and not (cutoff is not None and f.created_at < cutoff)
+            if f.superseded_by is None and not (cutoff is not None and f.created_at < cutoff)
         ]
         facts.sort(key=lambda f: f.created_at, reverse=True)
         return facts
@@ -288,18 +283,10 @@ class TaskBackedMemory:
         各层 store 缺失（未启用）时该层计 0，不抛。删除异常向上抛由调用方审计失败。
         """
         normalized = scope if scope in ("memory", "all") else "memory"
-        summaries_deleted = (
-            self._summary_store.delete_owner(owner_id) if self._summary_store else 0
-        )
-        states_deleted = (
-            self._state_store.delete_owner(owner_id) if self._state_store else 0
-        )
-        profile_deleted = (
-            self._profile_store.delete_owner(owner_id) if self._profile_store else 0
-        )
-        facts_deleted = (
-            self._fact_store.delete_owner(owner_id) if self._fact_store else 0
-        )
+        summaries_deleted = self._summary_store.delete_owner(owner_id) if self._summary_store else 0
+        states_deleted = self._state_store.delete_owner(owner_id) if self._state_store else 0
+        profile_deleted = self._profile_store.delete_owner(owner_id) if self._profile_store else 0
+        facts_deleted = self._fact_store.delete_owner(owner_id) if self._fact_store else 0
         tasks_deleted = 0
         if normalized == "all":
             # 先删派生记忆（上面已做），再删 L1 task（级联连带消息/残留摘要/水位）。
@@ -319,15 +306,9 @@ class TaskBackedMemory:
     # ── 内部 ────────────────────────────────────────────────────────────────
 
     def _refine_summary(self, old_summary: str, backlog: list[Message]) -> str:
-        convo = "\n".join(
-            f"{m.role}: {(m.content or '').strip()}" for m in backlog if m.content
-        )
+        convo = "\n".join(f"{m.role}: {(m.content or '').strip()}" for m in backlog if m.content)
         prior = old_summary.strip() or "（无）"
-        user_prompt = (
-            f"【已有摘要】\n{prior}\n\n"
-            f"【新增对话】\n{convo}\n\n"
-            "请输出更新后的摘要："
-        )
+        user_prompt = f"【已有摘要】\n{prior}\n\n【新增对话】\n{convo}\n\n请输出更新后的摘要："
         assert self._chat is not None  # 上游已校验
         return self._chat.chat(
             [

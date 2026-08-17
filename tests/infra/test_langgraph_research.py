@@ -71,9 +71,7 @@ def test_partial_evidence_loops_with_supplement_query() -> None:
     report = research.research("比较三种出境路径", owner_id="anon:alice")
 
     assert report.retrieval_rounds == 2
-    assert any(
-        call["query"] == "标准合同 适用条件" for call in retriever.calls
-    )
+    assert any(call["query"] == "标准合同 适用条件" for call in retriever.calls)
 
 
 def test_insufficient_evidence_uses_web_search_once() -> None:

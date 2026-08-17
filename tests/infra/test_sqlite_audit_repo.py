@@ -106,15 +106,9 @@ class TestFilters:
         assert rows[0].resource == "a"
 
     def test_filters_combine(self, repo: SqliteAuditLogRepo) -> None:
-        repo.record(
-            _entry(actor_id="a", action=AuditAction.KB_DELETE, resource="d1")
-        )
-        repo.record(
-            _entry(actor_id="a", action=AuditAction.KB_INGEST_FILE, resource="f1")
-        )
-        repo.record(
-            _entry(actor_id="b", action=AuditAction.KB_DELETE, resource="d2")
-        )
+        repo.record(_entry(actor_id="a", action=AuditAction.KB_DELETE, resource="d1"))
+        repo.record(_entry(actor_id="a", action=AuditAction.KB_INGEST_FILE, resource="f1"))
+        repo.record(_entry(actor_id="b", action=AuditAction.KB_DELETE, resource="d2"))
         rows = repo.list_recent(actor_id="a", action=AuditAction.KB_DELETE)
         assert len(rows) == 1
         assert rows[0].resource == "d1"
@@ -134,9 +128,7 @@ class TestPagination:
         rows = repo.list_recent(limit=2, offset=1)
         assert [r.resource for r in rows] == ["r3", "r2"]
 
-    def test_offset_beyond_total_returns_empty(
-        self, repo: SqliteAuditLogRepo
-    ) -> None:
+    def test_offset_beyond_total_returns_empty(self, repo: SqliteAuditLogRepo) -> None:
         repo.record(_entry(resource="only"))
         assert repo.list_recent(limit=10, offset=10) == []
 

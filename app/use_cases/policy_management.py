@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from domain.errors import PolicyRuleNotFound
 from domain.policies import PolicyEvaluationReport, PolicyRule
@@ -68,7 +68,7 @@ class PolicyManagementUseCase:
         if rule is None:
             raise PolicyRuleNotFound(f"{rule_id}@{ruleset_version}")
         self._engine.validate_rule(rule)
-        published = cast("PolicyRule", rule.model_copy(update={"status": "published"}))
+        published = rule.model_copy(update={"status": "published"})
         self._rules.update_status(published)
         return published
 
@@ -82,14 +82,11 @@ class PolicyManagementUseCase:
         status: str | None = None,
     ) -> list[PolicyRule]:
         self._workspace_management.require_membership(workspace_id, actor_id)
-        return cast(
-            "list[PolicyRule]",
-            self._rules.list_rules(
-                workspace_id=workspace_id,
-                ruleset_version=ruleset_version,
-                jurisdiction=jurisdiction,
-                status=status,
-            ),
+        return self._rules.list_rules(
+            workspace_id=workspace_id,
+            ruleset_version=ruleset_version,
+            jurisdiction=jurisdiction,
+            status=status,
         )
 
     def evaluate_case(

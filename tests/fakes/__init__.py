@@ -14,6 +14,7 @@ from tests.fakes.fake_fact_proposals import FakeFactProposalGenerator
 from tests.fakes.fake_kb_repo import FakeKbRepo
 from tests.fakes.fake_object_store import FakeObjectStore
 from tests.fakes.fake_qa import FakeClaimSupportVerifier, FakeEvidenceQAGenerator
+from tests.fakes.fake_readiness import FakeReadiness
 from tests.fakes.fake_repos import (
     InMemoryAgentRunRepo,
     InMemoryAssessmentRepo,
@@ -48,6 +49,7 @@ __all__ = [
     "FakeClaimSupportVerifier",
     "FakeEvidenceQAGenerator",
     "FakeOAuthProvider",
+    "FakeReadiness",
     "FakeRetrieve",
     "FakeRiskProfile",
     "FakeTrace",

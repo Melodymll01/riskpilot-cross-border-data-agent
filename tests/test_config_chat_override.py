@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from config import Settings
+from config import RuntimeConfigurationError, Settings
 
 # 关键变量集合：autouse fixture 在每个测试前从 os.environ 清掉，
 # 防其它测试通过 monkeypatch.setenv / load_dotenv 污染本套用例。
@@ -121,9 +121,7 @@ class TestEmbedNotAffected:
 class TestLangChainModelUsesEffective:
     """LangChain ChatModel 工厂读取 chat 通道覆盖值。"""
 
-    def test_chat_client_reads_overridden_base_url(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_chat_client_reads_overridden_base_url(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from infra.agents.model import build_langchain_chat_model
 
         model = build_langchain_chat_model(
@@ -135,3 +133,46 @@ class TestLangChainModelUsesEffective:
         )
         assert "bailian.example" in str(model.root_client.base_url)
         assert model.model_name == "glm-5"
+
+
+class TestRuntimeConfiguration:
+    def test_import_safe_defaults_report_errors_without_raising(self) -> None:
+        settings = _mk()
+
+        assert settings.runtime_configuration_errors() == [
+            "LLM_PROVIDER=api 时必须配置 CHAT_API_KEY 或 OPENAI_API_KEY",
+            "EMBED_PROVIDER=api 时必须配置 OPENAI_API_KEY",
+        ]
+
+    def test_explicit_runtime_validation_rejects_placeholder_keys(self) -> None:
+        settings = _mk()
+
+        with pytest.raises(RuntimeConfigurationError, match="运行配置无效"):
+            settings.validate_runtime_configuration()
+
+    def test_local_profile_needs_no_external_key(self) -> None:
+        settings = _mk(llm_provider="local", embed_provider="local")
+
+        settings.validate_runtime_configuration()
+
+    def test_split_api_credentials_validate_independently(self) -> None:
+        settings = _mk(
+            llm_provider="api",
+            embed_provider="api",
+            chat_api_key="sk-chat-real",
+            openai_api_key="sk-embed-real",
+        )
+
+        settings.validate_runtime_configuration()
+
+    def test_langsmith_requires_key_and_hash_salt_when_enabled(self) -> None:
+        settings = _mk(
+            llm_provider="local",
+            embed_provider="local",
+            risk_pilot_langsmith_enabled=True,
+        )
+
+        assert settings.runtime_configuration_errors() == [
+            "启用 LangSmith 时必须配置 LANGSMITH_API_KEY",
+            "启用 LangSmith 时 LANGSMITH_HASH_SALT 至少需要 16 个字符",
+        ]

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 import time
-from typing import Any, ClassVar, Literal, cast
+from typing import Any, ClassVar, Literal
 
 from pydantic import Field, model_validator
 
@@ -178,21 +178,18 @@ class CaseFact(BaseDomainModel):
         revision_time = time.time() if at is None else at
         if revision_time < self.updated_at:
             raise ValueError("事实修订时间不能早于更新时间")
-        return cast(
-            "CaseFact",
-            self.model_copy(
-                update={
-                    "value": value,
-                    "status": "proposed",
-                    "source_type": source_type,
-                    "confidence": confidence,
-                    "version": self.version + 1,
-                    "created_by": actor_id,
-                    "confirmed_by": None,
-                    "confirmed_at": None,
-                    "updated_at": revision_time,
-                }
-            ),
+        return self.model_copy(
+            update={
+                "value": value,
+                "status": "proposed",
+                "source_type": source_type,
+                "confidence": confidence,
+                "version": self.version + 1,
+                "created_by": actor_id,
+                "confirmed_by": None,
+                "confirmed_at": None,
+                "updated_at": revision_time,
+            }
         )
 
     def transition_to(
@@ -214,13 +211,10 @@ class CaseFact(BaseDomainModel):
             if target == "confirmed"
             else {"confirmed_by": None, "confirmed_at": None}
         )
-        return cast(
-            "CaseFact",
-            self.model_copy(
-                update={
-                    "status": target,
-                    "updated_at": transition_time,
-                    **confirmation,
-                }
-            ),
+        return self.model_copy(
+            update={
+                "status": target,
+                "updated_at": transition_time,
+                **confirmation,
+            }
         )

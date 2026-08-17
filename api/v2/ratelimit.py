@@ -89,4 +89,3 @@ def build_limiter(settings: Settings) -> RateLimiter | None:
     if not settings.rate_limit_enabled:
         return None
     return RateLimiter()
-

@@ -129,8 +129,6 @@ class AuthService:
     def _gc_states(self) -> None:
         """惰性清理过期 state。"""
         now = float(self._clock())
-        expired = [
-            s for s, (_, ts) in self._states.items() if now - ts > self._state_ttl
-        ]
+        expired = [s for s, (_, ts) in self._states.items() if now - ts > self._state_ttl]
         for s in expired:
             self._states.pop(s, None)

@@ -3,7 +3,7 @@
 import logging
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 
 from ingestion.unified_loader import RawDocument
 from processing.cleaner import TextCleaner
@@ -35,6 +35,7 @@ class ChunkWithMetadata:
         owner_id: Step 025a 多租户隔离字段。语义上 None=公共，非空=该 owner 私人。
             存入 ChromaDB 时 None 会被物化为 ``__public__``（ChromaDB 不接受 None）。
     """
+
     chunk_id: str
     text: str
     source_type: str
@@ -57,7 +58,7 @@ class ChunkWithMetadata:
             "source_name": self.source_name,
             "title": self.title,
             "chunk_index": self.chunk_index,
-            "imported_at": datetime.utcnow().isoformat() + "Z",
+            "imported_at": datetime.now(UTC).isoformat(),
             "owner_id": self.owner_id if self.owner_id else PUBLIC_OWNER_MARKER,
         }
         if self.source_url:

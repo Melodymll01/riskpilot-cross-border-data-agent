@@ -129,8 +129,10 @@ class TestFakeBehavior:
     def test_fake_retrieve_respects_top_k(self) -> None:
         chunks = [
             Chunk(
-                chunk_id=f"c{i}", text=f"t{i}",
-                source_type="law", source_name="PIPL",
+                chunk_id=f"c{i}",
+                text=f"t{i}",
+                source_type="law",
+                source_name="PIPL",
             )
             for i in range(5)
         ]
@@ -145,10 +147,7 @@ class TestFakeBehavior:
 
     def test_fake_websearch_max_results(self) -> None:
         ws = FakeWebSearch(
-            results=[
-                WebResult(title=f"t{i}", url=f"https://x.com/{i}")
-                for i in range(5)
-            ]
+            results=[WebResult(title=f"t{i}", url=f"https://x.com/{i}") for i in range(5)]
         )
         out = ws.search("q", max_results=2)
         assert len(out) == 2

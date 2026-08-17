@@ -82,8 +82,7 @@ def evaluate_rankings(
             },
         },
         "passed": (
-            recall_at_1 >= dataset.recall_at_1_min
-            and recall_at_3 >= dataset.recall_at_3_min
+            recall_at_1 >= dataset.recall_at_1_min and recall_at_3 >= dataset.recall_at_3_min
         ),
         "cases": cases,
     }

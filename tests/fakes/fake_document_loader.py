@@ -71,9 +71,7 @@ class FakeDocumentLoader:
         category: str | None = None,
         owner_id: str | None = None,
     ) -> list[KbChunk]:
-        self.calls.append(
-            ("load_web", (url,), {"category": category, "owner_id": owner_id})
-        )
+        self.calls.append(("load_web", (url,), {"category": category, "owner_id": owner_id}))
         if self._empty:
             return []
         if self._preset_chunks is not None:

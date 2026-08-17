@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 import uuid
 from datetime import date
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from domain.errors import (
     AgentRunAlreadyActive,
@@ -188,6 +188,7 @@ class AssessmentRunUseCase:
             if run.status != "retrying":
                 raise ValueError("LangGraph thread 不存在，不能继续")
             case = self._case_management.get_case(run.case_id, actor_id)
+            assessment_date = _require_assessment_date(case.assessment_date)
             ruleset_version = self._run_ruleset_version(run)
             result = self._runtime.start_case_assessment(
                 thread_id=run.thread_id,
@@ -201,7 +202,7 @@ class AssessmentRunUseCase:
                     workspace_id=case.workspace_id,
                     actor_id=actor_id,
                     jurisdiction=case.jurisdiction,
-                    assessment_date=case.assessment_date,
+                    assessment_date=assessment_date,
                     ruleset_version=ruleset_version,
                 ),
             )
@@ -210,6 +211,7 @@ class AssessmentRunUseCase:
             return self._handle_execution_result(run, inspected, actor_id=actor_id)
 
         case = self._case_management.get_case(run.case_id, actor_id)
+        assessment_date = _require_assessment_date(case.assessment_date)
         if inspected.interrupt is None:
             return self._handle_execution_result(run, inspected, actor_id=actor_id)
         kind = inspected.interrupt.kind
@@ -232,7 +234,7 @@ class AssessmentRunUseCase:
                 workspace_id=case.workspace_id,
                 actor_id=actor_id,
                 jurisdiction=case.jurisdiction,
-                assessment_date=case.assessment_date,
+                assessment_date=assessment_date,
                 ruleset_version=_ruleset_version(inspected),
             )
             if missing_fields:
@@ -375,10 +377,7 @@ class AssessmentRunUseCase:
 
     def list_for_case(self, case_id: str, actor_id: str, *, limit: int = 50) -> list[AgentRun]:
         self._case_management.get_case(case_id, actor_id)
-        return cast(
-            "list[AgentRun]",
-            self._runs.list_for_case(case_id, limit=limit),
-        )
+        return self._runs.list_for_case(case_id, limit=limit)
 
     def list_events(
         self,
@@ -389,13 +388,10 @@ class AssessmentRunUseCase:
         limit: int = 200,
     ) -> list[RunEvent]:
         self._get_authorized_run(run_id, actor_id, write=False)
-        return cast(
-            "list[RunEvent]",
-            self._runs.list_events(
-                run_id,
-                after_sequence=after_sequence,
-                limit=limit,
-            ),
+        return self._runs.list_events(
+            run_id,
+            after_sequence=after_sequence,
+            limit=limit,
         )
 
     def _generate_assessment_and_resume(
@@ -470,10 +466,7 @@ class AssessmentRunUseCase:
             state=_checkpoint_state(result),
             created_at=now,
         )
-        updated = cast(
-            "AgentRun",
-            updated.model_copy(update={"checkpoint_id": checkpoint.checkpoint_id}),
-        )
+        updated = updated.model_copy(update={"checkpoint_id": checkpoint.checkpoint_id})
         events = _events_for_result(
             run_id=run.run_id,
             result=result,
@@ -684,6 +677,12 @@ def _ruleset_version(result: WorkflowExecutionResult) -> str:
     value = result.state.get("ruleset_version")
     if not isinstance(value, str) or not value:
         raise ValueError("工作流状态缺少 ruleset_version")
+    return value
+
+
+def _require_assessment_date(value: date | None) -> date:
+    if value is None:
+        raise ValueError("案件缺少 assessment_date，无法恢复 Assessment Run")
     return value
 
 

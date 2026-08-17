@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from datetime import date
-from typing import ClassVar, Literal, cast
+from typing import ClassVar, Literal
 
 from pydantic import Field, model_validator
 
@@ -183,16 +183,13 @@ class Assessment(BaseDomainModel):
             if target == "approved"
             else {"approved_by": None, "approved_at": None}
         )
-        return cast(
-            "Assessment",
-            self.model_copy(
-                update={
-                    "status": target,
-                    "review_comment": comment,
-                    "updated_at": transition_time,
-                    **approval,
-                }
-            ),
+        return self.model_copy(
+            update={
+                "status": target,
+                "review_comment": comment,
+                "updated_at": transition_time,
+                **approval,
+            }
         )
 
 

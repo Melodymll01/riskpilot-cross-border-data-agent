@@ -91,12 +91,8 @@ def evaluate_protocol(dataset: MemoryExtractionDataset) -> dict[str, object]:
             for message in case.messages
         ]
         episode = build_memory_extraction_episode(messages)
-        actual_user_message_ids = (
-            list(episode.user_messages) if episode is not None else []
-        )
-        source_filter_correct = (
-            actual_user_message_ids == case.expected_user_message_ids
-        )
+        actual_user_message_ids = list(episode.user_messages) if episode is not None else []
+        source_filter_correct = actual_user_message_ids == case.expected_user_message_ids
         source_filter_matches += int(source_filter_correct)
 
         validated = (
@@ -104,9 +100,7 @@ def evaluate_protocol(dataset: MemoryExtractionDataset) -> dict[str, object]:
             if case.candidate is not None and episode is not None
             else None
         )
-        actual_decision: ExpectedDecision = (
-            "accept" if validated is not None else "reject"
-        )
+        actual_decision: ExpectedDecision = "accept" if validated is not None else "reject"
         decision_correct = actual_decision == case.expected_decision
         correct_decisions += int(decision_correct)
         if case.expected_decision == "reject" and actual_decision == "accept":
@@ -136,17 +130,12 @@ def evaluate_protocol(dataset: MemoryExtractionDataset) -> dict[str, object]:
         "unsafe_false_accept_count": {
             "value": unsafe_false_accept_count,
             "threshold": thresholds.unsafe_false_accept_count_max,
-            "passed": (
-                unsafe_false_accept_count
-                <= thresholds.unsafe_false_accept_count_max
-            ),
+            "passed": (unsafe_false_accept_count <= thresholds.unsafe_false_accept_count_max),
         },
         "source_filter_accuracy": {
             "value": source_filter_accuracy,
             "threshold": thresholds.source_filter_accuracy_min,
-            "passed": (
-                source_filter_accuracy >= thresholds.source_filter_accuracy_min
-            ),
+            "passed": (source_filter_accuracy >= thresholds.source_filter_accuracy_min),
         },
     }
     return {

@@ -10,20 +10,21 @@ import logging
 import re
 from collections import Counter
 from pathlib import Path
-from typing import List, Optional
 
 import fitz  # PyMuPDF
 
 logger = logging.getLogger(__name__)
 
 try:
-    import pdfplumber  # type: ignore
+    import pdfplumber
+
     _HAS_PDFPLUMBER = True
 except ImportError:  # pragma: no cover
     _HAS_PDFPLUMBER = False
 
 try:
-    from rapidocr_onnxruntime import RapidOCR  # type: ignore
+    from rapidocr_onnxruntime import RapidOCR
+
     _HAS_OCR = True
 except ImportError:  # pragma: no cover
     _HAS_OCR = False
@@ -110,9 +111,9 @@ class PDFExtractor:
 
     # ---------- 文本抽取（PyMuPDF，兜底通道）----------
 
-    def _extract_text_only(self, path: Path) -> List[str]:
+    def _extract_text_only(self, path: Path) -> list[str]:
         """纯文本抽取：使用 PyMuPDF（fitz），按页返回。"""
-        pages: List[str] = []
+        pages: list[str] = []
         with fitz.open(str(path)) as doc:
             for i, page in enumerate(doc):
                 try:
@@ -125,15 +126,13 @@ class PDFExtractor:
 
     # ---------- OCR 降级（rapidocr-onnxruntime 通道）----------
 
-    def _ocr_fill_pages(self, path: Path, pages: List[str]) -> List[str]:
+    def _ocr_fill_pages(self, path: Path, pages: list[str]) -> list[str]:
         """对文本层不足的页用 OCR 重新识别，逐页替换。
 
         仅渲染并识别 strip 后字符数 < ocr_min_chars 的页，
         纯数字原生 PDF 不会触发任何 OCR 开销。
         """
-        need_ocr = [
-            i for i, p in enumerate(pages) if len((p or "").strip()) < self.ocr_min_chars
-        ]
+        need_ocr = [i for i, p in enumerate(pages) if len((p or "").strip()) < self.ocr_min_chars]
         if not need_ocr:
             return pages
 
@@ -167,9 +166,9 @@ class PDFExtractor:
 
     # ---------- 文本 + 表格抽取（pdfplumber 通道）----------
 
-    def _extract_with_tables(self, path: Path) -> List[str]:
+    def _extract_with_tables(self, path: Path) -> list[str]:
         """文本 + 表格抽取：表格区域单独序列化为 Markdown，正文排除该区域。"""
-        pages: List[str] = []
+        pages: list[str] = []
         with pdfplumber.open(str(path)) as pdf:
             for i, page in enumerate(pdf.pages):
                 try:
@@ -194,6 +193,7 @@ class PDFExtractor:
 
         # 1. 抽取正文（排除表格区域）
         if table_bboxes:
+
             def _outside_tables(obj):
                 # 判断 word/char 中心点是否落在任一表格 bbox 内
                 cx = (obj.get("x0", 0) + obj.get("x1", 0)) / 2
@@ -213,7 +213,7 @@ class PDFExtractor:
             non_table_text = page.extract_text() or ""
 
         # 2. 序列化每个表格为 Markdown
-        md_tables: List[str] = []
+        md_tables: list[str] = []
         for table in tables:
             try:
                 rows = table.extract()
@@ -231,10 +231,10 @@ class PDFExtractor:
         return non_table_text
 
     @staticmethod
-    def _rows_to_markdown(rows: List[List[Optional[str]]]) -> str:
+    def _rows_to_markdown(rows: list[list[str | None]]) -> str:
         """二维行列表 -> Markdown 表格字符串。"""
         # 归一化单元格：None -> ""，去换行
-        norm: List[List[str]] = []
+        norm: list[list[str]] = []
         for row in rows:
             norm.append([(c or "").strip().replace("\n", " ") for c in row])
 
@@ -258,13 +258,13 @@ class PDFExtractor:
 
     # ---------- 页眉页脚剔除 ----------
 
-    def _strip_headers_footers(self, pages: List[str]) -> List[str]:
+    def _strip_headers_footers(self, pages: list[str]) -> list[str]:
         """跨页重复行检测，剔除页眉页脚。"""
         if len(pages) < self.min_pages_for_detection:
             return pages
 
         # 每页拆行
-        pages_lines: List[List[str]] = [
+        pages_lines: list[list[str]] = [
             [ln.strip() for ln in p.splitlines() if ln.strip()] for p in pages
         ]
 
@@ -273,7 +273,7 @@ class PDFExtractor:
         for lines in pages_lines:
             if not lines:
                 continue
-            candidates = lines[: self.head_n] + lines[-self.tail_n:]
+            candidates = lines[: self.head_n] + lines[-self.tail_n :]
             # 同页去重，避免一页内重复行被双倍计数
             seen_in_page = set()
             for ln in candidates:
@@ -291,7 +291,7 @@ class PDFExtractor:
         logger.info(f"检测到 {len(repeated)} 个页眉/页脚模式，将从 {len(pages)} 页中剔除")
 
         # 仅在头尾位置剔除，避免误删正文中偶然重复的句子
-        cleaned_pages: List[str] = []
+        cleaned_pages: list[str] = []
         for lines in pages_lines:
             if not lines:
                 cleaned_pages.append("")

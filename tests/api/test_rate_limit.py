@@ -31,6 +31,7 @@ from tests.fakes.fake_evidence_index import FakeEvidenceIndex
 from tests.fakes.fake_kb_repo import FakeKbRepo
 from tests.fakes.fake_object_store import FakeObjectStore
 from tests.fakes.fake_qa import FakeClaimSupportVerifier, FakeEvidenceQAGenerator
+from tests.fakes.fake_readiness import FakeReadiness
 from tests.fakes.fake_repos import (
     InMemoryAgentRunRepo,
     InMemoryAssessmentRepo,
@@ -76,6 +77,7 @@ def _make_container(**overrides: object) -> AppContainer:
         retriever=FakeRetrieve(),
         web_search=FakeWebSearch(),
         risk_profile=FakeRiskProfile(),
+        readiness=FakeReadiness(),
         kb_repo=FakeKbRepo(),
         document_loader=FakeDocumentLoader(),
         auth=FakeAuth(),

@@ -72,9 +72,7 @@ class HttpRiskProfileClient:
         language: str,
     ) -> RiskProfile:
         if not self._base_url:
-            raise RiskProfileNotReady(
-                "未配置风险画像模型服务地址 RISK_PROFILE_API_BASE"
-            )
+            raise RiskProfileNotReady("未配置风险画像模型服务地址 RISK_PROFILE_API_BASE")
         headers = {"Accept": "application/json"}
         if self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"
@@ -93,8 +91,7 @@ class HttpRiskProfileClient:
             raise RiskProfileNotReady(f"风险画像模型服务连接失败: {exc}") from exc
         if not 200 <= response.status_code < 300:
             raise RiskProfileServiceError(
-                f"风险画像模型返回 HTTP {response.status_code}: "
-                f"{response.text[:300]}"
+                f"风险画像模型返回 HTTP {response.status_code}: {response.text[:300]}"
             )
         try:
             payload = response.json()
