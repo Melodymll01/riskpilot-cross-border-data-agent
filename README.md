@@ -7,59 +7,53 @@
 [![agent](https://img.shields.io/badge/agent-LangChain%201.3%20%C2%B7%20LangGraph%201.2-ff7a59)](infra/agents/)
 [![memory](https://img.shields.io/badge/memory-4--layer-00b3a4)](infra/memory/)
 
-> 面向**数据出境合规**场景的证据驱动案件工作台，内置以《个人信息保护法》《数据安全法》《网络安全法》及安全评估 / 标准合同 / 个保认证三路径为代表的法规知识库。
+> 面向企业数据出境合规场景的**证据驱动案件智能体**。Agent 围绕一个 Case 自主制定
+> Evidence Plan、调用受控工具、识别证据缺口和冲突，并在人工确认、确定性规则、
+> Claim-Citation 校验和 Reviewer 审批后冻结不可变 Assessment。
 >
-> 系统直接使用 **LangChain 1.3 标准 Tool Calling Agent** 和 **LangGraph 1.2 状态图**：
-> Copilot 负责会话式工具调用，Deep Research 与案件评估使用独立 Graph，
-> 将案件材料、confirmed facts、版本化规则、不可变 Assessment 和 Reviewer 审批串成
-> 可暂停、恢复、重试、取消和审计的闭环。工程上保留 DDD 4 层与 Port 边界，
-> `/api/v2` 提供通用 Copilot，`/api/v3` 提供案件工作台；可选 LangSmith 只承接
-> 隐私脱敏后的 AI Trace，不进入领域逻辑；OpenTelemetry 和 Prometheus 负责本地可观测性。
+> 它不是“检索后让模型直接回答”的普通 RAG：LangGraph 负责案件决策、状态和恢复，
+> Celery 负责 OCR/切块/Embedding/索引，PostgreSQL 保存业务事实，LLM 不计算法规门槛，
+> 也不能自动批准正式报告。
 
 ---
 
-## 产品速览
+## 核心业务闭环
 
-| LangChain 工具调用过程 | 带溯源引用的回答 |
-| :---: | :---: |
-| ![Agent 推理过程](screenshots/02-回答推理.png) | ![带引用的回答](screenshots/03-回答引文.png) |
+```text
+创建案件 → 上传材料 → Celery 解析/OCR/索引
+→ Evidence Plan → 案件/法规/事实/规则工具
+→ 缺失与冲突检测 → Human-in-the-loop → checkpoint 恢复
+→ 确定性规则 → 风险说明 → Claim-Citation
+→ Reviewer 审批 → immutable Assessment + Run/Event/Audit
+```
 
-| 三模式工作台 | 知识库治理（多租户） |
-| :---: | :---: |
-| ![首页](screenshots/01-主页.png) | ![知识库](screenshots/04-知识库.png) |
+## 2～3 分钟演示
 
-| 审计日记（可观测性） | |
-| :---: | :---: |
-| ![审计日记](screenshots/05-审计日记.png) | |
+- **Demo A · Happy Path**：材料完整，Agent 自动执行到 `human_review`；
+- **Demo B · Human-in-the-loop**：关键事实缺失，确认后从同一 checkpoint 恢复；
+- **Demo C · Failure Recovery**：ProcessingJob 失败后由 Celery retry 幂等恢复。
 
-> Docker Compose 已真实验收 API、Worker、PostgreSQL + pgvector、Redis、MinIO、
-> migration、三类 Seed Demo 与可选 Prometheus；默认确定性演示 Profile 不需要 API Key。
+演示顺序与话术见
+[2～3 分钟面试演示脚本](docs/guides/interview-demo-script.md)。最快启动：
 
----
+```bash
+cp .env.example .env
+make docker-build && make docker-up && make seed-demo && make docker-smoke
+```
 
-## 核心能力
+默认 Compose 使用确定性 Planner/Embedding 和 safe-empty Fact Proposal，不需要 API Key、
+不访问模型服务、不下载模型、不产生模型费用。
+
+## 六个核心亮点
 
 | 能力 | 实现 | 代码 |
 | --- | --- | --- |
-| **LangChain Copilot** | `create_agent` + 原生 Tool Calling，owner 上下文由 `ToolRuntime` 注入，不暴露给模型 | [langchain_copilot.py](infra/agents/langchain_copilot.py) |
-| **LangGraph Deep Research** | plan → retrieve → assess → retry/web → generate，最多三轮补查 | [langgraph_research.py](infra/research/langgraph_research.py) |
-| **隐私保护 LangSmith** | 默认关闭；只上传哈希业务 ID、路径、计数和状态，隐藏输入/输出/异常/事件/附件 | [tracing.py](infra/observability/tracing.py) |
-| **风险评估模型** | `RiskProfilePort` + HTTP Adapter，严格校验 evidence-state schema，支持独立部署模型 | [http_client.py](infra/risk_profile/http_client.py) |
-| **混合文本检索** | Query Rewrite + Vector + BM25 + RRF + Cross-Encoder 重排 | [retriever.py](retrieval/search/retriever.py) |
-| **Chinese-CLIP 图片召回** | Case 图片上传、图像向量、自然语言搜图、Workspace/Case 隔离 | [visual_evidence.py](app/use_cases/visual_evidence.py) |
-| **可验证 AI 记忆** | 逐字 quote 接地写入；`hybrid_v1` 融合语义、置信度、显著性和新鲜度召回；支持安全过滤与召回解释 | [domain/memory.py](domain/memory.py) |
-| **答案可溯源** | Agent/Research 输出来源标记；Evidence QA 使用独立 Claim-Citation 验证 | [evidence_qa.py](app/use_cases/evidence_qa.py) |
-| **案件级证据** | Workspace/Case/Document 隔离，原件、版本、页码、Chunk、事实引用可追溯 | [domain/documents.py](domain/documents.py) |
-| **确定性合规评估** | 只消费 confirmed facts 的版本化规则引擎，生成 Finding、ActionItem 和不可变 Assessment | [domain/policy_engine.py](domain/policy_engine.py) |
-| **文档 Fact 提议** | 字段白名单、当前版本原文复核、冲突检测、Reviewer 确认后才进入规则计算 | [fact_management.py](app/use_cases/fact_management.py) |
-| **Assessment 引用闭包** | Finding 关联 Fact / Evidence / Clause 快照，生成和批准前重验版本、SHA 与原文漂移 | [assessment_management.py](app/use_cases/assessment_management.py) |
-| **核心案件 Agent** | LangChain function calling 制定 EvidencePlan，LangGraph 编排 Typed Tools、缺口/冲突 HITL、规则与引用门禁 | [case_assessment_graph.py](infra/workflows/case_assessment_graph.py) |
-| **可恢复案件工作流** | local SQLite / production PostgreSQL checkpointer，支持 interrupt/resume、失败重试、取消和人工审批 | [assessment_runs.py](app/use_cases/assessment_runs.py) |
-| **OpenTelemetry 链路** | HTTP → Agent → Graph Node → Tool → Celery W3C Trace；业务 ID HMAC，异常正文不进入 span | [otel.py](infra/observability/otel.py) |
-| **Prometheus 指标** | HTTP、Agent、Tool、Worker、队列、LLM token/cost、拒答和 Citation failure；Worker 支持 prefork 聚合 | [metrics.py](infra/observability/metrics.py) |
-| **Agent Run Detail** | 一页展示 Evidence Plan、节点耗时、Tool、HITL、Fact/Conflict、规则、Citation、token/cost 和 Assessment，不展示思维链 | [cases.js](frontend/cases.js) |
-| **V3 案件工作台** | Workspace/Case 创建与导航、材料上传/解析/索引/失败重试、Fact Confirmation 与继续运行 | [cases.js](frontend/cases.js) |
-| **V3 Evidence QA** | 四类授权检索；结构/语义双校验；有限 Claim 过滤修复，全部失败仍安全拒答 | [evidence_qa.py](app/use_cases/evidence_qa.py) |
+| **Agent · 证据计划与工具决策** | LangChain function calling 生成 EvidencePlan；LangGraph 通过 Typed Tool Registry 决定补查、继续、暂停或拒答 | [case_assessment_graph.py](infra/workflows/case_assessment_graph.py) |
+| **Agent · HITL 与持久化恢复** | 缺失事实、冲突和正式审批均可 interrupt；恢复时重读数据库，不信任客户端业务对象 | [assessment_runs.py](app/use_cases/assessment_runs.py) |
+| **Agent · 确定性与引用门禁** | LLM 不计算法规阈值；PolicyRuleEngine、Claim-Citation 和 Reviewer 共同约束正式结果 | [assessment_management.py](app/use_cases/assessment_management.py) |
+| **Backend · DDD 生产存储** | 46 Port + 17 Use Case；PostgreSQL/Alembic/pgvector/MinIO Adapter 不泄漏到 domain | [overview.md](docs/architecture/overview.md) |
+| **Backend · 可恢复异步任务** | Redis/Celery 处理 OCR、切块、Embedding 和索引，支持 timeout、retry、cancel、CAS 幂等 | [document_tasks.py](infra/tasks/document_tasks.py) |
+| **Backend · 可观测部署** | JSON Log + OTel + Prometheus；Docker Compose 一键启动 API/Worker/PG/Redis/MinIO | [docker-compose.yml](docker-compose.yml) |
 
 ## 关键指标
 
@@ -319,6 +313,7 @@ ADMIN_USER_IDS=github:your-github-login
 | POST | `/runs/{run_id}/retry` | 重试 failed Run |
 | POST | `/runs/{run_id}/cancel` | 幂等取消非终态 Run |
 | POST | `/runs/{run_id}/review` | Reviewer/Admin 审批正式 Assessment |
+| GET | `/runs/{run_id}/detail` | 聚合安全时间线、Tool、HITL、规则、Citation 和 Assessment |
 | GET | `/runs/{run_id}/events` | 按 sequence 增量读取可审计事件 |
 | GET | `/runs/{run_id}/plan` | 读取结构化 EvidencePlan |
 
@@ -361,6 +356,7 @@ ADMIN_USER_IDS=github:your-github-login
 9. **Agent Eval 报告**：[evaluations/agent_runs/reports/latest.md](evaluations/agent_runs/reports/latest.md)
 10. **面试演示脚本**：[docs/guides/interview-demo-script.md](docs/guides/interview-demo-script.md)
 11. **简历项目描述**：[docs/guides/resume-project-description.md](docs/guides/resume-project-description.md)
+12. **Phase 0～10 最终交付审计**：[docs/implementation/final-delivery-audit.md](docs/implementation/final-delivery-audit.md)
 
 ## 协议
 

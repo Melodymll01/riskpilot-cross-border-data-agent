@@ -1,7 +1,7 @@
 # RiskPilot 2026 秋招生产化路线
 
-- 状态：Phase 0～10 已完成，进入最终交付审计
-- 当前进度：Phase 0～10 已完成；待最终 prompt-to-artifact 审计
+- 状态：Phase 0～10 与最终交付审计均已完成
+- 当前进度：核心 20 项交付物已闭环；真实模型 Eval 与 P2 保留
 - 基线日期：2026-08-17
 - 基线提交：`50272310957467bb21eee8d7ca525e4b3ac71c6c`
 - 主分支：`main`
@@ -246,6 +246,9 @@ flowchart TB
 - 更完整的前端。
 
 P2 不得抢占 P0。当前已有多模态、Memory 和 Research 只维护、不扩张，直到主线门禁完成。
+
+最终逐项证据、真实性边界和遗留风险见
+[`docs/implementation/final-delivery-audit.md`](../implementation/final-delivery-audit.md)。
 
 ## 8. 明确非目标
 
