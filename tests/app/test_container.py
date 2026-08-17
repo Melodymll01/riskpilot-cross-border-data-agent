@@ -41,6 +41,17 @@ from domain.ports import (
     WorkflowRuntimePort,
     WorkspaceRepoPort,
 )
+from infra.storage.sqlalchemy import (
+    Base,
+    SqlAlchemyAgentRunRepo,
+    SqlAlchemyAssessmentRepo,
+    SqlAlchemyCaseFactRepo,
+    SqlAlchemyCaseRepo,
+    SqlAlchemyDocumentRepo,
+    SqlAlchemyEvidenceIndex,
+    SqlAlchemyPolicyRuleRepo,
+    SqlAlchemyWorkspaceRepo,
+)
 from infra.workflows import LangGraphWorkflowRuntime
 from tests.fakes import (
     FakeAuditLogRepo,
@@ -224,3 +235,49 @@ class TestPartialInjection:
         assert isinstance(c.chat, ChatPort)
         out = c.chat.chat([{"role": "user", "content": "ping"}])
         assert out == "hi"
+
+
+class TestPostgresProfile:
+    def test_selects_shared_sqlalchemy_core_adapters(self) -> None:
+        postgres_settings = settings.model_copy(
+            update={
+                "storage_backend": "postgres",
+                "database_url": "sqlite://",
+            }
+        )
+        container = AppContainer(
+            postgres_settings,
+            user_repo=InMemoryUserRepo(),
+            task_repo=InMemoryTaskRepo(),
+            audit_log=FakeAuditLogRepo(),
+            object_store=FakeObjectStore(),
+            document_parser=FakeDocumentParser(),
+            evidence_chunker=FakeEvidenceChunker(),
+            workflow_runtime=LangGraphWorkflowRuntime(":memory:"),
+            embedder=FakeEmbed(),
+            chat=FakeChat(),
+            evidence_qa_generator=FakeEvidenceQAGenerator(),
+            claim_support_verifier=FakeClaimSupportVerifier(),
+            fact_proposal_generator=FakeFactProposalGenerator(),
+            retriever=FakeRetrieve(),
+            web_search=FakeWebSearch(),
+            risk_profile=FakeRiskProfile(),
+            kb_repo=FakeKbRepo(),
+            document_loader=FakeDocumentLoader(),
+            auth=FakeAuth(),
+            agent_model=final_answer_model(),
+            visual_index=FakeVisualIndex(),
+            visual_embedder=FakeVisualEmbedder(),
+        )
+        assert container.storage_database is not None
+        Base.metadata.create_all(container.storage_database.engine)
+        assert isinstance(container.workspace_repo, SqlAlchemyWorkspaceRepo)
+        assert isinstance(container.case_repo, SqlAlchemyCaseRepo)
+        assert isinstance(container.document_repo, SqlAlchemyDocumentRepo)
+        assert isinstance(container.evidence_index, SqlAlchemyEvidenceIndex)
+        assert isinstance(container.case_fact_repo, SqlAlchemyCaseFactRepo)
+        assert isinstance(container.policy_rule_repo, SqlAlchemyPolicyRuleRepo)
+        assert isinstance(container.assessment_repo, SqlAlchemyAssessmentRepo)
+        assert isinstance(container.agent_run_repo, SqlAlchemyAgentRunRepo)
+        assert container.readiness.check()["database"] is True
+        container.storage_database.dispose()

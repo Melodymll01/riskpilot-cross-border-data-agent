@@ -53,6 +53,7 @@ from app.factories import (
     build_research,
     build_retriever,
     build_risk_profile,
+    build_sqlalchemy_database,
     build_sqlite_pool,
     build_task_repo,
     build_trace,
@@ -190,34 +191,52 @@ class AppContainer:
             )
             else None
         )
+        sqlalchemy_database = (
+            build_sqlalchemy_database(settings)
+            if settings.storage_backend == "postgres"
+            and (
+                agent_run_repo is None
+                or assessment_repo is None
+                or workspace_repo is None
+                or case_repo is None
+                or case_fact_repo is None
+                or document_repo is None
+                or evidence_index is None
+                or policy_rule_repo is None
+            )
+            else None
+        )
+        self.storage_database = sqlalchemy_database
         self.agent_run_repo: AgentRunRepoPort = agent_run_repo or build_agent_run_repo(
-            settings, pool=pool
+            settings, pool=pool, database=sqlalchemy_database
         )
         self.assessment_repo: AssessmentRepoPort = assessment_repo or build_assessment_repo(
-            settings, pool=pool
+            settings, pool=pool, database=sqlalchemy_database
         )
         self.user_repo: UserRepoPort = user_repo or build_user_repo(settings, pool=pool)
         self.task_repo: TaskRepoPort = task_repo or build_task_repo(settings, pool=pool)
         self.workspace_repo: WorkspaceRepoPort = workspace_repo or build_workspace_repo(
-            settings, pool=pool
+            settings, pool=pool, database=sqlalchemy_database
         )
-        self.case_repo: CaseRepoPort = case_repo or build_case_repo(settings, pool=pool)
+        self.case_repo: CaseRepoPort = case_repo or build_case_repo(
+            settings, pool=pool, database=sqlalchemy_database
+        )
         self.case_fact_repo: CaseFactRepoPort = case_fact_repo or build_case_fact_repo(
-            settings, pool=pool
+            settings, pool=pool, database=sqlalchemy_database
         )
         self.document_repo: DocumentRepoPort = document_repo or build_document_repo(
-            settings, pool=pool
+            settings, pool=pool, database=sqlalchemy_database
         )
         self.evidence_index: EvidenceIndexPort = evidence_index or build_evidence_index(
-            settings, pool=pool
+            settings, pool=pool, database=sqlalchemy_database
         )
         self.policy_rule_repo: PolicyRuleRepoPort = policy_rule_repo or build_policy_rule_repo(
-            settings, pool=pool
+            settings, pool=pool, database=sqlalchemy_database
         )
         self.audit_log: AuditLogPort = audit_log or build_audit_log(settings, pool=pool)
         self.readiness: ReadinessPort = readiness or build_readiness(
             settings,
-            pool=pool,
+            database=sqlalchemy_database or pool,
         )
         # 消息反馈（点赞/点踩统计）复用同一连接池。
         self.feedback_repo = build_feedback_repo(settings, pool=pool)

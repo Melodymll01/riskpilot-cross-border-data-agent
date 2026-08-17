@@ -17,13 +17,13 @@ class _Redis:
 
 
 class _BrokenPool:
-    def get(self):  # type: ignore[no-untyped-def]
+    def ping(self) -> bool:
         raise RuntimeError("database down")
 
 
 def test_sqlite_ready_and_redis_disabled(tmp_path) -> None:  # type: ignore[no-untyped-def]
     readiness = ApplicationReadiness(
-        sqlite_pool=SqliteConnectionPool(str(tmp_path / "health.sqlite3"))
+        database=SqliteConnectionPool(str(tmp_path / "health.sqlite3"))
     )
 
     assert readiness.check() == {
@@ -36,7 +36,7 @@ def test_sqlite_ready_and_redis_disabled(tmp_path) -> None:  # type: ignore[no-u
 def test_configured_redis_is_required(tmp_path) -> None:  # type: ignore[no-untyped-def]
     redis = _Redis(result=False)
     readiness = ApplicationReadiness(
-        sqlite_pool=SqliteConnectionPool(str(tmp_path / "health.sqlite3")),
+        database=SqliteConnectionPool(str(tmp_path / "health.sqlite3")),
         redis_url="redis://example:6379/0",
         redis_client=redis,
     )
@@ -50,7 +50,7 @@ def test_configured_redis_is_required(tmp_path) -> None:  # type: ignore[no-unty
 
 
 def test_database_failure_is_not_ready() -> None:
-    readiness = ApplicationReadiness(sqlite_pool=_BrokenPool())  # type: ignore[arg-type]
+    readiness = ApplicationReadiness(database=_BrokenPool())
 
     assert readiness.check() == {
         "database": False,

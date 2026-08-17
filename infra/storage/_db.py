@@ -548,6 +548,13 @@ class SqliteConnectionPool:
             conn.close()
             self._local.conn = None
 
+    def ping(self) -> bool:
+        try:
+            row = self.get().execute("SELECT 1").fetchone()
+        except sqlite3.Error:
+            return False
+        return row is not None and row[0] == 1
+
 
 # ── 轻量幂等 migration ──────────────────────────────────────────────────
 # `CREATE TABLE IF NOT EXISTS` 对存在的表不会补列，因此后续新增字段需要在这里

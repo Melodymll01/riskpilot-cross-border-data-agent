@@ -100,6 +100,17 @@ from infra.storage import (
     SqliteWorkspaceRepo,
 )
 from infra.storage._db import SqliteConnectionPool
+from infra.storage.sqlalchemy import (
+    SqlAlchemyAgentRunRepo,
+    SqlAlchemyAssessmentRepo,
+    SqlAlchemyCaseFactRepo,
+    SqlAlchemyCaseRepo,
+    SqlAlchemyDatabase,
+    SqlAlchemyDocumentRepo,
+    SqlAlchemyEvidenceIndex,
+    SqlAlchemyPolicyRuleRepo,
+    SqlAlchemyWorkspaceRepo,
+)
 from infra.visual import ChineseCLIPEmbedder
 from infra.web import DuckDuckGoAdapter
 from infra.workflows import LangGraphWorkflowRuntime
@@ -113,26 +124,40 @@ def build_sqlite_pool(settings: Settings) -> SqliteConnectionPool:
     return SqliteConnectionPool(settings.sqlite_db_path)
 
 
+def build_sqlalchemy_database(settings: Settings) -> SqlAlchemyDatabase:
+    return SqlAlchemyDatabase(settings.database_url)
+
+
 def build_readiness(
     settings: Settings,
     *,
-    pool: SqliteConnectionPool | None,
+    database: SqliteConnectionPool | SqlAlchemyDatabase | None,
 ) -> ReadinessPort:
     return ApplicationReadiness(
-        sqlite_pool=pool,
+        database=database,
         redis_url=settings.redis_url,
     )
 
 
 def build_assessment_repo(
-    settings: Settings, *, pool: SqliteConnectionPool | None = None
+    settings: Settings,
+    *,
+    pool: SqliteConnectionPool | None = None,
+    database: SqlAlchemyDatabase | None = None,
 ) -> AssessmentRepoPort:
+    if settings.storage_backend == "postgres":
+        return SqlAlchemyAssessmentRepo(database or build_sqlalchemy_database(settings))
     return SqliteAssessmentRepo(pool or build_sqlite_pool(settings))
 
 
 def build_agent_run_repo(
-    settings: Settings, *, pool: SqliteConnectionPool | None = None
+    settings: Settings,
+    *,
+    pool: SqliteConnectionPool | None = None,
+    database: SqlAlchemyDatabase | None = None,
 ) -> AgentRunRepoPort:
+    if settings.storage_backend == "postgres":
+        return SqlAlchemyAgentRunRepo(database or build_sqlalchemy_database(settings))
     return SqliteAgentRunRepo(pool or build_sqlite_pool(settings))
 
 
@@ -149,32 +174,57 @@ def build_task_repo(
 
 
 def build_workspace_repo(
-    settings: Settings, *, pool: SqliteConnectionPool | None = None
+    settings: Settings,
+    *,
+    pool: SqliteConnectionPool | None = None,
+    database: SqlAlchemyDatabase | None = None,
 ) -> WorkspaceRepoPort:
+    if settings.storage_backend == "postgres":
+        return SqlAlchemyWorkspaceRepo(database or build_sqlalchemy_database(settings))
     return SqliteWorkspaceRepo(pool or build_sqlite_pool(settings))
 
 
 def build_case_repo(
-    settings: Settings, *, pool: SqliteConnectionPool | None = None
+    settings: Settings,
+    *,
+    pool: SqliteConnectionPool | None = None,
+    database: SqlAlchemyDatabase | None = None,
 ) -> CaseRepoPort:
+    if settings.storage_backend == "postgres":
+        return SqlAlchemyCaseRepo(database or build_sqlalchemy_database(settings))
     return SqliteCaseRepo(pool or build_sqlite_pool(settings))
 
 
 def build_case_fact_repo(
-    settings: Settings, *, pool: SqliteConnectionPool | None = None
+    settings: Settings,
+    *,
+    pool: SqliteConnectionPool | None = None,
+    database: SqlAlchemyDatabase | None = None,
 ) -> CaseFactRepoPort:
+    if settings.storage_backend == "postgres":
+        return SqlAlchemyCaseFactRepo(database or build_sqlalchemy_database(settings))
     return SqliteCaseFactRepo(pool or build_sqlite_pool(settings))
 
 
 def build_policy_rule_repo(
-    settings: Settings, *, pool: SqliteConnectionPool | None = None
+    settings: Settings,
+    *,
+    pool: SqliteConnectionPool | None = None,
+    database: SqlAlchemyDatabase | None = None,
 ) -> PolicyRuleRepoPort:
+    if settings.storage_backend == "postgres":
+        return SqlAlchemyPolicyRuleRepo(database or build_sqlalchemy_database(settings))
     return SqlitePolicyRuleRepo(pool or build_sqlite_pool(settings))
 
 
 def build_document_repo(
-    settings: Settings, *, pool: SqliteConnectionPool | None = None
+    settings: Settings,
+    *,
+    pool: SqliteConnectionPool | None = None,
+    database: SqlAlchemyDatabase | None = None,
 ) -> DocumentRepoPort:
+    if settings.storage_backend == "postgres":
+        return SqlAlchemyDocumentRepo(database or build_sqlalchemy_database(settings))
     return SqliteDocumentRepo(pool or build_sqlite_pool(settings))
 
 
@@ -209,8 +259,13 @@ def build_evidence_chunker(settings: Settings) -> EvidenceChunkerPort:
 
 
 def build_evidence_index(
-    settings: Settings, *, pool: SqliteConnectionPool | None = None
+    settings: Settings,
+    *,
+    pool: SqliteConnectionPool | None = None,
+    database: SqlAlchemyDatabase | None = None,
 ) -> EvidenceIndexPort:
+    if settings.storage_backend == "postgres":
+        return SqlAlchemyEvidenceIndex(database or build_sqlalchemy_database(settings))
     return SqliteEvidenceIndex(pool or build_sqlite_pool(settings))
 
 
@@ -590,6 +645,7 @@ __all__ = [
     "build_retriever",
     "build_risk_profile",
     "build_sqlite_pool",
+    "build_sqlalchemy_database",
     "build_summary_store",
     "build_task_repo",
     "build_trace",

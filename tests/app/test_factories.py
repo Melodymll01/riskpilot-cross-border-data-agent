@@ -27,6 +27,7 @@ from app.factories import (
     build_policy_rule_repo,
     build_retriever,
     build_risk_profile,
+    build_sqlalchemy_database,
     build_sqlite_pool,
     build_task_repo,
     build_trace,
@@ -60,6 +61,15 @@ from domain.ports import (
     WebSearchPort,
     WorkflowRuntimePort,
     WorkspaceRepoPort,
+)
+from infra.storage.sqlalchemy import (
+    SqlAlchemyAgentRunRepo,
+    SqlAlchemyAssessmentRepo,
+    SqlAlchemyCaseFactRepo,
+    SqlAlchemyCaseRepo,
+    SqlAlchemyDocumentRepo,
+    SqlAlchemyPolicyRuleRepo,
+    SqlAlchemyWorkspaceRepo,
 )
 
 
@@ -120,6 +130,49 @@ class TestStorageFactories:
     def test_audit_log_satisfies_port(self, settings: Settings) -> None:
         pool = build_sqlite_pool(settings)
         assert isinstance(build_audit_log(settings, pool=pool), AuditLogPort)
+
+    def test_postgres_profile_selects_sqlalchemy_core_repositories(
+        self,
+        settings: Settings,
+    ) -> None:
+        postgres_settings = settings.model_copy(
+            update={
+                "storage_backend": "postgres",
+                "database_url": "sqlite://",
+            }
+        )
+        database = build_sqlalchemy_database(postgres_settings)
+        try:
+            assert isinstance(
+                build_workspace_repo(postgres_settings, database=database),
+                SqlAlchemyWorkspaceRepo,
+            )
+            assert isinstance(
+                build_case_repo(postgres_settings, database=database),
+                SqlAlchemyCaseRepo,
+            )
+            assert isinstance(
+                build_document_repo(postgres_settings, database=database),
+                SqlAlchemyDocumentRepo,
+            )
+            assert isinstance(
+                build_case_fact_repo(postgres_settings, database=database),
+                SqlAlchemyCaseFactRepo,
+            )
+            assert isinstance(
+                build_policy_rule_repo(postgres_settings, database=database),
+                SqlAlchemyPolicyRuleRepo,
+            )
+            assert isinstance(
+                build_assessment_repo(postgres_settings, database=database),
+                SqlAlchemyAssessmentRepo,
+            )
+            assert isinstance(
+                build_agent_run_repo(postgres_settings, database=database),
+                SqlAlchemyAgentRunRepo,
+            )
+        finally:
+            database.dispose()
 
 
 class TestAuthFactory:

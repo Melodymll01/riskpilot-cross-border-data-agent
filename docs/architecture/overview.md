@@ -204,6 +204,28 @@ AssessmentRunUseCase
 - 同一 Case 同一工作流只允许一个活动 Run，Run/检查点/事件写入使用乐观锁；
 - 支持进程重建恢复、失败重试、取消和增量事件查询。
 
+### PostgreSQL 生产存储 Profile
+
+```text
+STORAGE_BACKEND=sqlite
+  → SQLite Repository + Chroma local profile
+
+STORAGE_BACKEND=postgres
+  → SQLAlchemy Workspace / Case / Document / Evidence / Fact
+  → SQLAlchemy Policy / Assessment / AgentRun / RunEvent
+  → PostgreSQL transaction + JSONB + partial unique index
+```
+
+- Domain Pydantic Model 不依赖 SQLAlchemy ORM；
+- `SqlAlchemyDatabase` 统一 Engine、短生命周期 Session 和事务边界；
+- Alembic 初始 revision 创建 20 张核心业务表和 `alembic_version`；
+- `AgentRun` 使用 `WHERE revision = expected_revision` 乐观锁；
+- PostgreSQL partial unique index 保证同一 Case + Workflow 只有一个活动 Run；
+- Assessment 版本切换和审批使用条件更新，防止活动版本漂移；
+- Evidence Index 在 Phase 2 暂以 JSON 向量保持完整 PostgreSQL profile，Phase 3
+  升级为 pgvector + PostgreSQL FTS；
+- User/Task/Memory/Audit 等辅助 V2 模块当前仍复用 SQLite，避免一次性迁移全仓。
+
 ### 当前边界
 
 已实现 Evidence QA、显式文档 Fact 提议与 Case Assessment 的工程骨架和确定性闭环。

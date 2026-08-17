@@ -93,6 +93,12 @@ async def lifespan(app: FastAPI):
                 scheduler.shutdown(wait=False)
             except Exception:  # noqa: BLE001 — 关闭期异常仅记录
                 logger.warning("记忆调度器关闭异常（已吞掉）", exc_info=True)
+        storage_database = getattr(container_ref, "storage_database", None)
+        if storage_database is not None:
+            try:
+                storage_database.dispose()
+            except Exception:  # noqa: BLE001 — 关闭期异常仅记录
+                logger.warning("数据库 Engine 关闭异常（已吞掉）", exc_info=True)
 
 
 async def _warmup_research(container_ref) -> None:

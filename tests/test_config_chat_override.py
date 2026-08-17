@@ -28,6 +28,8 @@ _ENV_KEYS = (
     "LLM_PROVIDER",
     "EMBED_PROVIDER",
     "OLLAMA_API_BASE",
+    "STORAGE_BACKEND",
+    "DATABASE_URL",
 )
 
 
@@ -175,4 +177,16 @@ class TestRuntimeConfiguration:
         assert settings.runtime_configuration_errors() == [
             "启用 LangSmith 时必须配置 LANGSMITH_API_KEY",
             "启用 LangSmith 时 LANGSMITH_HASH_SALT 至少需要 16 个字符",
+        ]
+
+    def test_postgres_profile_requires_postgres_database_url(self) -> None:
+        settings = _mk(
+            llm_provider="local",
+            embed_provider="local",
+            storage_backend="postgres",
+            database_url="sqlite:///wrong.db",
+        )
+
+        assert settings.runtime_configuration_errors() == [
+            "STORAGE_BACKEND=postgres 时 DATABASE_URL 必须是 PostgreSQL URL"
         ]

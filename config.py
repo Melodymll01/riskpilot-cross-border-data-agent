@@ -23,6 +23,10 @@ def _is_placeholder_secret(value: str | None) -> bool:
 
 
 class Settings(BaseSettings):
+    # ── 业务数据库 Profile ────────────────────────────────────────────────────
+    storage_backend: Literal["sqlite", "postgres"] = "sqlite"
+    database_url: str = "postgresql+psycopg://riskpilot:riskpilot@127.0.0.1:5432/riskpilot"
+
     # ── 通道选择 ──────────────────────────────────────────────────────────────
     # "api"   → 使用远端 API（智谱 / OpenAI 等）
     # "local" → 使用本机 Ollama
@@ -274,6 +278,10 @@ class Settings(BaseSettings):
     def runtime_configuration_errors(self) -> list[str]:
         """返回真正启动外部 Adapter 前必须修复的配置问题。"""
         errors: list[str] = []
+        if self.storage_backend == "postgres" and not self.database_url.startswith(
+            ("postgresql+psycopg://", "postgresql://")
+        ):
+            errors.append("STORAGE_BACKEND=postgres 时 DATABASE_URL 必须是 PostgreSQL URL")
         if self.llm_provider == "api" and _is_placeholder_secret(self.effective_chat_api_key):
             errors.append("LLM_PROVIDER=api 时必须配置 CHAT_API_KEY 或 OPENAI_API_KEY")
         if self.embed_provider == "api" and _is_placeholder_secret(self.openai_api_key):

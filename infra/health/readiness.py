@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import Any, Protocol
 
 
-class _SqlitePoolLike(Protocol):
-    def get(self) -> Any: ...
+class _DatabaseProbe(Protocol):
+    def ping(self) -> bool: ...
 
 
 class ApplicationReadiness:
@@ -15,11 +15,11 @@ class ApplicationReadiness:
     def __init__(
         self,
         *,
-        sqlite_pool: _SqlitePoolLike | None,
+        database: _DatabaseProbe | None,
         redis_url: str | None = None,
         redis_client: Any | None = None,
     ) -> None:
-        self._sqlite_pool = sqlite_pool
+        self._database = database
         self._redis_url = redis_url
         self._redis_client = redis_client
 
@@ -34,13 +34,12 @@ class ApplicationReadiness:
         return checks
 
     def _check_database(self) -> bool:
-        if self._sqlite_pool is None:
+        if self._database is None:
             return False
         try:
-            row = self._sqlite_pool.get().execute("SELECT 1").fetchone()
+            return self._database.ping()
         except Exception:
             return False
-        return row is not None and row[0] == 1
 
     def _check_redis(self) -> bool | str:
         if not self._redis_url:

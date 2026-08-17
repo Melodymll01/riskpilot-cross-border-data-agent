@@ -60,7 +60,7 @@
 
 | 维度 | 数值 |
 | --- | --- |
-| 离线回归 | **1219 passed · 1 skipped**；真实模型/CLIP 评测显式 `--live` |
+| 离线回归 | **1229 passed · 2 skipped**；其中 1 项等待 CI PostgreSQL service |
 | 架构规模 | **41 Port + 17 Use Case** · DDD 4 层 |
 | V3 资源接口 | **45 个路由** · Workspace → Visual Evidence / Evidence QA / Assessment Run |
 | Agent/Graph | LangChain Tool Calling + 2 张 LangGraph（Research / Assessment） |
@@ -281,7 +281,8 @@ ADMIN_USER_IDS=github:your-github-login
 - **Agent**：LangChain 1.3 `create_agent` + OpenAI-compatible `ChatOpenAI`
 - **工作流**：LangGraph 1.2 + SQLite checkpointer + interrupt/resume
 - **可观测性**：可选 LangSmith + 客户端白名单/HMAC 脱敏；默认关闭
-- **存储**：SQLite（业务对象 / Run / Event）+ 独立 LangGraph checkpoint SQLite + ChromaDB
+- **存储**：SQLite local profile；PostgreSQL + SQLAlchemy 2.x + Alembic production profile；
+  LangGraph checkpoint 当前仍为独立 SQLite
 - **鉴权**：GitHub OAuth + JWT（HS256）+ admin 白名单
 - **LLM**：OpenAI 兼容接口（默认智谱 GLM，可换 Ollama / vLLM）
 - **检索**：ChromaDB + jieba BM25 + RRF 融合 + bge-reranker-base 重排
