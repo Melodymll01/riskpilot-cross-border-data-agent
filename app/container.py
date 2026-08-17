@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from app.agent_tools import build_case_assessment_tool_registry
 from app.factories import (
     build_agent_model,
     build_agent_run_repo,
@@ -38,6 +39,7 @@ from app.factories import (
     build_embedder,
     build_evidence_chunker,
     build_evidence_index,
+    build_evidence_planner,
     build_evidence_qa_generator,
     build_fact_proposal_generator,
     build_fact_store,
@@ -95,6 +97,7 @@ if TYPE_CHECKING:
         AuditLogPort,
         AuthPort,
         BackgroundJobDispatcherPort,
+        CaseAssessmentToolPort,
         CaseFactRepoPort,
         CaseRepoPort,
         ChatPort,
@@ -106,6 +109,7 @@ if TYPE_CHECKING:
         EmbedPort,
         EvidenceChunkerPort,
         EvidenceIndexPort,
+        EvidencePlannerPort,
         EvidenceQAGeneratorPort,
         FactProposalGeneratorPort,
         FactStorePort,
@@ -165,6 +169,8 @@ class AppContainer:
         object_store: ObjectStorePort | None = None,
         job_dispatcher: BackgroundJobDispatcherPort | None = None,
         workflow_runtime: WorkflowRuntimePort | None = None,
+        evidence_planner: EvidencePlannerPort | None = None,
+        case_assessment_tools: CaseAssessmentToolPort | None = None,
         visual_index: VisualIndexPort | None = None,
         visual_embedder: VisualEmbedPort | None = None,
         auth: AuthPort | None = None,
@@ -277,9 +283,6 @@ class AppContainer:
         )
         self.evidence_chunker: EvidenceChunkerPort = evidence_chunker or build_evidence_chunker(
             settings
-        )
-        self.workflow_runtime: WorkflowRuntimePort = workflow_runtime or build_workflow_runtime(
-            settings, trace=self.trace
         )
         self.research: ResearchPort = research or build_research(
             settings,
@@ -403,6 +406,25 @@ class AppContainer:
             workspace_management=self.workspace_management,
             policy_management=self.policy_management,
         )
+        self.agent_model = agent_model or build_agent_model(settings)
+        self.case_assessment_tools: CaseAssessmentToolPort = (
+            case_assessment_tools
+            or build_case_assessment_tool_registry(
+                evidence_search=self.evidence_search,
+                policy_management=self.policy_management,
+                fact_management=self.fact_management,
+                assessment_management=self.assessment_management,
+            )
+        )
+        self.evidence_planner: EvidencePlannerPort = evidence_planner or build_evidence_planner(
+            settings, model=self.agent_model
+        )
+        self.workflow_runtime: WorkflowRuntimePort = workflow_runtime or build_workflow_runtime(
+            settings,
+            trace=self.trace,
+            planner=self.evidence_planner,
+            tools=self.case_assessment_tools,
+        )
         self.evidence_qa = EvidenceQAUseCase(
             retriever=self.retriever,
             evidence_index=self.evidence_index,
@@ -435,7 +457,6 @@ class AppContainer:
             embedder=self.embedder,
             audit_log=self.audit_log,
         )
-        self.agent_model = agent_model or build_agent_model(settings)
         self.copilot_agent = LangChainComplianceAgent(
             model=self.agent_model,
             task_repo=self.task_repo,

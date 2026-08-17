@@ -452,26 +452,20 @@ cancelled
 ```text
 load_case
 → authorize
-→ validate_documents
-→ extract_fact_candidates
-→ merge_existing_facts
-→ detect_missing_facts
-→ request_fact_confirmation
+→ inspect_documents
+→ build_evidence_plan
 → retrieve_case_evidence
-→ validate_evidence
-→ detect_conflicts
-→ resolve_conflicts
+→ retrieve_regulations
+→ extract_fact_candidates
+→ detect_missing_facts
+→ detect_fact_conflicts
+→ human_fact_confirmation
 → select_policy_snapshot
-→ evaluate_policy_rules
-→ determine_candidate_paths
-→ generate_findings
-→ generate_action_items
-→ draft_assessment
-→ verify_claims_and_citations
-→ repair_assessment
+→ evaluate_deterministic_rules
+→ draft_findings
+→ verify_claim_citations
 → human_review
-→ persist_assessment
-→ complete
+→ finalize_assessment
 ```
 
 允许中断的节点：
@@ -483,11 +477,11 @@ load_case
 5. 高风险结论确认；
 6. 最终报告审批。
 
-循环预算：
+预算：
 
-- 事实补充最多 2 轮；
-- 证据检索最多 3 轮；
-- 引用修复最多 1 轮；
+- 证据补查轮次由 `AGENT_MAX_LOOP_COUNT` 限制；
+- 工具调用由 `AGENT_MAX_TOOL_CALLS` 限制；
+- 模型 token 由 `AGENT_MAX_TOKENS` 限制，并只累计 Provider 返回的 usage。
 - 超出预算转人工处理，不无限循环。
 
 ## 10. 文档处理
@@ -778,8 +772,8 @@ evaluations/
 5. Workspace 隔离的 PolicyRule 和只消费 confirmed facts 的确定性规则引擎；
 6. 不可变 Assessment、Finding、ActionItem、版本替换与人工审批；
 7. AgentRun、RunCheckpoint、RunEvent、乐观锁和连续事件持久化；
-8. LangGraph 1.x Case Assessment 运行时、SQLite checkpointer、
-   `interrupt/Command` 暂停恢复、失败重试和取消；
+8. LangGraph 1.x Case Assessment 运行时、local SQLite / production PostgreSQL
+   checkpointer、`interrupt/Command` 暂停恢复、失败重试和取消；
 9. `/api/v3` 的 Workspace、Case、Document、Evidence、Fact、Policy、
    Assessment 和 Assessment Run 资源接口；
 10. `/api/v2` 保持可用，未进行 Big Bang 退役。
@@ -838,23 +832,32 @@ evaluations/
     Copilot、Deep Research、Case Assessment 和风险模型共享同一 Trace；输入、输出、
     异常正文、事件、附件和序列化 Prompt 在客户端出站前移除，业务 ID 使用 HMAC 哈希。
 
-当前 Case Assessment Graph 已落地的确定性骨架：
+当前 Case Assessment Graph 已升级为核心证据驱动 Agent：
 
 ```text
 load_case
 → authorize
-→ validate_documents
+→ inspect_documents
+→ build_evidence_plan
+→ retrieve_case_evidence
+→ retrieve_regulations
+→ extract_fact_candidates
 → detect_missing_facts
+→ detect_fact_conflicts
+→ human_fact_confirmation
 → select_policy_snapshot
-→ evaluate_policy_rules
-→ draft_assessment
+→ evaluate_deterministic_rules
+→ draft_findings
+→ verify_claim_citations
 → human_review
-→ complete
+→ finalize_assessment
 ```
 
-其中正式 Assessment 的生成和审批由应用用例执行，LangGraph 只负责流程推进与中断恢复，
-不会直接批准报告或写入最终 Assessment。checkpoint 只保存对象 ID 和轻量状态，禁用
-pickle fallback。
+LangChain function calling 负责生成结构化 EvidencePlan，服务端 Typed Tool Registry 负责
+Schema、角色、阶段、timeout/retry 和 scope 注入。案件证据可按调查问题有限补查；规则计算、
+引用校验和审批是不可跳过的门禁。正式 Assessment 的生成和审批仍由应用用例执行，Agent
+不会直接批准报告。checkpoint 只保存对象 ID 和轻量状态，local 使用 SQLite，production
+使用 PostgreSQL，并禁用 pickle fallback。
 
 尚未完成：
 

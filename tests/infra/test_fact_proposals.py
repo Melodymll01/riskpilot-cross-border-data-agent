@@ -57,13 +57,14 @@ class TestStructuredFactProposalGenerator:
         generator = StructuredFactProposalGenerator(chat)
         assert isinstance(generator, FactProposalGeneratorPort)
 
-        proposals = generator.propose(
+        result = generator.propose(
             field_names=["important_data_involved"],
             documents=[_document()],
         )
 
-        assert proposals[0].field_name == "important_data_involved"
-        assert proposals[0].evidence[0].quote == "涉及重要数据"
+        assert result.proposals[0].field_name == "important_data_involved"
+        assert result.proposals[0].evidence[0].quote == "涉及重要数据"
+        assert result.token_usage == 0
         assert chat.calls[0]["temperature"] == 0.0
         assert chat.calls[0]["json_mode"] is True
         system_prompt = chat.calls[0]["messages"][0]["content"]
@@ -134,9 +135,25 @@ class TestStructuredFactProposalGenerator:
 
     def test_empty_documents_short_circuits_without_llm(self) -> None:
         chat = FakeChat()
-        proposals = StructuredFactProposalGenerator(chat).propose(
+        result = StructuredFactProposalGenerator(chat).propose(
             field_names=["important_data_involved"],
             documents=[],
         )
-        assert proposals == []
+        assert result.proposals == []
+        assert result.token_usage == 0
         assert chat.calls == []
+
+    def test_returns_real_usage_and_forwards_token_limit(self) -> None:
+        chat = FakeChat(
+            responses=['{"proposals": []}'],
+            token_usages=[80],
+        )
+
+        result = StructuredFactProposalGenerator(chat).propose(
+            field_names=["important_data_involved"],
+            documents=[_document()],
+            max_tokens=120,
+        )
+
+        assert result.token_usage == 80
+        assert chat.calls[0]["max_tokens"] == 120

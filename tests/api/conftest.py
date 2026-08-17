@@ -25,7 +25,7 @@ from api.v3 import build_v3_router
 from app.container import AppContainer
 from app.request_context import install_request_id_middleware
 from config import Settings
-from infra.workflows import LangGraphWorkflowRuntime
+from infra.agents import DeterministicEvidencePlanner
 from tests.fakes.fake_agent_model import FakeToolCallingModel
 from tests.fakes.fake_audit_log import FakeAuditLogRepo
 from tests.fakes.fake_auth import FakeAuth
@@ -65,7 +65,7 @@ def admin_user_ids() -> list[str]:
 
 
 @pytest.fixture
-def test_settings(admin_user_ids: list[str]) -> Settings:
+def test_settings(admin_user_ids: list[str], tmp_path: Path) -> Settings:
     """构造测试用 Settings；用 _env_file=None 防止读项目里的 .env。"""
     return Settings(  # type: ignore[call-arg]
         _env_file=None,
@@ -75,6 +75,7 @@ def test_settings(admin_user_ids: list[str]) -> Settings:
         chat_api_base="http://127.0.0.1:9/v1",
         enable_reranker=False,
         admin_user_ids=admin_user_ids,
+        langgraph_checkpoint_db_path=str(tmp_path / "langgraph-checkpoints.sqlite3"),
     )
 
 
@@ -91,7 +92,6 @@ def agent_script() -> list[AIMessage]:
 def container(
     test_settings: Settings,
     agent_script: list[AIMessage],
-    tmp_path: Path,
 ) -> AppContainer:
     """全 Fake 注入的 AppContainer。"""
     document_repo = InMemoryDocumentRepo()
@@ -111,7 +111,6 @@ def container(
         document_parser=FakeDocumentParser(),
         evidence_chunker=FakeEvidenceChunker(),
         evidence_index=FakeEvidenceIndex(document_repo),
-        workflow_runtime=LangGraphWorkflowRuntime(str(tmp_path / "langgraph-checkpoints.sqlite3")),
         audit_log=FakeAuditLogRepo(),
         embedder=FakeEmbed(),
         chat=FakeChat(responses=["done"]),
@@ -129,6 +128,7 @@ def container(
         agent_model=FakeToolCallingModel(responses=agent_script),
         visual_index=FakeVisualIndex(),
         visual_embedder=FakeVisualEmbedder(),
+        evidence_planner=DeterministicEvidencePlanner(),
     )
 
 

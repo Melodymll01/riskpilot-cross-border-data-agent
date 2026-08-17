@@ -21,13 +21,14 @@ Workspace
 4. Case 必须设置 `assessment_date`；
 5. 启动 Run 前至少存在一个已发布且在评估日期生效的规则。
 
-LangGraph checkpoint 默认保存在：
+Checkpoint 后端跟随业务存储 Profile：
 
 ```text
-./data/langgraph-checkpoints.sqlite3
+STORAGE_BACKEND=sqlite   → ./data/langgraph-checkpoints.sqlite3
+STORAGE_BACKEND=postgres → DATABASE_URL 指向的 PostgreSQL 官方 checkpoint 表
 ```
 
-可通过环境变量覆盖：
+本地 SQLite 路径可通过环境变量覆盖：
 
 ```bash
 LANGGRAPH_CHECKPOINT_DB_PATH=./data/langgraph-checkpoints.sqlite3
@@ -41,7 +42,7 @@ LANGGRAPH_CHECKPOINT_DB_PATH=./data/langgraph-checkpoints.sqlite3
 4. 在“案件材料”选择文件并填写可选用途，点击“上传并处理”；
 5. 工作台会加载当前 Case、材料处理任务、Fact 和 Assessment Run。
 
-Run 停于 `detect_missing_facts` 时，工作台会读取最新
+Run 停于 `human_fact_confirmation` 时，工作台会读取最新
 `fact_confirmation_required` 事件并自动列出缺失字段。
 
 ## 2. 创建 Workspace 与成员
@@ -123,7 +124,7 @@ POST /api/v3/processing-jobs/{job_id}/retry
 
 ```text
 status=waiting_for_user
-current_stage=validate_documents
+current_stage=inspect_documents
 ```
 
 处理完成后调用：
@@ -186,17 +187,26 @@ Content-Type: application/json
 {"target":"confirmed"}
 ```
 
-若规则需要的 confirmed facts 不完整，Run 会停在：
+若规则需要的 confirmed facts 不完整，Graph 会先调用
+`extract_fact_candidates`，复用事实提议服务对字段白名单、当前 DocumentVersion、原文 quote 和
+offset 做服务端复核。模型只生成候选，不能确认 Fact。若仍缺事实，Run 会停在：
 
 ```text
 status=waiting_for_user
-current_stage=detect_missing_facts
+current_stage=human_fact_confirmation
 ```
 
 补齐并确认事实后再次调用 `POST /api/v3/runs/{run_id}/continue`。
 
-当前 Graph 不会在节点内直接调用模型或写入 Fact。`fact_confirmation` 中断后，由前端或
-调用方显式请求 `fact-proposals`、展示证据和冲突，再由 Reviewer 确认，最后继续 Run。
+若候选与现有 Fact 值冲突，Graph 会先停在：
+
+```text
+status=waiting_for_review
+current_stage=detect_fact_conflicts
+```
+
+只有 Reviewer/Admin 处理冲突并确认唯一事实后，`continue` 才能恢复。Editor 调用会返回
+403，且不会把正常 Run 错误标记为 failed。
 
 案件工作台对应操作：
 
@@ -262,10 +272,22 @@ Content-Type: application/json
 材料和事实齐备时，运行会自动：
 
 ```text
-validate documents
-→ evaluate deterministic rules
-→ generate immutable Assessment
-→ pause for human review
+load_case
+→ authorize
+→ inspect_documents
+→ build_evidence_plan
+→ retrieve_case_evidence（按调查问题有限循环）
+→ retrieve_regulations
+→ extract_fact_candidates
+→ detect_missing_facts
+→ detect_fact_conflicts
+→ human_fact_confirmation
+→ select_policy_snapshot
+→ evaluate_deterministic_rules
+→ draft_findings
+→ verify_claim_citations
+→ human_review
+→ finalize_assessment
 ```
 
 返回：
@@ -293,9 +315,14 @@ user 来源 Fact 不伪造文档引用，仍通过 `fact_ids + fact_versions` �
 GET /api/v3/runs/{run_id}
 GET /api/v3/cases/{case_id}/assessment-runs
 GET /api/v3/runs/{run_id}/events?after_sequence=0
+GET /api/v3/runs/{run_id}/plan
 ```
 
-事件使用连续 `sequence`，可通过 `after_sequence` 增量拉取。响应不会暴露：
+Plan 接口返回调查问题、必需事实、计划工具、证据缺口和完成标准；在材料门禁尚未通过、
+Plan 未生成时返回 409。
+
+事件使用连续 `sequence`，可通过 `after_sequence` 增量拉取。`tool_completed` 只返回脱敏参数、
+ID/计数/状态型输出、耗时和重试次数。响应不会暴露：
 
 - LangGraph `thread_id`；
 - checkpoint 内容；
@@ -366,8 +393,14 @@ Assessment。
 - Graph 不直接持久化最终 Assessment；
 - 规则计算只消费 confirmed facts；
 - Fact 提议模型只生成候选，不得确认事实或直接推进 Run；
+- LangChain function calling 只生成结构化 EvidencePlan，工具由服务端 Registry 执行；
+- Planner 不接收 workspace/case/document ID；workspace/case/actor 也不属于模型工具参数，
+  统一由已鉴权 Runtime Context 注入；
 - Reviewer/Admin 才能批准正式 Assessment；
 - Finding 的 Fact / Evidence / Clause 引用必须形成可验证闭包，漂移时 fail closed；
 - 同一 Case 同一工作流只允许一个活动 Run；
-- 产品 Run 使用 revision 乐观锁，LangGraph 使用独立 SQLite checkpointer；
+- 产品 Run 使用 revision 乐观锁；本地使用 SQLite checkpointer，生产使用 PostgreSQL
+  checkpointer；
+- loop/tool/token budget 耗尽时 fail closed；Planner 与 Fact Proposal token 都只累计模型
+  返回的真实 usage metadata；Fact Proposal 超出剩余预算时不会写入候选 Fact；
 - 恢复时重新读取 Document、Fact、Policy Repository，不相信客户端提交的业务状态。

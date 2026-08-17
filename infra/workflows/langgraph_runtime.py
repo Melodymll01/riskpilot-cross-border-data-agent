@@ -2,49 +2,31 @@
 
 from __future__ import annotations
 
-import sqlite3
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypedDict, cast
+from typing import TYPE_CHECKING, Any, cast
 
-from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
-from langgraph.checkpoint.sqlite import SqliteSaver
-from langgraph.graph import END, START, StateGraph
-from langgraph.types import Command, Interrupt, interrupt
+from langgraph.types import Command, Interrupt
 
+from domain.agent_workflow import AgentBudget
 from domain.runs import (
     CaseDocumentReadiness,
     WorkflowExecutionResult,
     WorkflowInterrupt,
     WorkflowInterruptKind,
 )
+from infra.agents import DeterministicEvidencePlanner
 from infra.observability import NoopTraceAdapter
+from infra.workflows.case_assessment_graph import (
+    GRAPH_STAGES,
+    CaseAssessmentState,
+    GraphDependencies,
+    build_case_assessment_graph,
+)
+from infra.workflows.checkpoint_store import CheckpointBackend, CheckpointStore
 
 if TYPE_CHECKING:
-    from domain.ports import TracePort
+    from domain.ports import CaseAssessmentToolPort, EvidencePlannerPort, TracePort
 
-_GRAPH_STAGES = (
-    "load_case",
-    "authorize",
-    "validate_documents",
-    "detect_missing_facts",
-    "select_policy_snapshot",
-    "evaluate_policy_rules",
-    "draft_assessment",
-    "human_review",
-    "complete",
-)
-
-
-class _CaseAssessmentState(TypedDict, total=False):
-    case_id: str
-    workspace_id: str
-    actor_id: str
-    ruleset_version: str
-    ready_document_ids: list[str]
-    pending_document_ids: list[str]
-    missing_fact_fields: list[str]
-    assessment_id: str
-    review_decision: str
+_GRAPH_STAGES = GRAPH_STAGES
 
 
 class LangGraphWorkflowRuntime:
@@ -54,22 +36,41 @@ class LangGraphWorkflowRuntime:
         self,
         checkpoint_db_path: str,
         *,
+        checkpoint_backend: CheckpointBackend = "sqlite",
+        database_url: str | None = None,
         trace: TracePort | None = None,
+        planner: EvidencePlannerPort | None = None,
+        tools: CaseAssessmentToolPort | None = None,
+        budget: AgentBudget | None = None,
     ) -> None:
-        if checkpoint_db_path == ":memory:":
-            connection_target = checkpoint_db_path
-        else:
-            path = Path(checkpoint_db_path)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            connection_target = str(path)
-        self._connection = sqlite3.connect(connection_target, check_same_thread=False)
-        self._saver = SqliteSaver(
-            self._connection,
-            serde=JsonPlusSerializer(pickle_fallback=False),
+        self._checkpoint_store = CheckpointStore(
+            backend=checkpoint_backend,
+            sqlite_path=checkpoint_db_path,
+            database_url=database_url,
         )
-        self._saver.setup()
-        self._graph = _build_case_assessment_graph(self._saver)
+        self._default_budget = budget or AgentBudget()
+        self._dependencies = GraphDependencies(
+            planner=planner or DeterministicEvidencePlanner(),
+            tools=tools,
+            budget=self._default_budget,
+        )
+        self._compiled_graph: Any | None = None
         self._trace = trace or NoopTraceAdapter()
+
+    def close(self) -> None:
+        self._checkpoint_store.close()
+        self._compiled_graph = None
+
+    def initialize(self) -> None:
+        self._graph()
+
+    def _graph(self) -> Any:
+        if self._compiled_graph is None:
+            self._compiled_graph = build_case_assessment_graph(
+                self._checkpoint_store.saver,
+                self._dependencies,
+            )
+        return self._compiled_graph
 
     def inspect_case_assessment(
         self,
@@ -77,7 +78,7 @@ class LangGraphWorkflowRuntime:
         thread_id: str,
     ) -> WorkflowExecutionResult | None:
         config = _config(thread_id)
-        snapshot = self._graph.get_state(config)
+        snapshot = self._graph().get_state(config)
         if not snapshot.values and not snapshot.next:
             return None
         return self._result(config, [])
@@ -92,6 +93,13 @@ class LangGraphWorkflowRuntime:
         ruleset_version: str,
         document_readiness: CaseDocumentReadiness,
         missing_fact_fields: list[str],
+        conflict_field_names: list[str] | None = None,
+        run_id: str | None = None,
+        actor_role: str = "editor",
+        required_fact_fields: list[str] | None = None,
+        max_loop_count: int | None = None,
+        max_tool_calls: int | None = None,
+        max_tokens: int | None = None,
     ) -> WorkflowExecutionResult:
         with self._trace.span(
             "riskpilot.case_assessment.start",
@@ -117,6 +125,13 @@ class LangGraphWorkflowRuntime:
                     ruleset_version=ruleset_version,
                     document_readiness=document_readiness,
                     missing_fact_fields=missing_fact_fields,
+                    conflict_field_names=conflict_field_names,
+                    run_id=run_id,
+                    actor_role=actor_role,
+                    required_fact_fields=required_fact_fields,
+                    max_loop_count=max_loop_count,
+                    max_tool_calls=max_tool_calls,
+                    max_tokens=max_tokens,
                 )
             except Exception as exc:
                 span.add_metadata({"error_type": type(exc).__name__, "status": "failed"})
@@ -134,26 +149,59 @@ class LangGraphWorkflowRuntime:
         ruleset_version: str,
         document_readiness: CaseDocumentReadiness,
         missing_fact_fields: list[str],
+        conflict_field_names: list[str] | None,
+        run_id: str | None,
+        actor_role: str,
+        required_fact_fields: list[str] | None,
+        max_loop_count: int | None,
+        max_tool_calls: int | None,
+        max_tokens: int | None,
     ) -> WorkflowExecutionResult:
         if not thread_id.strip():
             raise ValueError("thread_id 必填")
         if len(missing_fact_fields) != len(set(missing_fact_fields)):
             raise ValueError("missing_fact_fields 不能重复")
         config = _config(thread_id)
-        existing = self._graph.get_state(config)
+        graph = self._graph()
+        existing = graph.get_state(config)
         if existing.values or existing.next:
             raise ValueError(f"LangGraph thread {thread_id!r} 已存在")
-        state: _CaseAssessmentState = {
+        state: CaseAssessmentState = {
+            "run_id": run_id or thread_id,
             "case_id": case_id,
             "workspace_id": workspace_id,
             "actor_id": actor_id,
+            "actor_role": actor_role,
             "ruleset_version": ruleset_version,
             "ready_document_ids": list(document_readiness.ready_document_ids),
             "pending_document_ids": list(document_readiness.pending_document_ids),
+            "required_fact_fields": list(required_fact_fields or missing_fact_fields),
             "missing_fact_fields": list(missing_fact_fields),
+            "conflict_field_names": list(conflict_field_names or []),
+            "budget": self._default_budget.model_copy(
+                update={
+                    "max_loop_count": (
+                        self._default_budget.max_loop_count
+                        if max_loop_count is None
+                        else max_loop_count
+                    ),
+                    "max_tool_calls": (
+                        self._default_budget.max_tool_calls
+                        if max_tool_calls is None
+                        else max_tool_calls
+                    ),
+                    "max_tokens": (
+                        self._default_budget.max_tokens if max_tokens is None else max_tokens
+                    ),
+                    "loop_count": 0,
+                    "tool_calls": 0,
+                    "token_usage": 0,
+                }
+            ).model_dump(),
+            "tool_trace": [],
         }
         completed_stages = _consume_updates(
-            self._graph.stream(state, config=config, stream_mode="updates")
+            graph.stream(state, config=config, stream_mode="updates")
         )
         return self._result(config, completed_stages)
 
@@ -163,6 +211,8 @@ class LangGraphWorkflowRuntime:
         thread_id: str,
         resume_value: dict[str, Any],
         state_update: dict[str, Any] | None = None,
+        actor_id: str | None = None,
+        actor_role: str | None = None,
     ) -> WorkflowExecutionResult:
         with self._trace.span(
             "riskpilot.case_assessment.resume",
@@ -178,6 +228,8 @@ class LangGraphWorkflowRuntime:
                     thread_id=thread_id,
                     resume_value=resume_value,
                     state_update=state_update,
+                    actor_id=actor_id,
+                    actor_role=actor_role,
                 )
             except Exception as exc:
                 span.add_metadata({"error_type": type(exc).__name__, "status": "failed"})
@@ -191,17 +243,31 @@ class LangGraphWorkflowRuntime:
         thread_id: str,
         resume_value: dict[str, Any],
         state_update: dict[str, Any] | None = None,
+        actor_id: str | None,
+        actor_role: str | None,
     ) -> WorkflowExecutionResult:
         config = _config(thread_id)
-        snapshot = self._graph.get_state(config)
+        graph = self._graph()
+        snapshot = graph.get_state(config)
         active_interrupt = _active_interrupt(snapshot.tasks)
         if active_interrupt is None:
             raise ValueError(f"LangGraph thread {thread_id!r} 当前没有可恢复中断")
         kind = _interrupt_kind(active_interrupt)
         sanitized = _validate_resume_value(kind, resume_value)
         sanitized_update = _validate_state_update(kind, state_update or {})
+        if (actor_id is None) != (actor_role is None):
+            raise ValueError("恢复执行身份必须同时提供 actor_id 和 actor_role")
+        if actor_id is not None and actor_role is not None:
+            if actor_role not in {"editor", "reviewer", "admin"}:
+                raise ValueError("恢复执行身份角色非法")
+            sanitized_update.update(
+                {
+                    "actor_id": actor_id,
+                    "actor_role": actor_role,
+                }
+            )
         completed_stages = _consume_updates(
-            self._graph.stream(
+            graph.stream(
                 Command(resume=sanitized, update=sanitized_update or None),
                 config=config,
                 stream_mode="updates",
@@ -214,7 +280,7 @@ class LangGraphWorkflowRuntime:
         config: dict[str, dict[str, str]],
         completed_stages: list[str],
     ) -> WorkflowExecutionResult:
-        snapshot = self._graph.get_state(config)
+        snapshot = self._graph().get_state(config)
         configurable = snapshot.config.get("configurable", {})
         checkpoint_id = configurable.get("checkpoint_id")
         if not isinstance(checkpoint_id, str) or not checkpoint_id:
@@ -241,24 +307,6 @@ class LangGraphWorkflowRuntime:
         )
 
 
-def _build_case_assessment_graph(saver: SqliteSaver) -> Any:
-    builder = StateGraph(_CaseAssessmentState)
-    builder.add_node("load_case", _load_case)
-    builder.add_node("authorize", _authorize)
-    builder.add_node("validate_documents", _validate_documents)
-    builder.add_node("detect_missing_facts", _detect_missing_facts)
-    builder.add_node("select_policy_snapshot", _select_policy_snapshot)
-    builder.add_node("evaluate_policy_rules", _evaluate_policy_rules)
-    builder.add_node("draft_assessment", _draft_assessment)
-    builder.add_node("human_review", _human_review)
-    builder.add_node("complete", _complete)
-    builder.add_edge(START, "load_case")
-    for source, target in zip(_GRAPH_STAGES, _GRAPH_STAGES[1:], strict=False):
-        builder.add_edge(source, target)
-    builder.add_edge("complete", END)
-    return builder.compile(checkpointer=saver, name="riskpilot_case_assessment")
-
-
 def _result_metadata(result: WorkflowExecutionResult) -> dict[str, Any]:
     return {
         "completed": result.status == "completed",
@@ -268,91 +316,6 @@ def _result_metadata(result: WorkflowExecutionResult) -> dict[str, Any]:
         "stage": result.stage,
         "status": result.status,
     }
-
-
-def _load_case(state: _CaseAssessmentState) -> dict[str, Any]:
-    _require_state_fields(state, "case_id", "workspace_id", "actor_id", "ruleset_version")
-    return {}
-
-
-def _authorize(state: _CaseAssessmentState) -> dict[str, Any]:
-    _require_state_fields(state, "workspace_id", "actor_id")
-    return {}
-
-
-def _validate_documents(state: _CaseAssessmentState) -> dict[str, Any]:
-    ready = list(state.get("ready_document_ids", []))
-    pending = list(state.get("pending_document_ids", []))
-    if not ready or pending:
-        response = interrupt(
-            {
-                "kind": "documents_required",
-                "ready_document_ids": ready,
-                "pending_document_ids": pending,
-            }
-        )
-        if response.get("action") != "retry":
-            raise ValueError("documents_required 仅接受 action=retry")
-    return {}
-
-
-def _detect_missing_facts(state: _CaseAssessmentState) -> dict[str, Any]:
-    missing = list(state.get("missing_fact_fields", []))
-    if missing:
-        response = interrupt(
-            {
-                "kind": "fact_confirmation",
-                "missing_fact_fields": missing,
-            }
-        )
-        if response.get("action") != "retry":
-            raise ValueError("fact_confirmation 仅接受 action=retry")
-    return {}
-
-
-def _select_policy_snapshot(state: _CaseAssessmentState) -> dict[str, Any]:
-    _require_state_fields(state, "ruleset_version")
-    return {}
-
-
-def _evaluate_policy_rules(state: _CaseAssessmentState) -> dict[str, Any]:
-    _require_state_fields(state, "case_id", "ruleset_version")
-    return {}
-
-
-def _draft_assessment(state: _CaseAssessmentState) -> dict[str, Any]:
-    response = interrupt(
-        {
-            "kind": "assessment_generation",
-            "case_id": state["case_id"],
-            "ruleset_version": state["ruleset_version"],
-        }
-    )
-    assessment_id = response.get("assessment_id")
-    if not isinstance(assessment_id, str) or not assessment_id:
-        raise ValueError("assessment_generation 必须返回 assessment_id")
-    return {"assessment_id": assessment_id}
-
-
-def _human_review(state: _CaseAssessmentState) -> dict[str, Any]:
-    assessment_id = state.get("assessment_id")
-    if not assessment_id:
-        raise ValueError("human_review 缺少 assessment_id")
-    response = interrupt(
-        {
-            "kind": "assessment_review",
-            "assessment_id": assessment_id,
-        }
-    )
-    decision = response.get("decision")
-    if decision not in {"approved", "rejected"}:
-        raise ValueError("assessment_review 仅接受 approved 或 rejected")
-    return {"review_decision": decision}
-
-
-def _complete(state: _CaseAssessmentState) -> dict[str, Any]:
-    _require_state_fields(state, "assessment_id", "review_decision")
-    return {}
 
 
 def _config(thread_id: str) -> dict[str, dict[str, str]]:
@@ -386,6 +349,7 @@ def _interrupt_kind(value: Interrupt) -> WorkflowInterruptKind:
     if kind not in {
         "documents_required",
         "fact_confirmation",
+        "fact_conflict_review",
         "assessment_generation",
         "assessment_review",
     }:
@@ -407,6 +371,7 @@ def _validate_resume_value(
     allowed: dict[str, set[str]] = {
         "documents_required": {"action"},
         "fact_confirmation": {"action"},
+        "fact_conflict_review": {"action"},
         "assessment_generation": {"assessment_id"},
         "assessment_review": {"decision"},
     }
@@ -414,7 +379,7 @@ def _validate_resume_value(
     if unknown:
         fields = ", ".join(sorted(unknown))
         raise ValueError(f"{kind} 恢复参数包含非法字段: {fields}")
-    if kind in {"documents_required", "fact_confirmation"}:
+    if kind in {"documents_required", "fact_confirmation", "fact_conflict_review"}:
         if value != {"action": "retry"}:
             raise ValueError(f"{kind} 仅接受 action=retry")
     elif kind == "assessment_generation":
@@ -432,7 +397,8 @@ def _validate_state_update(
 ) -> dict[str, Any]:
     allowed: dict[WorkflowInterruptKind, set[str]] = {
         "documents_required": {"ready_document_ids", "pending_document_ids"},
-        "fact_confirmation": {"missing_fact_fields"},
+        "fact_confirmation": {"missing_fact_fields", "candidate_fact_ids"},
+        "fact_conflict_review": {"conflict_field_names", "missing_fact_fields"},
         "assessment_generation": set(),
         "assessment_review": set(),
     }
@@ -454,7 +420,19 @@ def _validate_state_update(
             raise ValueError("missing_fact_fields 不能重复")
         if missing_fields:
             raise ValueError("fact_confirmation 恢复前 missing_fact_fields 必须为空")
-        return {"missing_fact_fields": missing_fields}
+        candidate_ids = _string_list(value.get("candidate_fact_ids", []))
+        return {
+            "missing_fact_fields": missing_fields,
+            "candidate_fact_ids": candidate_ids,
+        }
+    if kind == "fact_conflict_review":
+        conflicts = _string_list(value.get("conflict_field_names", []))
+        if conflicts:
+            raise ValueError("fact_conflict_review 恢复前 conflict_field_names 必须为空")
+        return {
+            "conflict_field_names": conflicts,
+            "missing_fact_fields": _string_list(value.get("missing_fact_fields", [])),
+        }
     if value:
         raise ValueError(f"{kind} 不接受状态更新")
     return {}
@@ -473,14 +451,28 @@ def _safe_state(value: Any) -> dict[str, Any]:
         raise RuntimeError("LangGraph state 必须是对象")
     allowed = {
         "case_id",
+        "run_id",
         "workspace_id",
         "actor_id",
+        "actor_role",
         "ruleset_version",
         "ready_document_ids",
         "pending_document_ids",
+        "required_fact_fields",
         "missing_fact_fields",
+        "evidence_plan",
+        "evidence_query_count",
+        "case_evidence_ids",
+        "regulation_rule_ids",
+        "candidate_fact_ids",
+        "conflict_field_names",
+        "policy_missing_fact_fields",
         "assessment_id",
+        "citations_valid",
         "review_decision",
+        "refusal_reason",
+        "budget",
+        "tool_trace",
     }
     safe: dict[str, Any] = {}
     for key in allowed:
@@ -491,15 +483,10 @@ def _safe_state(value: Any) -> dict[str, Any]:
 
 def _stage_for_interrupt(kind: WorkflowInterruptKind) -> str:
     stages: dict[WorkflowInterruptKind, str] = {
-        "documents_required": "validate_documents",
-        "fact_confirmation": "detect_missing_facts",
-        "assessment_generation": "draft_assessment",
+        "documents_required": "inspect_documents",
+        "fact_confirmation": "human_fact_confirmation",
+        "fact_conflict_review": "detect_fact_conflicts",
+        "assessment_generation": "draft_findings",
         "assessment_review": "human_review",
     }
     return stages[kind]
-
-
-def _require_state_fields(state: _CaseAssessmentState, *fields: str) -> None:
-    missing = [field for field in fields if not state.get(field)]
-    if missing:
-        raise ValueError(f"LangGraph state 缺少字段: {', '.join(missing)}")

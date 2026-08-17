@@ -590,6 +590,14 @@ class RunEventListResponse(BaseModel):
     events: list[RunEventOut]
 
 
+class EvidencePlanOut(BaseModel):
+    investigation_questions: list[str]
+    required_fact_fields: list[str]
+    planned_tools: list[str]
+    evidence_gaps: list[str]
+    completion_criteria: list[str]
+
+
 QACorpusValue = Literal["regulatory", "workspace", "case", "assessment"]
 EvidenceQAStatusValue = Literal["answered", "partially_answered", "refused"]
 

@@ -18,6 +18,13 @@ from contextlib import AbstractContextManager
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from domain.agent import AgentEvent
+from domain.agent_workflow import (
+    AgentRuntimeContext,
+    EvidencePlanRequest,
+    EvidencePlanResult,
+    ToolDefinition,
+    ToolExecutionResult,
+)
 from domain.assessments import Assessment, AssessmentBundle
 from domain.cases import Case
 from domain.document_content import DocumentParseSnapshot
@@ -26,12 +33,13 @@ from domain.evidence import EvidenceChunk, EvidenceSearchHit
 from domain.facts import (
     CaseFact,
     CaseFactEvidence,
-    FactProposal,
     FactProposalDocument,
+    FactProposalResult,
 )
 from domain.models import (
     Artifact,
     AuditEntry,
+    ChatResponse,
     Chunk,
     ConsolidationState,
     Fact,
@@ -536,6 +544,13 @@ class WorkflowRuntimePort(Protocol):
         ruleset_version: str,
         document_readiness: CaseDocumentReadiness,
         missing_fact_fields: list[str],
+        conflict_field_names: list[str] | None = None,
+        run_id: str | None = None,
+        actor_role: str = "editor",
+        required_fact_fields: list[str] | None = None,
+        max_loop_count: int | None = None,
+        max_tool_calls: int | None = None,
+        max_tokens: int | None = None,
     ) -> WorkflowExecutionResult: ...
 
     def resume_case_assessment(
@@ -544,7 +559,27 @@ class WorkflowRuntimePort(Protocol):
         thread_id: str,
         resume_value: dict[str, Any],
         state_update: dict[str, Any] | None = None,
+        actor_id: str | None = None,
+        actor_role: str | None = None,
     ) -> WorkflowExecutionResult: ...
+
+
+@runtime_checkable
+class EvidencePlannerPort(Protocol):
+    def build_plan(self, request: EvidencePlanRequest) -> EvidencePlanResult: ...
+
+
+@runtime_checkable
+class CaseAssessmentToolPort(Protocol):
+    def definitions(self) -> list[ToolDefinition]: ...
+
+    def execute(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any],
+        *,
+        context: AgentRuntimeContext,
+    ) -> ToolExecutionResult: ...
 
 
 # === 任务 / 消息 ===
@@ -603,6 +638,15 @@ class ChatPort(Protocol):
         json_mode: bool = False,
     ) -> str: ...
 
+    def chat_with_usage(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        temperature: float = 0.2,
+        max_tokens: int | None = None,
+        json_mode: bool = False,
+    ) -> ChatResponse: ...
+
 
 @runtime_checkable
 class CopilotAgentPort(Protocol):
@@ -653,7 +697,8 @@ class FactProposalGeneratorPort(Protocol):
         *,
         field_names: list[str],
         documents: list[FactProposalDocument],
-    ) -> list[FactProposal]: ...
+        max_tokens: int | None = None,
+    ) -> FactProposalResult: ...
 
 
 @runtime_checkable

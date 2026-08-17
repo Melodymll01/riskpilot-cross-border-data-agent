@@ -1,7 +1,7 @@
 # RiskPilot 2026 秋招生产化路线
 
 - 状态：执行中
-- 当前进度：Phase 0～4 已完成；下一阶段为 Phase 5 核心 Case Assessment Agent Graph
+- 当前进度：Phase 0～5 已完成；下一阶段为 Phase 6 安全与权限
 - 基线日期：2026-08-17
 - 基线提交：`50272310957467bb21eee8d7ca525e4b3ac71c6c`
 - 主分支：`main`

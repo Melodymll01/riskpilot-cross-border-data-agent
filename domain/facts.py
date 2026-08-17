@@ -90,6 +90,11 @@ class FactProposal(BaseDomainModel):
         return self
 
 
+class FactProposalResult(BaseDomainModel):
+    proposals: list[FactProposal]
+    token_usage: int = Field(default=0, ge=0)
+
+
 class CaseFactEvidence(BaseDomainModel):
     """支撑案件事实的原文证据引用。"""
 

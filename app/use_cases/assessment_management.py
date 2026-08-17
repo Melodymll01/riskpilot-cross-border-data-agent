@@ -202,6 +202,15 @@ class AssessmentManagementUseCase:
         assessments: list[Assessment] = self._assessments.list_for_case(case_id)
         return assessments
 
+    def verify_references(
+        self,
+        assessment_id: str,
+        actor_id: str,
+    ) -> AssessmentBundle:
+        bundle = self.get(assessment_id, actor_id)
+        self._validate_assessment_references(bundle)
+        return bundle
+
     def review(
         self,
         assessment_id: str,

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
-from domain.facts import FactProposal, FactProposalDocument
+from domain.facts import FactProposal, FactProposalDocument, FactProposalResult
 
 if TYPE_CHECKING:
     from domain.ports import ChatPort
@@ -43,20 +43,27 @@ field_name 必须来自允许字段列表；无法找到直接证据的字段不
 
 
 class StructuredFactProposalGenerator:
-    def __init__(self, chat: ChatPort) -> None:
+    def __init__(
+        self,
+        chat: ChatPort,
+        *,
+        max_completion_tokens: int = 4096,
+    ) -> None:
         self._chat = chat
+        self._max_completion_tokens = max_completion_tokens
 
     def propose(
         self,
         *,
         field_names: list[str],
         documents: list[FactProposalDocument],
-    ) -> list[FactProposal]:
+        max_tokens: int | None = None,
+    ) -> FactProposalResult:
         if not field_names or len(field_names) != len(set(field_names)):
             raise ValueError("field_names 必须是非空且不重复的字段白名单")
         if not documents:
-            return []
-        raw = self._chat.chat(
+            return FactProposalResult(proposals=[], token_usage=0)
+        response = self._chat.chat_with_usage(
             [
                 {"role": "system", "content": _SYSTEM},
                 {
@@ -65,9 +72,14 @@ class StructuredFactProposalGenerator:
                 },
             ],
             temperature=0.0,
+            max_tokens=(
+                self._max_completion_tokens
+                if max_tokens is None
+                else min(max_tokens, self._max_completion_tokens)
+            ),
             json_mode=True,
         )
-        data = _parse_json_object(raw)
+        data = _parse_json_object(response.content)
         raw_proposals = data.get("proposals")
         if not isinstance(raw_proposals, list):
             raise ValueError("Fact proposal generator 缺少 proposals 数组")
@@ -81,7 +93,10 @@ class StructuredFactProposalGenerator:
             raise ValueError("Fact proposal generator 返回了白名单外字段")
         if len(returned_fields) != len(set(returned_fields)):
             raise ValueError("Fact proposal generator 同一字段只能返回一个候选")
-        return proposals
+        return FactProposalResult(
+            proposals=proposals,
+            token_usage=response.token_usage,
+        )
 
 
 def _proposal_prompt(

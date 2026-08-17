@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 
 from langchain_core.language_models.chat_models import BaseChatModel
 
+from domain.agent_workflow import AgentBudget
 from domain.memory import MemoryRecallPolicy
 from domain.ports import (
     AgentRunRepoPort,
@@ -34,6 +35,7 @@ from domain.ports import (
     EmbedPort,
     EvidenceChunkerPort,
     EvidenceIndexPort,
+    EvidencePlannerPort,
     EvidenceQAGeneratorPort,
     FactProposalGeneratorPort,
     FactStorePort,
@@ -59,6 +61,7 @@ from domain.ports import (
     WorkflowRuntimePort,
     WorkspaceRepoPort,
 )
+from infra.agents import DeterministicEvidencePlanner, LangChainEvidencePlanner
 from infra.agents.model import build_langchain_chat_model
 from infra.audit import SqliteAuditLogRepo
 from infra.auth import AnonymousProvider, AuthService, GitHubOAuthProvider, JwtIssuer
@@ -119,6 +122,7 @@ from infra.workflows import LangGraphWorkflowRuntime
 
 if TYPE_CHECKING:
     from config import Settings
+    from domain.ports import CaseAssessmentToolPort
 
 
 def build_sqlite_pool(settings: Settings) -> SqliteConnectionPool:
@@ -342,11 +346,14 @@ def build_claim_support_verifier(
 
 
 def build_fact_proposal_generator(
-    _settings: Settings,
+    settings: Settings,
     *,
     chat: ChatPort,
 ) -> FactProposalGeneratorPort:
-    return StructuredFactProposalGenerator(chat)
+    return StructuredFactProposalGenerator(
+        chat,
+        max_completion_tokens=settings.chat_max_tokens,
+    )
 
 
 def build_retriever(_settings: Settings) -> RetrievePort:
@@ -361,11 +368,32 @@ def build_workflow_runtime(
     settings: Settings,
     *,
     trace: TracePort | None = None,
+    planner: EvidencePlannerPort | None = None,
+    tools: CaseAssessmentToolPort | None = None,
 ) -> WorkflowRuntimePort:
     return LangGraphWorkflowRuntime(
         settings.langgraph_checkpoint_db_path,
+        checkpoint_backend=("postgres" if settings.storage_backend == "postgres" else "sqlite"),
+        database_url=settings.database_url,
         trace=trace,
+        planner=planner or build_evidence_planner(settings),
+        tools=tools,
+        budget=AgentBudget(
+            max_loop_count=settings.agent_max_loop_count,
+            max_tool_calls=settings.agent_max_tool_calls,
+            max_tokens=settings.agent_max_tokens,
+        ),
     )
+
+
+def build_evidence_planner(
+    settings: Settings,
+    *,
+    model: BaseChatModel | None = None,
+) -> EvidencePlannerPort:
+    if settings.agent_planner_backend == "deterministic":
+        return DeterministicEvidencePlanner()
+    return LangChainEvidencePlanner(model or build_agent_model(settings))
 
 
 def build_risk_profile(

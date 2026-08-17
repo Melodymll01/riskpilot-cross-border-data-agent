@@ -59,6 +59,7 @@ class FactProposalBatch:
     requested_field_names: list[str]
     source_document_ids: list[str]
     conflict_field_names: list[str]
+    token_usage: int = 0
 
 
 def _new_id(prefix: str) -> str:
@@ -227,6 +228,7 @@ class FactManagementUseCase:
         case_id: str,
         field_names: list[str],
         document_ids: list[str] | None = None,
+        max_token_usage: int | None = None,
     ) -> FactProposalBatch:
         if self._proposal_generator is None:
             raise RuntimeError("Fact proposal generator 未装配")
@@ -245,10 +247,14 @@ class FactManagementUseCase:
             workspace_id=case.workspace_id,
             document_ids=document_ids,
         )
-        proposals = self._proposal_generator.propose(
+        generated = self._proposal_generator.propose(
             field_names=normalized_fields,
             documents=documents,
+            max_tokens=max_token_usage,
         )
+        if max_token_usage is not None and generated.token_usage > max_token_usage:
+            raise ValueError("Fact proposal 已超过 Agent token budget，拒绝写入候选事实")
+        proposals = generated.proposals
         proposal_fields = [proposal.field_name for proposal in proposals]
         if any(field_name not in set(normalized_fields) for field_name in proposal_fields):
             raise ValueError("Fact proposal generator 返回了白名单外字段")
@@ -326,6 +332,7 @@ class FactManagementUseCase:
             requested_field_names=normalized_fields,
             source_document_ids=[document.document_id for document in documents],
             conflict_field_names=conflicts,
+            token_usage=generated.token_usage,
         )
 
     def _get_authorized_fact(

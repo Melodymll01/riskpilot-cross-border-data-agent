@@ -5,6 +5,16 @@
 
 from __future__ import annotations
 
+from domain.agent_workflow import (
+    AgentBudget,
+    AgentRuntimeContext,
+    EvidencePlan,
+    EvidencePlanRequest,
+    EvidencePlanResult,
+    ToolDefinition,
+    ToolExecutionResult,
+    ToolSideEffectLevel,
+)
 from domain.assessments import (
     ActionItem,
     ActionPriority,
@@ -85,12 +95,14 @@ from domain.facts import (
     FactProposalDocument,
     FactProposalEvidence,
     FactProposalPage,
+    FactProposalResult,
 )
 from domain.models import (
     Artifact,
     AuditAction,
     AuditEntry,
     BaseDomainModel,
+    ChatResponse,
     Chunk,
     Citation,
     Corpus,
@@ -127,6 +139,7 @@ from domain.ports import (
     AuditLogPort,
     AuthPort,
     BackgroundJobDispatcherPort,
+    CaseAssessmentToolPort,
     CaseFactRepoPort,
     CaseRepoPort,
     ChatPort,
@@ -138,6 +151,7 @@ from domain.ports import (
     EmbedPort,
     EvidenceChunkerPort,
     EvidenceIndexPort,
+    EvidencePlannerPort,
     EvidenceQAGeneratorPort,
     FactProposalGeneratorPort,
     KbDocumentRepoPort,
@@ -227,6 +241,7 @@ __all__ = [
     "WebSearchError",
     # models
     "BaseDomainModel",
+    "ChatResponse",
     "AuditEntry",
     "AuditAction",
     "User",
@@ -279,6 +294,7 @@ __all__ = [
     "FactProposalDocument",
     "FactProposalEvidence",
     "FactProposalPage",
+    "FactProposalResult",
     "PolicyRule",
     "PolicyEvaluation",
     "PolicyEvaluationReport",
@@ -322,6 +338,14 @@ __all__ = [
     "RunCheckpoint",
     "RunEvent",
     "RunEventType",
+    "EvidencePlan",
+    "EvidencePlanResult",
+    "EvidencePlanRequest",
+    "AgentRuntimeContext",
+    "AgentBudget",
+    "ToolDefinition",
+    "ToolExecutionResult",
+    "ToolSideEffectLevel",
     # ports
     "AuthPort",
     "AssessmentRepoPort",
@@ -337,6 +361,8 @@ __all__ = [
     "DocumentParserPort",
     "DocumentOcrPort",
     "BackgroundJobDispatcherPort",
+    "EvidencePlannerPort",
+    "CaseAssessmentToolPort",
     "EvidenceChunkerPort",
     "EvidenceIndexPort",
     "ObjectStorePort",

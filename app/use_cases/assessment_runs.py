@@ -7,11 +7,13 @@ import uuid
 from datetime import date
 from typing import TYPE_CHECKING, Any
 
+from domain.agent_workflow import EvidencePlan
 from domain.errors import (
     AgentRunAlreadyActive,
     AgentRunConflict,
     AgentRunNotFound,
     CaseNotFound,
+    WorkspaceAccessDenied,
 )
 from domain.runs import (
     AgentRun,
@@ -83,7 +85,7 @@ class AssessmentRunUseCase:
         model_config_snapshot: dict[str, Any] | None = None,
     ) -> AgentRun:
         case = self._case_management.get_case(case_id, actor_id)
-        self._workspace_management.require_role(
+        membership = self._workspace_management.require_role(
             case.workspace_id,
             actor_id,
             _WRITE_ROLES,
@@ -104,7 +106,7 @@ class AssessmentRunUseCase:
             ruleset_version=ruleset_version,
         )
         readiness = self._document_readiness(case.case_id)
-        missing_fields = self._missing_fact_fields(
+        required_fields, missing_fields = self._fact_requirements(
             case_id=case.case_id,
             workspace_id=case.workspace_id,
             actor_id=actor_id,
@@ -161,9 +163,13 @@ class AssessmentRunUseCase:
                 case_id=case.case_id,
                 workspace_id=case.workspace_id,
                 actor_id=actor_id,
+                actor_role=membership.role,
                 ruleset_version=ruleset_version,
                 document_readiness=readiness,
                 missing_fact_fields=missing_fields,
+                conflict_field_names=self._conflict_field_names(case.case_id),
+                required_fact_fields=required_fields,
+                run_id=run.run_id,
             )
             return self._handle_execution_result(running, result, actor_id=actor_id)
         except Exception as exc:
@@ -172,11 +178,11 @@ class AssessmentRunUseCase:
 
     def continue_run(self, run_id: str, actor_id: str) -> AgentRun:
         run = self._get_authorized_run(run_id, actor_id, write=True)
-        if run.status not in {"waiting_for_user", "retrying", "running"}:
-            raise ValueError("只有等待用户、重试中或待对账的 Run 可以继续")
+        if run.status not in {"waiting_for_user", "waiting_for_review", "retrying", "running"}:
+            raise ValueError("只有等待用户、等待冲突审核、重试中或待对账的 Run 可以继续")
         try:
             return self._continue_run(run, actor_id)
-        except AgentRunConflict:
+        except (AgentRunConflict, WorkspaceAccessDenied):
             raise
         except Exception as exc:
             self._persist_failure(run, exc)
@@ -188,29 +194,46 @@ class AssessmentRunUseCase:
             if run.status != "retrying":
                 raise ValueError("LangGraph thread 不存在，不能继续")
             case = self._case_management.get_case(run.case_id, actor_id)
+            membership = self._workspace_management.require_role(
+                case.workspace_id,
+                actor_id,
+                _WRITE_ROLES,
+                action="恢复 Case Assessment Run",
+            )
             assessment_date = _require_assessment_date(case.assessment_date)
             ruleset_version = self._run_ruleset_version(run)
+            required_fields, missing_fields = self._fact_requirements(
+                case_id=case.case_id,
+                workspace_id=case.workspace_id,
+                actor_id=actor_id,
+                jurisdiction=case.jurisdiction,
+                assessment_date=assessment_date,
+                ruleset_version=ruleset_version,
+            )
             result = self._runtime.start_case_assessment(
                 thread_id=run.thread_id,
                 case_id=case.case_id,
                 workspace_id=case.workspace_id,
                 actor_id=actor_id,
+                actor_role=membership.role,
                 ruleset_version=ruleset_version,
                 document_readiness=self._document_readiness(case.case_id),
-                missing_fact_fields=self._missing_fact_fields(
-                    case_id=case.case_id,
-                    workspace_id=case.workspace_id,
-                    actor_id=actor_id,
-                    jurisdiction=case.jurisdiction,
-                    assessment_date=assessment_date,
-                    ruleset_version=ruleset_version,
-                ),
+                missing_fact_fields=missing_fields,
+                conflict_field_names=self._conflict_field_names(case.case_id),
+                required_fact_fields=required_fields,
+                run_id=run.run_id,
             )
             return self._handle_execution_result(run, result, actor_id=actor_id)
         if run.status == "running":
             return self._handle_execution_result(run, inspected, actor_id=actor_id)
 
         case = self._case_management.get_case(run.case_id, actor_id)
+        membership = self._workspace_management.require_role(
+            case.workspace_id,
+            actor_id,
+            _WRITE_ROLES,
+            action="继续 Case Assessment Run",
+        )
         assessment_date = _require_assessment_date(case.assessment_date)
         if inspected.interrupt is None:
             return self._handle_execution_result(run, inspected, actor_id=actor_id)
@@ -218,15 +241,13 @@ class AssessmentRunUseCase:
         if kind == "documents_required":
             readiness = self._document_readiness(run.case_id)
             if readiness.blocked:
-                return self._handle_execution_result(
-                    run,
-                    inspected,
-                    actor_id=actor_id,
-                )
+                return run
             result = self._runtime.resume_case_assessment(
                 thread_id=run.thread_id,
                 resume_value={"action": "retry"},
                 state_update=readiness.model_dump(),
+                actor_id=actor_id,
+                actor_role=membership.role,
             )
         elif kind == "fact_confirmation":
             missing_fields = self._missing_fact_fields(
@@ -238,20 +259,49 @@ class AssessmentRunUseCase:
                 ruleset_version=_ruleset_version(inspected),
             )
             if missing_fields:
-                return self._handle_execution_result(
-                    run,
-                    inspected,
-                    actor_id=actor_id,
-                )
+                return run
             result = self._runtime.resume_case_assessment(
                 thread_id=run.thread_id,
                 resume_value={"action": "retry"},
-                state_update={"missing_fact_fields": missing_fields},
+                state_update={
+                    "missing_fact_fields": missing_fields,
+                    "candidate_fact_ids": self._candidate_fact_ids(case.case_id),
+                },
+                actor_id=actor_id,
+                actor_role=membership.role,
+            )
+        elif kind == "fact_conflict_review":
+            self._workspace_management.require_role(
+                case.workspace_id,
+                actor_id,
+                {"reviewer", "admin"},
+                action="处理 Agent 发现的冲突事实",
+            )
+            conflict_fields = self._conflict_field_names(case.case_id)
+            if conflict_fields:
+                return run
+            missing_fields = self._missing_fact_fields(
+                case_id=case.case_id,
+                workspace_id=case.workspace_id,
+                actor_id=actor_id,
+                jurisdiction=case.jurisdiction,
+                assessment_date=assessment_date,
+                ruleset_version=_ruleset_version(inspected),
+            )
+            result = self._runtime.resume_case_assessment(
+                thread_id=run.thread_id,
+                resume_value={"action": "retry"},
+                state_update={
+                    "conflict_field_names": conflict_fields,
+                    "missing_fact_fields": missing_fields,
+                },
+                actor_id=actor_id,
+                actor_role=membership.role,
             )
         elif kind == "assessment_generation":
             result = self._generate_assessment_and_resume(run, actor_id, inspected)
         else:
-            return self._handle_execution_result(run, inspected, actor_id=actor_id)
+            return run
         return self._handle_execution_result(run, result, actor_id=actor_id)
 
     def retry_run(self, run_id: str, actor_id: str) -> AgentRun:
@@ -361,9 +411,17 @@ class AssessmentRunUseCase:
             comment=comment,
         )
         try:
+            membership = self._workspace_management.require_role(
+                run.workspace_id,
+                actor_id,
+                {"reviewer", "admin"},
+                action="审批 Case Assessment",
+            )
             result = self._runtime.resume_case_assessment(
                 thread_id=run.thread_id,
                 resume_value={"decision": reviewed.assessment.status},
+                actor_id=actor_id,
+                actor_role=membership.role,
             )
             return self._handle_execution_result(run, result, actor_id=actor_id)
         except AgentRunConflict:
@@ -394,6 +452,13 @@ class AssessmentRunUseCase:
             limit=limit,
         )
 
+    def get_evidence_plan(self, run_id: str, actor_id: str) -> EvidencePlan | None:
+        run = self._get_authorized_run(run_id, actor_id, write=False)
+        value = self._latest_checkpoint_state(run).get("evidence_plan")
+        if value is None:
+            return None
+        return EvidencePlan.model_validate(value)
+
     def _generate_assessment_and_resume(
         self,
         run: AgentRun,
@@ -418,6 +483,13 @@ class AssessmentRunUseCase:
         return self._runtime.resume_case_assessment(
             thread_id=run.thread_id,
             resume_value={"assessment_id": assessment_id},
+            actor_id=actor_id,
+            actor_role=self._workspace_management.require_role(
+                run.workspace_id,
+                actor_id,
+                _WRITE_ROLES,
+                action="生成 Case Assessment",
+            ).role,
         )
 
     def _handle_execution_result(
@@ -427,6 +499,7 @@ class AssessmentRunUseCase:
         *,
         actor_id: str,
     ) -> AgentRun:
+        previous_state = self._latest_checkpoint_state(run)
         if (
             result.status == "interrupted"
             and result.interrupt is not None
@@ -443,13 +516,20 @@ class AssessmentRunUseCase:
                 at=now,
             )
             event_type: RunEventType = "run_completed"
-        elif result.interrupt is not None and result.interrupt.kind == "assessment_review":
+        elif result.interrupt is not None and result.interrupt.kind in {
+            "assessment_review",
+            "fact_conflict_review",
+        }:
             updated = run.pause_for_review(
                 checkpoint_id=result.checkpoint_id,
                 stage=result.stage,
                 at=now,
             )
-            event_type = "human_review_required"
+            event_type = (
+                "conflict_detected"
+                if result.interrupt.kind == "fact_conflict_review"
+                else "human_review_required"
+            )
         else:
             updated = run.pause_for_user(
                 checkpoint_id=result.checkpoint_id,
@@ -466,13 +546,20 @@ class AssessmentRunUseCase:
             state=_checkpoint_state(result),
             created_at=now,
         )
-        updated = updated.model_copy(update={"checkpoint_id": checkpoint.checkpoint_id})
+        updated = updated.model_copy(
+            update={
+                "checkpoint_id": checkpoint.checkpoint_id,
+                "token_usage": max(run.token_usage, _token_usage(result)),
+            }
+        )
         events = _events_for_result(
             run_id=run.run_id,
             result=result,
             terminal_event_type=event_type,
             start_sequence=self._runs.next_event_sequence(run.run_id),
             created_at=now,
+            previous_tool_trace_count=_tool_trace_count(previous_state),
+            plan_already_persisted="evidence_plan" in previous_state,
         )
         self._runs.save_progress(
             updated,
@@ -631,6 +718,26 @@ class AssessmentRunUseCase:
         assessment_date: date,
         ruleset_version: str,
     ) -> list[str]:
+        _, missing = self._fact_requirements(
+            case_id=case_id,
+            workspace_id=workspace_id,
+            actor_id=actor_id,
+            jurisdiction=jurisdiction,
+            assessment_date=assessment_date,
+            ruleset_version=ruleset_version,
+        )
+        return missing
+
+    def _fact_requirements(
+        self,
+        *,
+        case_id: str,
+        workspace_id: str,
+        actor_id: str,
+        jurisdiction: str,
+        assessment_date: date,
+        ruleset_version: str,
+    ) -> tuple[list[str], list[str]]:
         rules = self._policies.list_rules(
             workspace_id,
             actor_id,
@@ -647,7 +754,27 @@ class AssessmentRunUseCase:
             fact.field_name for fact in self._facts.list_for_case(case_id, statuses={"confirmed"})
         }
         required = {field_name for rule in applicable for field_name in rule.required_fact_fields}
-        return sorted(required - confirmed)
+        return sorted(required), sorted(required - confirmed)
+
+    def _candidate_fact_ids(self, case_id: str) -> list[str]:
+        return [
+            fact.fact_id
+            for fact in self._facts.list_for_case(
+                case_id,
+                statuses={"proposed", "conflicting"},
+            )
+        ]
+
+    def _conflict_field_names(self, case_id: str) -> list[str]:
+        return sorted(
+            {
+                fact.field_name
+                for fact in self._facts.list_for_case(
+                    case_id,
+                    statuses={"conflicting"},
+                )
+            }
+        )
 
     def _require_published_rules(
         self,
@@ -691,6 +818,8 @@ def _pause_event_type(result: WorkflowExecutionResult) -> RunEventType:
         return "run_paused"
     if result.interrupt.kind == "fact_confirmation":
         return "fact_confirmation_required"
+    if result.interrupt.kind == "fact_conflict_review":
+        return "conflict_detected"
     return "human_input_required"
 
 
@@ -708,6 +837,19 @@ def _checkpoint_state(result: WorkflowExecutionResult) -> dict[str, Any]:
     assessment_id = result.state.get("assessment_id")
     if assessment_id is not None:
         state["assessment_id"] = assessment_id
+    for field_name in (
+        "evidence_plan",
+        "evidence_query_count",
+        "case_evidence_ids",
+        "regulation_rule_ids",
+        "candidate_fact_ids",
+        "conflict_field_names",
+        "refusal_reason",
+        "budget",
+        "tool_trace",
+    ):
+        if field_name in result.state:
+            state[field_name] = result.state[field_name]
     return state
 
 
@@ -736,6 +878,8 @@ def _events_for_result(
     terminal_event_type: RunEventType,
     start_sequence: int,
     created_at: float,
+    previous_tool_trace_count: int,
+    plan_already_persisted: bool,
 ) -> list[RunEvent]:
     events: list[RunEvent] = []
     sequence = start_sequence
@@ -747,6 +891,63 @@ def _events_for_result(
                 sequence=sequence,
                 event_type="stage_completed",
                 stage=stage,
+                created_at=created_at,
+            )
+        )
+        sequence += 1
+    evidence_plan = result.state.get("evidence_plan")
+    if not plan_already_persisted and isinstance(evidence_plan, dict):
+        events.append(
+            RunEvent(
+                event_id=_new_id("run_event"),
+                run_id=run_id,
+                sequence=sequence,
+                event_type="stage_progress",
+                stage="build_evidence_plan",
+                payload={"evidence_plan": evidence_plan},
+                created_at=created_at,
+            )
+        )
+        sequence += 1
+    tool_trace = result.state.get("tool_trace", [])
+    if isinstance(tool_trace, list):
+        for trace in tool_trace[previous_tool_trace_count:]:
+            if not isinstance(trace, dict):
+                continue
+            events.append(
+                RunEvent(
+                    event_id=_new_id("run_event"),
+                    run_id=run_id,
+                    sequence=sequence,
+                    event_type="tool_completed",
+                    stage=_optional_string(trace.get("stage")),
+                    payload={
+                        "tool_name": trace.get("tool_name"),
+                        "arguments": trace.get("arguments", {}),
+                        "result_summary": trace.get("result_summary", ""),
+                        "duration_ms": trace.get("duration_ms", 0),
+                        "retry_count": trace.get("retry_count", 0),
+                        "token_usage": trace.get("token_usage", 0),
+                        "output": trace.get("output", {}),
+                    },
+                    created_at=created_at,
+                )
+            )
+            sequence += 1
+    candidate_fact_ids = result.state.get("candidate_fact_ids", [])
+    if (
+        isinstance(candidate_fact_ids, list)
+        and candidate_fact_ids
+        and previous_tool_trace_count < len(tool_trace)
+    ):
+        events.append(
+            RunEvent(
+                event_id=_new_id("run_event"),
+                run_id=run_id,
+                sequence=sequence,
+                event_type="facts_proposed",
+                stage="extract_fact_candidates",
+                payload={"fact_ids": candidate_fact_ids},
                 created_at=created_at,
             )
         )
@@ -769,3 +970,20 @@ def _events_for_result(
         )
     )
     return events
+
+
+def _tool_trace_count(state: dict[str, Any]) -> int:
+    value = state.get("tool_trace", [])
+    return len(value) if isinstance(value, list) else 0
+
+
+def _token_usage(result: WorkflowExecutionResult) -> int:
+    budget = result.state.get("budget", {})
+    if not isinstance(budget, dict):
+        return 0
+    value = budget.get("token_usage", 0)
+    return value if isinstance(value, int) and value >= 0 else 0
+
+
+def _optional_string(value: Any) -> str | None:
+    return value if isinstance(value, str) and value else None

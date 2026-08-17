@@ -26,6 +26,7 @@ WorkflowExecutionStatus = Literal["interrupted", "completed"]
 WorkflowInterruptKind = Literal[
     "documents_required",
     "fact_confirmation",
+    "fact_conflict_review",
     "assessment_generation",
     "assessment_review",
 ]

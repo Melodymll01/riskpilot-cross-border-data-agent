@@ -32,7 +32,8 @@
 | :---: | :---: |
 | ![审计日记](screenshots/05-审计日记.png) | |
 
-> 一键体验：`docker compose up -d`，访问 <http://localhost:8001>（见[快速开始](#快速开始)）。
+> Compose 已定义 API、Worker、PostgreSQL、Redis 与 MinIO；完整新机一键启动验收按路线在
+> Phase 9 完成，当前推荐先使用本地 Python Quick Start。
 
 ---
 
@@ -52,7 +53,8 @@
 | **确定性合规评估** | 只消费 confirmed facts 的版本化规则引擎，生成 Finding、ActionItem 和不可变 Assessment | [domain/policy_engine.py](domain/policy_engine.py) |
 | **文档 Fact 提议** | 字段白名单、当前版本原文复核、冲突检测、Reviewer 确认后才进入规则计算 | [fact_management.py](app/use_cases/fact_management.py) |
 | **Assessment 引用闭包** | Finding 关联 Fact / Evidence / Clause 快照，生成和批准前重验版本、SHA 与原文漂移 | [assessment_management.py](app/use_cases/assessment_management.py) |
-| **可恢复案件工作流** | LangGraph + SQLite checkpointer，支持 interrupt/resume、失败重试、取消和人工审批 | [assessment_runs.py](app/use_cases/assessment_runs.py) |
+| **核心案件 Agent** | LangChain function calling 制定 EvidencePlan，LangGraph 编排 Typed Tools、缺口/冲突 HITL、规则与引用门禁 | [case_assessment_graph.py](infra/workflows/case_assessment_graph.py) |
+| **可恢复案件工作流** | local SQLite / production PostgreSQL checkpointer，支持 interrupt/resume、失败重试、取消和人工审批 | [assessment_runs.py](app/use_cases/assessment_runs.py) |
 | **V3 案件工作台** | Workspace/Case 创建与导航、材料上传/解析/索引/失败重试、Fact Confirmation 与继续运行 | [cases.js](frontend/cases.js) |
 | **V3 Evidence QA** | 四类授权检索；结构/语义双校验；有限 Claim 过滤修复，全部失败仍安全拒答 | [evidence_qa.py](app/use_cases/evidence_qa.py) |
 
@@ -60,9 +62,9 @@
 
 | 维度 | 数值 |
 | --- | --- |
-| 离线回归 | **1229 passed · 2 skipped**；其中 1 项等待 CI PostgreSQL service |
-| 架构规模 | **41 Port + 17 Use Case** · DDD 4 层 |
-| V3 资源接口 | **45 个路由** · Workspace → Visual Evidence / Evidence QA / Assessment Run |
+| 离线回归 | **1291 passed · 4 skipped · 5 warnings**（`make ci`，2026-08-17） |
+| 架构规模 | **45 Port + 17 Use Case** · DDD 4 层 |
+| V3 资源接口 | **48 个路由** · Workspace → Visual Evidence / Evidence QA / Assessment Run |
 | Agent/Graph | LangChain Tool Calling + 2 张 LangGraph（Research / Assessment） |
 | 记忆系统 | **4 层**（L1 最近消息 → L4 语义事实）+ `hybrid_v1` 可解释召回 |
 | Top-K=2 检索命中率 | **93.3%**（chunk_size=300, overlap=60） |
@@ -76,7 +78,7 @@
 flowchart TB
     API[api/v2 + api/v3 · 入口层<br/>QA / Case / Evidence / Assessment Run]
     APP[app · 用例编排层<br/>AppContainer + 17 Use Case]
-    DOMAIN[domain · 纯模型 + 41 Port Protocol]
+    DOMAIN[domain · 纯模型 + 45 Port Protocol]
     INFRA[infra · 适配器<br/>LangChain / LangGraph / LangSmith / retrieval / memory / Chinese-CLIP]
 
     API --> APP --> DOMAIN
@@ -92,7 +94,10 @@ flowchart TB
 - **Copilot**：LangChain `create_agent` + 标准 Tool Calling，通过 `CopilotAgentPort`
   接入应用层，不再维护自定义 JSON 决策协议；
 - **Deep Research**：LangGraph 显式节点，最多三轮补查，可按证据状态路由到 Web Search；
-- **Case Assessment**：通过 `WorkflowRuntimePort` 使用 LangGraph，领域层不依赖框架；
+- **Case Assessment**：LangChain function calling 生成受服务端复核且不含租户/案件 ID 的
+  EvidencePlan；
+  LangGraph 通过 Typed Tool Registry 执行案件证据、法规、候选事实、确定性规则和引用验证，
+  缺失事实或冲突时分别进入 Human-in-the-loop；
 - **AI 可观测性**：通过 `TracePort` 接入 LangSmith；默认 `NoopTraceAdapter`，启用时
   只记录哈希业务 ID、节点/工具路径、计数、状态和错误类型，案件正文、Prompt、模型
   回答、异常文本、事件和附件均在客户端出站前移除；
@@ -147,15 +152,17 @@ Prompt 或其他用户数据。`evaluations/memory_recall` 以版本化数据集
 
 ## 工程亮点
 
-- **DDD 4 层架构** + 41 Port Protocol + Container 依赖注入，domain 不依赖 FastAPI、
+- **DDD 4 层架构** + 45 Port Protocol + Container 依赖注入，domain 不依赖 FastAPI、
   LangGraph 或具体数据库
 - **标准 Agent 框架**：LangChain 负责模型和 Tool Calling；LangGraph 负责长程、有状态、
   可中断流程；领域层不依赖具体框架
 - **可验证 Evidence QA**：LLM 只返回结构化 Claim；服务端重新读取当前文档版本原文，
   再用独立调用验证 Claim-Citation 语义支持；结果层只删除坏 Claim，不改写结论或
   补造引用，全部失败才拒答
-- **可恢复人工闭环**：SQLite checkpointer + 产品 Run 乐观锁 + 连续事件 +
-  Reviewer/Admin 审批
+- **可恢复人工闭环**：local SQLite / production PostgreSQL checkpointer + 产品 Run
+  乐观锁 + 连续事件 + Reviewer/Admin 审批
+- **真实预算门禁**：Planner 与 Fact Proposal 使用 Provider usage metadata；剩余 token
+  预算由服务端注入，超限候选在写入前拒绝
 - **不可变引用快照**：Assessment 冻结 Fact Evidence、DocumentVersion、页码、quote、
   offset 和 SHA；Finding 的 Fact/Evidence/Clause 引用必须闭包，漂移即拒绝批准
 - **混合检索**：向量 + BM25 + RRF 融合 + Cross-Encoder 重排
@@ -167,7 +174,7 @@ Prompt 或其他用户数据。`evaluations/memory_recall` 以版本化数据集
 
 ## 快速开始
 
-### Docker（推荐）
+### Docker Compose（Phase 9 完整验收项）
 
 ```bash
 git clone https://github.com/Melodymll01/riskpilot-cross-border-data-agent.git
@@ -177,7 +184,8 @@ cp .env.example .env            # Windows PowerShell 使用 copy
 docker compose up -d
 ```
 
-访问 <http://localhost:8001>。`.env` 不会打进镜像，可放心分享。
+Compose 拓扑与环境变量已提供，但统一 app/worker 镜像的新机一键启动尚未完成 Phase 9
+最终验收；当前不要把本节当作已验证指标。`.env` 不会打进镜像。
 
 ### 本地 Python
 
@@ -268,6 +276,7 @@ ADMIN_USER_IDS=github:your-github-login
 | POST | `/runs/{run_id}/cancel` | 幂等取消非终态 Run |
 | POST | `/runs/{run_id}/review` | Reviewer/Admin 审批正式 Assessment |
 | GET | `/runs/{run_id}/events` | 按 sequence 增量读取可审计事件 |
+| GET | `/runs/{run_id}/plan` | 读取结构化 EvidencePlan |
 
 完整演示流程见：
 
@@ -277,12 +286,12 @@ ADMIN_USER_IDS=github:your-github-login
 ## 技术栈
 
 - **后端**：FastAPI + Pydantic v2
-- **架构**：DDD 4 层 + 41 Port + Container DI + WorkflowRuntimePort + TracePort
-- **Agent**：LangChain 1.3 `create_agent` + OpenAI-compatible `ChatOpenAI`
-- **工作流**：LangGraph 1.2 + SQLite checkpointer + interrupt/resume
+- **架构**：DDD 4 层 + 45 Port + Container DI + WorkflowRuntimePort + TracePort
+- **Agent**：LangChain 1.3 `create_agent` / function calling + OpenAI-compatible `ChatOpenAI`
+- **工作流**：LangGraph 1.2 + SQLite/PostgreSQL checkpointer + interrupt/resume
 - **可观测性**：可选 LangSmith + 客户端白名单/HMAC 脱敏；默认关闭
-- **存储**：SQLite local profile；PostgreSQL + SQLAlchemy 2.x + Alembic production profile；
-  LangGraph checkpoint 当前仍为独立 SQLite
+- **存储**：SQLite + Chroma local profile；PostgreSQL + pgvector + SQLAlchemy 2.x +
+  Alembic production profile；LangGraph checkpoint 跟随 local/production Profile
 - **鉴权**：GitHub OAuth + JWT（HS256）+ admin 白名单
 - **LLM**：OpenAI 兼容接口（默认智谱 GLM，可换 Ollama / vLLM）
 - **检索**：ChromaDB + jieba BM25 + RRF 融合 + bge-reranker-base 重排

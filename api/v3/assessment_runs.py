@@ -5,11 +5,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, Query, status
+from fastapi.exceptions import HTTPException
 
 from api.v2.deps import make_require_owner
 from api.v3.schemas import (
     AgentRunListResponse,
     AgentRunOut,
+    EvidencePlanOut,
     ReviewAssessmentRunRequest,
     RunEventListResponse,
     RunEventOut,
@@ -117,6 +119,20 @@ def build_assessment_run_routes(container: AppContainer) -> APIRouter:
             limit=limit,
         )
         return RunEventListResponse(events=[_to_event_out(item) for item in events])
+
+    @router.get(
+        "/runs/{run_id}/plan",
+        response_model=EvidencePlanOut,
+        summary="获取结构化证据计划",
+    )
+    def get_evidence_plan(
+        run_id: str,
+        actor_id: str = Depends(require_owner),
+    ) -> EvidencePlanOut:
+        plan = container.assessment_runs.get_evidence_plan(run_id, actor_id)
+        if plan is None:
+            raise HTTPException(status_code=409, detail="EvidencePlan 尚未生成")
+        return EvidencePlanOut(**plan.model_dump())
 
     @router.post(
         "/runs/{run_id}/continue",

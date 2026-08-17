@@ -268,17 +268,17 @@ class TestAssessmentRunLifecycle:
             ruleset_version="synthetic-v1",
         )
         assert run.status == "waiting_for_user"
-        assert run.current_stage == "validate_documents"
+        assert run.current_stage == "inspect_documents"
 
         repeated = setup.run_uc.continue_run(run.run_id, "github:editor")
         assert repeated.status == "waiting_for_user"
-        assert repeated.current_stage == "validate_documents"
-        assert repeated.revision == run.revision + 1
+        assert repeated.current_stage == "inspect_documents"
+        assert repeated.revision == run.revision
 
         setup.mark_document_ready(document_id)
         missing = setup.run_uc.continue_run(run.run_id, "github:editor")
         assert missing.status == "waiting_for_user"
-        assert missing.current_stage == "detect_missing_facts"
+        assert missing.current_stage == "human_fact_confirmation"
 
         setup.confirm_fact()
         review = setup.run_uc.continue_run(run.run_id, "github:editor")

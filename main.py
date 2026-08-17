@@ -80,6 +80,11 @@ async def lifespan(app: FastAPI):
     settings.validate_runtime_configuration()
     logger.info("数据出境知识库问答系统正在启动...")
     container_ref = getattr(app.state, "container", None)
+    if container_ref is not None:
+        workflow_runtime = getattr(container_ref, "workflow_runtime", None)
+        initialize_workflow = getattr(workflow_runtime, "initialize", None)
+        if initialize_workflow is not None:
+            await asyncio.to_thread(initialize_workflow)
     # Deep Research 图预热，失败不影响服务启动。
     if container_ref is not None and settings.warmup_research_on_startup:
         app.state.warmup_task = asyncio.create_task(_warmup_research(container_ref))
@@ -93,6 +98,13 @@ async def lifespan(app: FastAPI):
                 scheduler.shutdown(wait=False)
             except Exception:  # noqa: BLE001 — 关闭期异常仅记录
                 logger.warning("记忆调度器关闭异常（已吞掉）", exc_info=True)
+        workflow_runtime = getattr(container_ref, "workflow_runtime", None)
+        close_workflow = getattr(workflow_runtime, "close", None)
+        if close_workflow is not None:
+            try:
+                close_workflow()
+            except Exception:  # noqa: BLE001 — 关闭期异常仅记录
+                logger.warning("LangGraph checkpoint 连接关闭异常（已吞掉）", exc_info=True)
         storage_database = getattr(container_ref, "storage_database", None)
         if storage_database is not None:
             try:

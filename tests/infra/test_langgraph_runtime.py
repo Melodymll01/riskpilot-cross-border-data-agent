@@ -6,7 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from domain import CaseDocumentReadiness, WorkflowRuntimePort
+from domain import (
+    CaseDocumentReadiness,
+    EvidencePlan,
+    EvidencePlanRequest,
+    EvidencePlanResult,
+    WorkflowRuntimePort,
+)
 from infra.workflows import LangGraphWorkflowRuntime
 from tests.fakes import FakeTrace
 
@@ -18,6 +24,20 @@ def checkpoint_path(tmp_path: Path) -> str:
 
 def _runtime(checkpoint_path: str) -> LangGraphWorkflowRuntime:
     return LangGraphWorkflowRuntime(checkpoint_path)
+
+
+class _TokenHeavyPlanner:
+    def build_plan(self, request: EvidencePlanRequest) -> EvidencePlanResult:
+        return EvidencePlanResult(
+            plan=EvidencePlan(
+                investigation_questions=["案件材料是否完整"],
+                required_fact_fields=list(request.required_fact_fields),
+                planned_tools=list(request.available_tools),
+                evidence_gaps=[],
+                completion_criteria=["完成规则和引用校验"],
+            ),
+            token_usage=160,
+        )
 
 
 class TestLangGraphInterruptResume:
@@ -49,8 +69,8 @@ class TestLangGraphInterruptResume:
             },
         )
 
-        assert started.stage == "validate_documents"
-        assert resumed.stage == "detect_missing_facts"
+        assert started.stage == "inspect_documents"
+        assert resumed.stage == "human_fact_confirmation"
         assert [span["name"] for span in trace.spans] == [
             "riskpilot.case_assessment.start",
             "riskpilot.case_assessment.resume",
@@ -75,7 +95,7 @@ class TestLangGraphInterruptResume:
             missing_fact_fields=["important_data_involved"],
         )
         assert first.status == "interrupted"
-        assert first.stage == "validate_documents"
+        assert first.stage == "inspect_documents"
         assert first.interrupt is not None
         assert first.interrupt.kind == "documents_required"
         assert first.completed_stages == ["load_case", "authorize"]
@@ -89,7 +109,7 @@ class TestLangGraphInterruptResume:
             },
         )
         assert second.status == "interrupted"
-        assert second.stage == "detect_missing_facts"
+        assert second.stage == "human_fact_confirmation"
         assert second.interrupt is not None
         assert second.interrupt.kind == "fact_confirmation"
 
@@ -99,13 +119,13 @@ class TestLangGraphInterruptResume:
             state_update={"missing_fact_fields": []},
         )
         assert third.status == "interrupted"
-        assert third.stage == "draft_assessment"
+        assert third.stage == "draft_findings"
         assert third.interrupt is not None
         assert third.interrupt.kind == "assessment_generation"
         assert third.completed_stages == [
-            "detect_missing_facts",
+            "human_fact_confirmation",
             "select_policy_snapshot",
-            "evaluate_policy_rules",
+            "evaluate_deterministic_rules",
         ]
 
         fourth = _runtime(checkpoint_path).resume_case_assessment(
@@ -125,7 +145,7 @@ class TestLangGraphInterruptResume:
         assert completed.status == "completed"
         assert completed.stage == "complete"
         assert completed.state["review_decision"] == "approved"
-        assert completed.completed_stages == ["human_review", "complete"]
+        assert completed.completed_stages == ["human_review", "finalize_assessment"]
 
     def test_ready_case_reaches_generation_interrupt_directly(
         self,
@@ -140,17 +160,80 @@ class TestLangGraphInterruptResume:
             document_readiness=CaseDocumentReadiness(ready_document_ids=["document_001"]),
             missing_fact_fields=[],
         )
-        assert result.stage == "draft_assessment"
+        assert result.stage == "draft_findings"
         assert result.interrupt is not None
         assert result.interrupt.kind == "assessment_generation"
         assert result.completed_stages == [
             "load_case",
             "authorize",
-            "validate_documents",
+            "inspect_documents",
+            "build_evidence_plan",
+            "retrieve_case_evidence",
+            "retrieve_regulations",
+            "extract_fact_candidates",
             "detect_missing_facts",
+            "detect_fact_conflicts",
+            "human_fact_confirmation",
             "select_policy_snapshot",
-            "evaluate_policy_rules",
+            "evaluate_deterministic_rules",
         ]
+
+    def test_tool_budget_exhaustion_fails_closed(
+        self,
+        checkpoint_path: str,
+    ) -> None:
+        with pytest.raises(ValueError, match="budget"):
+            _runtime(checkpoint_path).start_case_assessment(
+                thread_id="thread_budget",
+                case_id="case_001",
+                workspace_id="ws_001",
+                actor_id="github:alice",
+                ruleset_version="synthetic-v1",
+                document_readiness=CaseDocumentReadiness(ready_document_ids=["document_001"]),
+                missing_fact_fields=[],
+                max_tool_calls=1,
+            )
+
+    def test_real_planner_token_usage_exhaustion_fails_closed(
+        self,
+        checkpoint_path: str,
+    ) -> None:
+        runtime = LangGraphWorkflowRuntime(
+            checkpoint_path,
+            planner=_TokenHeavyPlanner(),
+        )
+
+        with pytest.raises(ValueError, match="token budget"):
+            runtime.start_case_assessment(
+                thread_id="thread_token_budget",
+                case_id="case_001",
+                workspace_id="ws_001",
+                actor_id="github:alice",
+                ruleset_version="synthetic-v1",
+                document_readiness=CaseDocumentReadiness(ready_document_ids=["document_001"]),
+                missing_fact_fields=[],
+                max_tokens=100,
+            )
+
+    def test_checkpoint_state_only_contains_lightweight_safe_fields(
+        self,
+        checkpoint_path: str,
+    ) -> None:
+        result = _runtime(checkpoint_path).start_case_assessment(
+            thread_id="thread_safe_state",
+            case_id="case_001",
+            workspace_id="ws_001",
+            actor_id="github:alice",
+            ruleset_version="synthetic-v1",
+            document_readiness=CaseDocumentReadiness(ready_document_ids=["document_001"]),
+            missing_fact_fields=[],
+        )
+
+        assert "document_text" not in result.state
+        assert "raw_prompt" not in result.state
+        assert "chain_of_thought" not in result.state
+        assert result.state["evidence_plan"]["investigation_questions"]
+        assert result.state["budget"]["tool_calls"] >= 1
 
     def test_rejected_review_also_completes_graph(self, checkpoint_path: str) -> None:
         runtime = _runtime(checkpoint_path)

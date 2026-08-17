@@ -516,6 +516,21 @@ class TestFactProposal:
         assert repo.list_for_case(case_id) == []
         assert generator.calls[0]["field_names"] == ["important_data_involved"]
 
+    def test_token_budget_exhaustion_does_not_write_candidates(self) -> None:
+        generator = FakeFactProposalGenerator([_proposal()], token_usage=80)
+        use_case, repo, case_id = _setup(generator)
+
+        with pytest.raises(ValueError, match="token budget"):
+            use_case.propose_from_documents(
+                "github:editor",
+                case_id=case_id,
+                field_names=["important_data_involved"],
+                max_token_usage=50,
+            )
+
+        assert repo.list_for_case(case_id) == []
+        assert generator.calls[0]["max_tokens"] == 50
+
     def test_proposal_request_limits_fields(self) -> None:
         generator = FakeFactProposalGenerator([])
         use_case, _, case_id = _setup(generator)

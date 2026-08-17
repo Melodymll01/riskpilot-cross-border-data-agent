@@ -190,12 +190,15 @@ AssessmentRunUseCase
   → Domain Repositories / PolicyRuleEngine / AssessmentManagementUseCase
   → WorkflowRuntimePort
     → LangGraphWorkflowRuntime
-      → SQLite checkpointer
+      → local SQLite / production PostgreSQL checkpointer
 ```
 
 - `AgentRunRepoPort` 保存产品可见的 Run、轻量 checkpoint 和审计事件；
-- LangGraph SQLite checkpointer 保存框架执行位置，两者使用同一个 `thread_id` 关联但
-  不互相取代；
+- LangGraph checkpointer 只保存框架执行位置；local 使用 SQLite，production 使用
+  PostgreSQL，两者与产品 Run 使用同一个 `thread_id` 关联但不互相取代；
+- LangChain function calling 生成 EvidencePlan；Typed Tool Registry 复核 Schema、角色、
+  阶段、timeout/retry 和副作用级别；
+- 案件证据检索按调查问题有限循环，规则计算、引用校验和人工审批是不可跳过的单向门禁；
 - `AssessmentRunUseCase` 在中断点重新读取 Document/Fact/Policy Repository，不信任
   客户端提交的业务状态；
 - Graph 不保存文档正文、证据原文、原始 prompt、凭证或思维链；

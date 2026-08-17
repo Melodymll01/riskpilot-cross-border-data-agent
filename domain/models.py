@@ -41,6 +41,11 @@ class BaseDomainModel(BaseModel):
     )
 
 
+class ChatResponse(BaseDomainModel):
+    content: str
+    token_usage: int = Field(default=0, ge=0)
+
+
 # === 身份 ===
 
 

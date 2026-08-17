@@ -7,6 +7,8 @@ from typing import Any
 from fastapi.testclient import TestClient
 
 from app.container import AppContainer
+from domain import FactProposal, FactProposalEvidence
+from tests.fakes import FakeFactProposalGenerator
 
 
 def _switch_actor(client: TestClient, actor_id: str) -> None:
@@ -133,6 +135,36 @@ def _confirm_fact(client: TestClient, case_id: str) -> str:
     return fact_id
 
 
+def _configure_document_fact_proposal(
+    client: TestClient,
+    uploaded: dict[str, Any],
+    *,
+    value: bool,
+) -> FakeFactProposalGenerator:
+    generator = FakeFactProposalGenerator(
+        [
+            FactProposal(
+                field_name="important_data_involved",
+                value=value,
+                confidence=0.95,
+                evidence=[
+                    FactProposalEvidence(
+                        document_id=uploaded["document"]["document_id"],
+                        document_version_id=uploaded["version"]["version_id"],
+                        page_number=1,
+                        quote="涉及重要数据",
+                        confidence=0.95,
+                    )
+                ],
+            )
+        ],
+        token_usage=80,
+    )
+    container: AppContainer = client.app.state.container  # type: ignore[attr-defined]
+    container.fact_management._proposal_generator = generator
+    return generator
+
+
 def _start(client: TestClient, case_id: str) -> Any:
     return client.post(
         f"/api/v3/cases/{case_id}/assessment-runs",
@@ -184,6 +216,27 @@ class TestAssessmentRunApi:
         assert event_items[-1]["event_type"] == "human_review_required"
         assert [item["sequence"] for item in event_items] == list(range(1, len(event_items) + 1))
         assert all("thought" not in item["payload"] for item in event_items)
+        tool_events = [item for item in event_items if item["event_type"] == "tool_completed"]
+        assert [item["payload"]["tool_name"] for item in tool_events] == [
+            "retrieve_case_evidence",
+            "retrieve_regulations",
+            "evaluate_deterministic_rules",
+            "verify_claim_citations",
+        ]
+        assert all(
+            "workspace_id" not in item["payload"]["arguments"]
+            and "case_id" not in item["payload"]["arguments"]
+            and "actor_id" not in item["payload"]["arguments"]
+            for item in tool_events
+        )
+        plan = client.get(f"/api/v3/runs/{run_id}/plan")
+        assert plan.status_code == 200
+        assert plan.json()["required_fact_fields"] == ["important_data_involved"]
+        assert "evaluate_deterministic_rules" in plan.json()["planned_tools"]
+        unchanged = client.post(f"/api/v3/runs/{run_id}/continue")
+        assert unchanged.status_code == 200
+        assert unchanged.json()["status"] == "waiting_for_review"
+        assert unchanged.json()["current_stage"] == "human_review"
         after = client.get(
             f"/api/v3/runs/{run_id}/events",
             params={"after_sequence": event_items[-2]["sequence"]},
@@ -213,21 +266,121 @@ class TestAssessmentRunApi:
         started = _start(client, case_id)
         assert started.status_code == 201
         run_id = started.json()["run_id"]
-        assert started.json()["current_stage"] == "validate_documents"
+        assert started.json()["current_stage"] == "inspect_documents"
+        plan_pending = client.get(f"/api/v3/runs/{run_id}/plan")
+        assert plan_pending.status_code == 409
 
         still_waiting = client.post(f"/api/v3/runs/{run_id}/continue")
         assert still_waiting.status_code == 200
-        assert still_waiting.json()["current_stage"] == "validate_documents"
+        assert still_waiting.json()["current_stage"] == "inspect_documents"
 
         _process_document(client, uploaded["job"]["job_id"])
         missing_fact = client.post(f"/api/v3/runs/{run_id}/continue")
         assert missing_fact.status_code == 200
-        assert missing_fact.json()["current_stage"] == "detect_missing_facts"
+        assert missing_fact.json()["current_stage"] == "human_fact_confirmation"
 
         _confirm_fact(client, case_id)
         review = client.post(f"/api/v3/runs/{run_id}/continue")
         assert review.status_code == 200
         assert review.json()["status"] == "waiting_for_review"
+
+    def test_graph_proposes_document_fact_and_resumes_after_confirmation(
+        self,
+        authed_client: tuple[TestClient, dict[str, Any]],
+    ) -> None:
+        client, _ = authed_client
+        workspace_id, case_id = _setup_case(client)
+        _publish_rule(client, workspace_id)
+        uploaded = _upload(client, case_id)
+        _process_document(client, uploaded["job"]["job_id"])
+        generator = _configure_document_fact_proposal(client, uploaded, value=True)
+
+        started = _start(client, case_id)
+
+        assert started.status_code == 201, started.text
+        run = started.json()
+        assert run["status"] == "waiting_for_user"
+        assert run["current_stage"] == "human_fact_confirmation"
+        assert run["token_usage"] == 80
+        assert generator.calls
+        container: AppContainer = client.app.state.container  # type: ignore[attr-defined]
+        proposed = container.case_fact_repo.list_for_case(
+            case_id,
+            statuses={"proposed"},
+        )
+        assert len(proposed) == 1
+        events = client.get(f"/api/v3/runs/{run['run_id']}/events").json()["events"]
+        assert any(item["event_type"] == "facts_proposed" for item in events)
+        extract_event = next(
+            item
+            for item in events
+            if item["event_type"] == "tool_completed"
+            and item["payload"]["tool_name"] == "extract_fact_candidates"
+        )
+        assert extract_event["payload"]["output"]["fact_ids"] == [proposed[0].fact_id]
+        assert extract_event["payload"]["token_usage"] == 80
+        assert "token_usage" not in extract_event["payload"]["output"]
+
+        _switch_actor(client, "github:reviewer")
+        confirmed = client.post(
+            f"/api/v3/facts/{proposed[0].fact_id}/transitions",
+            json={"target": "confirmed"},
+        )
+        assert confirmed.status_code == 200
+        _switch_actor(client, "github:editor")
+        resumed = client.post(f"/api/v3/runs/{run['run_id']}/continue")
+        assert resumed.status_code == 200, resumed.text
+        assert resumed.json()["status"] == "waiting_for_review"
+
+    def test_fact_conflict_requires_reviewer_before_graph_can_resume(
+        self,
+        authed_client: tuple[TestClient, dict[str, Any]],
+    ) -> None:
+        client, _ = authed_client
+        workspace_id, case_id = _setup_case(client)
+        _publish_rule(client, workspace_id)
+        uploaded = _upload(client, case_id)
+        _process_document(client, uploaded["job"]["job_id"])
+        existing = client.post(
+            f"/api/v3/cases/{case_id}/facts",
+            json={
+                "field_name": "important_data_involved",
+                "value": False,
+                "source_type": "user",
+                "confidence": 1.0,
+            },
+        )
+        assert existing.status_code == 201
+        _configure_document_fact_proposal(client, uploaded, value=True)
+
+        started = _start(client, case_id)
+
+        assert started.status_code == 201, started.text
+        run = started.json()
+        assert run["status"] == "waiting_for_review"
+        assert run["current_stage"] == "detect_fact_conflicts"
+        container: AppContainer = client.app.state.container  # type: ignore[attr-defined]
+        conflicting = container.case_fact_repo.list_for_case(
+            case_id,
+            statuses={"conflicting"},
+        )
+        assert len(conflicting) == 1
+        denied = client.post(f"/api/v3/runs/{run['run_id']}/continue")
+        assert denied.status_code == 403
+        assert client.get(f"/api/v3/runs/{run['run_id']}").json()["status"] == (
+            "waiting_for_review"
+        )
+
+        _switch_actor(client, "github:reviewer")
+        confirmed = client.post(
+            f"/api/v3/facts/{conflicting[0].fact_id}/transitions",
+            json={"target": "confirmed"},
+        )
+        assert confirmed.status_code == 200
+        resumed = client.post(f"/api/v3/runs/{run['run_id']}/continue")
+        assert resumed.status_code == 200, resumed.text
+        assert resumed.json()["status"] == "waiting_for_review"
+        assert resumed.json()["current_stage"] == "human_review"
 
     def test_duplicate_run_and_sensitive_snapshot_rejected(
         self,
