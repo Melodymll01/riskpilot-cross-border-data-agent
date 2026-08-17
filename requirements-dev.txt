@@ -16,6 +16,3 @@ types-python-dateutil
 
 # Dev workflow
 pre-commit>=3.7.0
-
-# Auth (PR-4 will use; pre-installed for type checks)
-PyJWT>=2.8.0

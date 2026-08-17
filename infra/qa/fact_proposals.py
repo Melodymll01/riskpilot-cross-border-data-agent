@@ -101,6 +101,22 @@ class StructuredFactProposalGenerator:
         )
 
 
+class SafeEmptyFactProposalGenerator:
+    """离线/Seed profile：不猜测事实，始终把缺失字段交给 Human-in-the-loop。"""
+
+    def propose(
+        self,
+        *,
+        field_names: list[str],
+        documents: list[FactProposalDocument],
+        max_tokens: int | None = None,
+    ) -> FactProposalResult:
+        del documents, max_tokens
+        if not field_names or len(field_names) != len(set(field_names)):
+            raise ValueError("field_names 必须是非空且不重复的字段白名单")
+        return FactProposalResult(proposals=[], token_usage=0)
+
+
 def _proposal_prompt(
     field_names: list[str],
     documents: list[FactProposalDocument],

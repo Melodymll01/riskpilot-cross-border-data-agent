@@ -29,6 +29,46 @@ class TestAnonymousLogin:
         assert r1.json()["user"]["user_id"] != r2.json()["user"]["user_id"]
 
 
+class TestDemoLogin:
+    def test_demo_login_is_hidden_by_default(self, client: TestClient) -> None:
+        response = client.post("/api/v2/auth/demo")
+
+        assert response.status_code == 404
+        assert "/api/v2/auth/demo" not in client.get("/openapi.json").json()["paths"]
+
+    def test_demo_login_requires_seeded_user(self, client: TestClient) -> None:
+        container: AppContainer = client.app.state.container  # type: ignore[attr-defined]
+        container.settings.demo_login_enabled = True
+
+        response = client.post("/api/v2/auth/demo")
+
+        assert response.status_code == 503
+        assert response.json()["error_code"] == "DEMO_NOT_SEEDED"
+
+    def test_demo_login_sets_cookie_for_configured_seed_user(self, client: TestClient) -> None:
+        from domain.models import User
+
+        container: AppContainer = client.app.state.container  # type: ignore[attr-defined]
+        container.settings.demo_login_enabled = True
+        user_id = container.settings.demo_login_user_id
+        container.user_repo.upsert(
+            User(
+                user_id=user_id,
+                provider="github",
+                provider_id="riskpilot-demo-admin",
+                display_name="RiskPilot Demo Admin",
+                created_at=1.0,
+                last_active_at=1.0,
+            )
+        )
+
+        response = client.post("/api/v2/auth/demo")
+
+        assert response.status_code == 200
+        assert response.json()["user"]["user_id"] == user_id
+        assert container.settings.cookie_name in client.cookies
+
+
 class TestWhoAmI:
     def test_anonymous_returns_not_authenticated(self, client: TestClient) -> None:
         resp = client.get("/api/v2/auth/me")

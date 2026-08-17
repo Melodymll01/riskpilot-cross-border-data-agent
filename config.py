@@ -176,6 +176,7 @@ class Settings(BaseSettings):
     sqlite_db_path: str = "./data/rag.sqlite3"
     langgraph_checkpoint_db_path: str = "./data/langgraph-checkpoints.sqlite3"
     agent_planner_backend: Literal["langchain", "deterministic"] = "langchain"
+    fact_proposal_backend: Literal["langchain", "safe_empty"] = "langchain"
     agent_max_loop_count: int = Field(4, ge=1, le=20)
     agent_max_tool_calls: int = Field(12, ge=1, le=100)
     agent_max_tokens: int = Field(12000, ge=100, le=1_000_000)
@@ -216,6 +217,8 @@ class Settings(BaseSettings):
     cookie_name: str = "copilot_session"
     cookie_secure: bool = False  # 生产 https 下置 True
     cookie_samesite: Literal["lax", "strict", "none"] = "lax"
+    demo_login_enabled: bool = False
+    demo_login_user_id: str = "github:riskpilot-demo-admin"
     # SSE 心跳间隔：长 SSE 流期间每 N 秒发一个注释行，防中间代理超时断开
     sse_keepalive_seconds: int = Field(15, ge=5, le=120)
 

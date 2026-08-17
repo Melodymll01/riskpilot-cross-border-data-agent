@@ -61,6 +61,29 @@ def build_auth_routes(container: AppContainer, *, limiter: RateLimiter | None = 
         set_session_cookie(response, token, container.settings)
         return AnonymousLoginResponse(user=_to_user_out(user, admin_ids))
 
+    @router.post(
+        "/demo",
+        response_model=AnonymousLoginResponse,
+        status_code=status.HTTP_200_OK,
+        include_in_schema=False,
+        summary="本地 Compose 演示身份登录",
+    )
+    def login_demo(response: Response) -> AnonymousLoginResponse:
+        if not container.settings.demo_login_enabled:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+        user = container.user_repo.get(container.settings.demo_login_user_id)
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "error_code": "DEMO_NOT_SEEDED",
+                    "message": "请先执行 make seed-demo。",
+                },
+            )
+        token = container.auth.issue_jwt(user.user_id)
+        set_session_cookie(response, token, container.settings)
+        return AnonymousLoginResponse(user=_to_user_out(user, admin_ids))
+
     # ── GitHub OAuth：begin ───────────────────────────────────────────
     @router.get(
         "/github/login",

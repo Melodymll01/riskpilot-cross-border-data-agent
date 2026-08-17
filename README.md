@@ -32,8 +32,8 @@
 | :---: | :---: |
 | ![审计日记](screenshots/05-审计日记.png) | |
 
-> Compose 已定义 API、Worker、PostgreSQL、Redis 与 MinIO；完整新机一键启动将在
-> Phase 9 验收，当前推荐先使用本地 Python Quick Start。
+> Docker Compose 已真实验收 API、Worker、PostgreSQL + pgvector、Redis、MinIO、
+> migration、三类 Seed Demo 与可选 Prometheus；默认确定性演示 Profile 不需要 API Key。
 
 ---
 
@@ -64,7 +64,7 @@
 
 | 维度 | 数值 |
 | --- | --- |
-| 离线回归 | **1344 passed · 4 skipped · 5 warnings**（`make ci`，2026-08-17） |
+| 离线回归 | **1357 passed · 4 skipped · 5 warnings**（`make ci`，2026-08-17） |
 | 架构规模 | **46 Port + 17 Use Case** · DDD 4 层 |
 | V3 资源接口 | **48 个路由** · Workspace → Visual Evidence / Evidence QA / Assessment Run |
 | Agent/Graph | LangChain Tool Calling + 2 张 LangGraph（Research / Assessment） |
@@ -81,7 +81,7 @@
 flowchart TB
     API[api/v2 + api/v3 · 入口层<br/>QA / Case / Evidence / Assessment Run]
     APP[app · 用例编排层<br/>AppContainer + 17 Use Case]
-    DOMAIN[domain · 纯模型 + 45 Port Protocol]
+    DOMAIN[domain · 纯模型 + 46 Port Protocol]
     INFRA[infra · 适配器<br/>LangChain / LangGraph / LangSmith / retrieval / memory / Chinese-CLIP]
 
     API --> APP --> DOMAIN
@@ -158,7 +158,7 @@ Prompt 或其他用户数据。`evaluations/memory_recall` 以版本化数据集
 
 ## 工程亮点
 
-- **DDD 4 层架构** + 45 Port Protocol + Container 依赖注入，domain 不依赖 FastAPI、
+- **DDD 4 层架构** + 46 Port Protocol + Container 依赖注入，domain 不依赖 FastAPI、
   LangGraph 或具体数据库
 - **标准 Agent 框架**：LangChain 负责模型和 Tool Calling；LangGraph 负责长程、有状态、
   可中断流程；领域层不依赖具体框架
@@ -186,18 +186,49 @@ Prompt 或其他用户数据。`evaluations/memory_recall` 以版本化数据集
 
 ## 快速开始
 
-### Docker Compose（Phase 9 完整验收项）
+### Docker Compose
 
 ```bash
 git clone https://github.com/Melodymll01/riskpilot-cross-border-data-agent.git
 cd riskpilot-cross-border-data-agent
 cp .env.example .env            # Windows PowerShell 使用 copy
-# 编辑 .env，填入 OPENAI_API_KEY
-docker compose up -d
+make docker-build
+make docker-up
+make seed-demo
+make docker-smoke
 ```
 
-Compose 拓扑与环境变量已提供，但统一 app/worker 镜像的新机一键启动尚未完成 Phase 9
-最终验收；当前不要把本节当作已验证指标。`.env` 不会打进镜像。
+`scripts/compose.sh` 自动兼容 `docker compose` 与 `docker-compose`。默认 Profile 使用
+PostgreSQL + pgvector、Redis + Celery、MinIO、deterministic embedding/planner 和
+safe-empty Fact Proposal，不需要 API Key、不访问模型服务、不下载模型、不产生费用。
+它验证工程协议，不代表真实模型效果。
+
+Seed 后可登录固定本地演示身份：
+
+```bash
+curl -c /tmp/riskpilot.cookies \
+  -X POST http://127.0.0.1:8001/api/v2/auth/demo
+
+curl -b /tmp/riskpilot.cookies \
+  "http://127.0.0.1:8001/api/v3/cases?workspace_id=ws_demo_cross_border"
+```
+
+固定 Demo：
+
+- Demo A：材料与事实完整，Run 停在 `human_review`；
+- Demo B：缺少关键事实，Run 停在 `human_fact_confirmation`；
+- Demo C：预置 failed ProcessingJob，通过 retry 由 Worker 恢复。
+
+可选 Prometheus：
+
+```bash
+make docker-observability
+# http://127.0.0.1:9090
+```
+
+`make docker-down` 默认保留 named volume。`.env` 不会打进镜像。真实模型需显式修改
+`COMPOSE_LLM_PROVIDER`、`COMPOSE_AGENT_PLANNER_BACKEND`、
+`COMPOSE_FACT_PROPOSAL_BACKEND` 和对应密钥。
 
 ### 本地 Python
 

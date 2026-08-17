@@ -140,7 +140,8 @@ class SqlAlchemyAgentRunRepo:
                 or current.workflow_type != run.workflow_type
                 or current.thread_id != run.thread_id
                 or current.created_by != run.created_by
-                or require_timestamp(current.created_at) != run.created_at
+                or require_timestamp(current.created_at)
+                != require_timestamp(require_datetime(run.created_at))
             ):
                 raise ValueError("AgentRun 的归属和创建字段不可修改")
             next_sequence = int(

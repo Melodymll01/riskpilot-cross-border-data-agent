@@ -5,22 +5,24 @@ FROM python:3.12-slim-bookworm AS builder
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_DEFAULT_TIMEOUT=120
 
 # 编译某些 Python 轮子需要的系统库
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update \
+    && apt-get install -y --no-install-recommends \
         build-essential \
         gcc \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# 先装 CPU 版 PyTorch（sentence-transformers 依赖；CUDA 版镜像会超大）
-# 然后再装项目其余依赖
-COPY requirements.txt .
+# CPU 版 PyTorch 单独成层：普通 requirements 变化时不重复下载 155MB wheel。
 RUN pip install --upgrade pip \
-    && pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
-    && pip install --no-cache-dir -r requirements.txt
+    && pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
 # ─── Stage 2: runtime ────────────────────────────────────────────────────────
 FROM python:3.12-slim-bookworm AS runtime
@@ -34,9 +36,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     # 国内 HuggingFace 镜像（如在境外部署可改回默认 https://huggingface.co）
     HF_ENDPOINT=https://hf-mirror.com
 
-# 运行时所需的最小系统依赖
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        curl \
+# OpenCV/RapidOCR 的最小动态库；不安装编译工具、桌面环境或 X Server。
+RUN apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update \
+    && apt-get install -y --no-install-recommends \
+        libgl1 \
+        libglib2.0-0 \
+        libx11-xcb1 \
     && rm -rf /var/lib/apt/lists/*
 
 # 非 root 用户运行（安全最佳实践）
@@ -56,10 +61,12 @@ RUN mkdir -p data/chroma_db data/uploads data/embed_cache logs .cache/huggingfac
 
 USER app
 
-EXPOSE 8001
+EXPOSE 8001 9101
+STOPSIGNAL SIGTERM
 
-# 容器健康检查只验证 API 进程，不依赖数据库、Redis 或模型服务。
+# 默认镜像命令是 API，因此镜像级 healthcheck 使用 readiness。
+# Worker service 在 Compose 中覆盖为 Celery inspect ping。
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-    CMD curl -fsS http://127.0.0.1:8001/api/v2/health/live >/dev/null || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/api/v2/health/ready', timeout=3)"
 
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]

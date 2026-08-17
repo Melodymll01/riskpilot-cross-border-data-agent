@@ -598,6 +598,51 @@ def test_run_optimistic_lock_and_active_unique_constraint(repos) -> None:
     assert repos["run"].get(run.run_id) == updated
 
 
+def test_run_progress_accepts_database_microsecond_timestamp_precision(repos) -> None:
+    _seed_case(repos)
+    timestamp = 1_783_036_722.5895023
+    run, checkpoint, event = _initial_run()
+    run = run.model_copy(update={"created_at": timestamp, "updated_at": timestamp})
+    checkpoint = checkpoint.model_copy(update={"created_at": timestamp})
+    event = event.model_copy(update={"created_at": timestamp})
+    repos["run"].create(run, checkpoint, event)
+    started_at = timestamp + 1
+    updated = run.start(
+        checkpoint_id="checkpoint_precision_2",
+        stage="load_case",
+        at=started_at,
+    )
+    progress_checkpoint = RunCheckpoint(
+        checkpoint_id="checkpoint_precision_2",
+        run_id=run.run_id,
+        thread_id=run.thread_id,
+        version=2,
+        stage="load_case",
+        state={"next": "authorize"},
+        created_at=started_at,
+    )
+    progress_event = RunEvent(
+        event_id="event_precision_2",
+        run_id=run.run_id,
+        sequence=2,
+        event_type="stage_completed",
+        stage="load_case",
+        created_at=started_at,
+    )
+
+    repos["run"].save_progress(
+        updated,
+        progress_checkpoint,
+        [progress_event],
+        expected_revision=1,
+    )
+
+    persisted = repos["run"].get(run.run_id)
+    assert persisted is not None
+    assert persisted.status == "running"
+    assert persisted.revision == 2
+
+
 @pytest.mark.skipif(
     not _POSTGRES_URL,
     reason="需要 TEST_POSTGRES_URL 验证真实 PostgreSQL 并发约束",

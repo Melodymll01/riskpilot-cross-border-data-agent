@@ -1,52 +1,78 @@
 services:
   app:
+    init: true
     build:
       context: .
       dockerfile: Dockerfile
     image: riskpilot-rag:latest
-    container_name: riskpilot-rag
     restart: unless-stopped
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]
     ports:
-      - "8001:8001"
+      - "${APP_PORT:-8001}:8001"
     env_file:
       - path: .env
         required: false
     environment:
-      STORAGE_BACKEND: ${STORAGE_BACKEND:-sqlite}
-      VECTOR_BACKEND: ${VECTOR_BACKEND:-chroma}
-      TASK_BACKEND: ${TASK_BACKEND:-manual}
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://${POSTGRES_USER:-riskpilot}:${POSTGRES_PASSWORD:-riskpilot-local-only}@postgres:5432/${POSTGRES_DB:-riskpilot}}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
-      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+      STORAGE_BACKEND: postgres
+      VECTOR_BACKEND: pgvector
+      TASK_BACKEND: celery
+      DATABASE_URL: &database_url postgresql+psycopg://${POSTGRES_USER:-riskpilot}:${POSTGRES_PASSWORD:-riskpilot-local-only}@postgres:5432/${POSTGRES_DB:-riskpilot}
+      REDIS_URL: &redis_url redis://redis:6379/0
+      CELERY_BROKER_URL: *redis_url
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
       CELERY_QUEUE: ${CELERY_QUEUE:-riskpilot.documents}
-      OBJECT_STORE_BACKEND: ${OBJECT_STORE_BACKEND:-local}
-      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-http://minio:9000}
-      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-${MINIO_ROOT_USER:-riskpilot}}
-      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-${MINIO_ROOT_PASSWORD:-riskpilot-local-only-secret}}
+      OBJECT_STORE_BACKEND: s3
+      S3_ENDPOINT_URL: &s3_endpoint http://minio:9000
+      S3_ACCESS_KEY_ID: &s3_access_key ${MINIO_ROOT_USER:-riskpilot}
+      S3_SECRET_ACCESS_KEY: &s3_secret_key ${MINIO_ROOT_PASSWORD:-riskpilot-local-only-secret}
       S3_BUCKET: ${S3_BUCKET:-riskpilot}
-      EMBED_PROVIDER: ${EMBED_PROVIDER:-api}
-      EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-2048}
-      WARMUP_RESEARCH_ON_STARTUP: ${WARMUP_RESEARCH_ON_STARTUP:-false}
+      LLM_PROVIDER: ${COMPOSE_LLM_PROVIDER:-local}
+      EMBED_PROVIDER: ${COMPOSE_EMBED_PROVIDER:-deterministic}
+      EMBEDDING_DIMENSIONS: "2048"
+      AGENT_PLANNER_BACKEND: ${COMPOSE_AGENT_PLANNER_BACKEND:-deterministic}
+      FACT_PROPOSAL_BACKEND: ${COMPOSE_FACT_PROPOSAL_BACKEND:-safe_empty}
+      ENABLE_RERANKER: "false"
+      ENABLE_WEB_SEARCH: "false"
+      WARMUP_RESEARCH_ON_STARTUP: "false"
+      MEMORY_ENABLED: "false"
+      JSON_LOGS_ENABLED: "true"
+      PROMETHEUS_ENABLED: "true"
+      DEMO_LOGIN_ENABLED: "true"
+      DEMO_LOGIN_USER_ID: github:riskpilot-demo-admin
+      ADMIN_USER_IDS: github:riskpilot-demo-admin
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
     volumes:
-      # 持久化数据：向量库、上传文件、embedding 缓存、聊天历史
-      - ./data:/app/data
-      # 日志持久化
-      - ./logs:/app/logs
-      # HuggingFace 模型缓存（避免每次重建镜像都重新下载 reranker，约 1.1GB）
+      - app-data:/app/data
+      - app-logs:/app/logs
       - hf-cache:/app/.cache/huggingface
-    # 默认资源限制（按需调整）。reranker 推理建议 >=2GB
-    deploy:
-      resources:
-        limits:
-          memory: 4G
+    mem_limit: ${APP_MEMORY_LIMIT:-2g}
+    cpus: ${APP_CPU_LIMIT:-2.0}
+    stop_grace_period: 30s
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/api/v2/health/ready', timeout=3)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 30s
 
   worker:
+    init: true
     build:
       context: .
       dockerfile: Dockerfile
     image: riskpilot-rag:latest
-    container_name: riskpilot-worker
     restart: unless-stopped
     command: >-
       celery -A infra.tasks.document_tasks:celery_app worker
@@ -61,19 +87,19 @@ services:
       STORAGE_BACKEND: postgres
       VECTOR_BACKEND: pgvector
       TASK_BACKEND: celery
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-riskpilot}:${POSTGRES_PASSWORD:-riskpilot-local-only}@postgres:5432/${POSTGRES_DB:-riskpilot}
-      REDIS_URL: redis://redis:6379/0
-      CELERY_BROKER_URL: redis://redis:6379/0
+      DATABASE_URL: *database_url
+      REDIS_URL: *redis_url
+      CELERY_BROKER_URL: *redis_url
       CELERY_RESULT_BACKEND: redis://redis:6379/1
       CELERY_QUEUE: ${CELERY_QUEUE:-riskpilot.documents}
       OBJECT_STORE_BACKEND: s3
-      S3_ENDPOINT_URL: http://minio:9000
-      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-riskpilot}
-      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-riskpilot-local-only-secret}
+      S3_ENDPOINT_URL: *s3_endpoint
+      S3_ACCESS_KEY_ID: *s3_access_key
+      S3_SECRET_ACCESS_KEY: *s3_secret_key
       S3_BUCKET: ${S3_BUCKET:-riskpilot}
-      EMBED_PROVIDER: ${WORKER_EMBED_PROVIDER:-api}
+      EMBED_PROVIDER: ${COMPOSE_EMBED_PROVIDER:-deterministic}
       EMBEDDING_DIMENSIONS: "2048"
-      LLM_PROVIDER: ${LLM_PROVIDER:-api}
+      LLM_PROVIDER: ${COMPOSE_LLM_PROVIDER:-local}
       PROMETHEUS_ENABLED: "true"
       PROMETHEUS_WORKER_PORT: "9101"
       PROMETHEUS_MULTIPROC_DIR: /tmp/riskpilot-prometheus
@@ -87,9 +113,11 @@ services:
       minio-init:
         condition: service_completed_successfully
     volumes:
-      - ./data:/app/data
-      - ./logs:/app/logs
+      - app-data:/app/data
+      - app-logs:/app/logs
       - hf-cache:/app/.cache/huggingface
+    mem_limit: ${WORKER_MEMORY_LIMIT:-3g}
+    cpus: ${WORKER_CPU_LIMIT:-2.0}
     stop_grace_period: 30s
     healthcheck:
       test:
@@ -107,18 +135,57 @@ services:
       context: .
       dockerfile: Dockerfile
     image: riskpilot-rag:latest
-    container_name: riskpilot-migrate
     command: ["alembic", "upgrade", "head"]
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-riskpilot}:${POSTGRES_PASSWORD:-riskpilot-local-only}@postgres:5432/${POSTGRES_DB:-riskpilot}
+      DATABASE_URL: *database_url
     depends_on:
       postgres:
         condition: service_healthy
     restart: "no"
 
+  seed:
+    profiles: ["tools"]
+    image: riskpilot-rag:latest
+    command: ["python", "-m", "scripts.seed_demo"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      STORAGE_BACKEND: postgres
+      VECTOR_BACKEND: pgvector
+      TASK_BACKEND: celery
+      DATABASE_URL: *database_url
+      REDIS_URL: *redis_url
+      CELERY_BROKER_URL: *redis_url
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      CELERY_QUEUE: ${CELERY_QUEUE:-riskpilot.documents}
+      OBJECT_STORE_BACKEND: s3
+      S3_ENDPOINT_URL: *s3_endpoint
+      S3_ACCESS_KEY_ID: *s3_access_key
+      S3_SECRET_ACCESS_KEY: *s3_secret_key
+      S3_BUCKET: ${S3_BUCKET:-riskpilot}
+      LLM_PROVIDER: local
+      EMBED_PROVIDER: deterministic
+      EMBEDDING_DIMENSIONS: "2048"
+      AGENT_PLANNER_BACKEND: deterministic
+      FACT_PROPOSAL_BACKEND: safe_empty
+      ENABLE_RERANKER: "false"
+      ENABLE_WEB_SEARCH: "false"
+      WARMUP_RESEARCH_ON_STARTUP: "false"
+      MEMORY_ENABLED: "false"
+      PROMETHEUS_ENABLED: "false"
+    depends_on:
+      app:
+        condition: service_healthy
+      worker:
+        condition: service_healthy
+    volumes:
+      - app-data:/app/data
+      - app-logs:/app/logs
+    restart: "no"
+
   postgres:
     image: pgvector/pgvector:pg17
-    container_name: riskpilot-postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-riskpilot}
@@ -137,10 +204,11 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+    mem_limit: ${POSTGRES_MEMORY_LIMIT:-1g}
+    cpus: ${POSTGRES_CPU_LIMIT:-1.0}
 
   redis:
     image: redis:7.4-alpine
-    container_name: riskpilot-redis
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     ports:
@@ -152,10 +220,11 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+    mem_limit: ${REDIS_MEMORY_LIMIT:-512m}
+    cpus: ${REDIS_CPU_LIMIT:-0.5}
 
   minio:
     image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
-    container_name: riskpilot-minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
@@ -171,10 +240,11 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+    mem_limit: ${MINIO_MEMORY_LIMIT:-1g}
+    cpus: ${MINIO_CPU_LIMIT:-1.0}
 
   minio-init:
     image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
-    container_name: riskpilot-minio-init
     entrypoint: >
       /bin/sh -c "
       mc alias set local http://minio:9000
@@ -187,8 +257,36 @@ services:
         condition: service_healthy
     restart: "no"
 
+  prometheus:
+    profiles: ["observability"]
+    image: prom/prometheus:v3.5.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    depends_on:
+      app:
+        condition: service_healthy
+      worker:
+        condition: service_healthy
+    mem_limit: ${PROMETHEUS_MEMORY_LIMIT:-512m}
+    cpus: ${PROMETHEUS_CPU_LIMIT:-0.5}
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
 volumes:
+  app-data:
+  app-logs:
   hf-cache:
   postgres-data:
   redis-data:
   minio-data:
+  prometheus-data:

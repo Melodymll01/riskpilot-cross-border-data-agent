@@ -7,7 +7,8 @@ PIP ?= pip
 PORT ?= 8000
 
 .PHONY: help install install-dev lint format type-check test test-cov agent-eval \
-        serve clean docker-build docker-up docker-down hooks ci
+        serve clean docker-build docker-up docker-down docker-observability \
+        docker-smoke seed-demo hooks ci
 
 help:
 	@echo "Available targets:"
@@ -25,6 +26,9 @@ help:
 	@echo "  docker-build  - docker compose build"
 	@echo "  docker-up     - docker compose up -d"
 	@echo "  docker-down   - docker compose down"
+	@echo "  seed-demo     - create idempotent synthetic cases"
+	@echo "  docker-observability - start optional Prometheus"
+	@echo "  docker-smoke  - verify healthy stack + seeded cases"
 	@echo "  clean         - remove caches"
 
 install:
@@ -42,7 +46,7 @@ format:
 	ruff format .
 
 type-check:
-	mypy domain app infra observability_context.py
+	mypy domain app infra observability_context.py scripts/seed_demo.py
 
 test:
 	pytest -q
@@ -62,13 +66,22 @@ hooks:
 ci: lint type-check test agent-eval
 
 docker-build:
-	docker compose build
+	./scripts/compose.sh build app
 
 docker-up:
-	docker compose up -d
+	./scripts/compose.sh up -d
 
 docker-down:
-	docker compose down
+	./scripts/compose.sh down
+
+docker-observability:
+	./scripts/compose.sh --profile observability up -d prometheus
+
+seed-demo:
+	./scripts/compose.sh --profile tools run --rm seed
+
+docker-smoke:
+	./scripts/compose_smoke.sh
 
 clean:
 	@echo "Cleaning caches..."

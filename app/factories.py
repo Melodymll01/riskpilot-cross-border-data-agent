@@ -87,6 +87,7 @@ from infra.observability import (
     PrometheusMetricsAdapter,
 )
 from infra.qa import (
+    SafeEmptyFactProposalGenerator,
     StructuredClaimSupportVerifier,
     StructuredEvidenceQAGenerator,
     StructuredFactProposalGenerator,
@@ -358,6 +359,8 @@ def build_fact_proposal_generator(
     *,
     chat: ChatPort,
 ) -> FactProposalGeneratorPort:
+    if settings.fact_proposal_backend == "safe_empty":
+        return SafeEmptyFactProposalGenerator()
     return StructuredFactProposalGenerator(
         chat,
         max_completion_tokens=settings.chat_max_tokens,
