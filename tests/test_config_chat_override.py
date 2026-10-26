@@ -124,12 +124,15 @@ class TestLangChainModelUsesEffective:
     """LangChain ChatModel 工厂读取 chat 通道覆盖值。"""
 
     def test_chat_client_reads_overridden_base_url(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from infra.agents.model import build_langchain_chat_model
+        from infra.chat import build_chat_model
 
-        model = build_langchain_chat_model(
-            model="glm-5",
-            api_key="sk-bailian",
-            base_url="https://bailian.example/compatible/v1",
+        model = build_chat_model(
+            _mk(
+                llm_provider="api",
+                chat_model="glm-5",
+                chat_api_key="sk-bailian",
+                chat_api_base="https://bailian.example/compatible/v1",
+            ),
             temperature=0.1,
             max_tokens=1024,
         )
@@ -141,40 +144,18 @@ class TestRuntimeConfiguration:
     def test_import_safe_defaults_report_errors_without_raising(self) -> None:
         settings = _mk()
 
-        assert settings.runtime_configuration_errors() == [
-            "LLM_PROVIDER=api 时必须配置 CHAT_API_KEY 或 OPENAI_API_KEY",
-            "EMBED_PROVIDER=api 时必须配置 OPENAI_API_KEY",
-        ]
+        assert settings.llm_provider == "traex"
+        assert settings.embed_provider == "sentence_transformer"
+        assert settings.runtime_configuration_errors() == []
 
     def test_explicit_runtime_validation_rejects_placeholder_keys(self) -> None:
-        settings = _mk()
+        settings = _mk(llm_provider="api", embed_provider="api")
 
         with pytest.raises(RuntimeConfigurationError, match="运行配置无效"):
             settings.validate_runtime_configuration()
 
     def test_local_profile_needs_no_external_key(self) -> None:
         settings = _mk(llm_provider="local", embed_provider="local")
-
-        settings.validate_runtime_configuration()
-
-    def test_nonzero_price_requires_explicit_currency(self) -> None:
-        settings = _mk(
-            llm_provider="local",
-            embed_provider="local",
-            llm_input_cost_per_1m_tokens=2.0,
-        )
-
-        assert settings.runtime_configuration_errors() == [
-            "配置非零 LLM token 价格时必须显式配置 LLM_COST_CURRENCY"
-        ]
-
-    def test_nonzero_price_accepts_three_letter_currency(self) -> None:
-        settings = _mk(
-            llm_provider="local",
-            embed_provider="local",
-            llm_input_cost_per_1m_tokens=2.0,
-            llm_cost_currency="CNY",
-        )
 
         settings.validate_runtime_configuration()
 
@@ -199,92 +180,3 @@ class TestRuntimeConfiguration:
             "启用 LangSmith 时必须配置 LANGSMITH_API_KEY",
             "启用 LangSmith 时 LANGSMITH_HASH_SALT 至少需要 16 个字符",
         ]
-
-    def test_postgres_profile_requires_postgres_database_url(self) -> None:
-        settings = _mk(
-            llm_provider="local",
-            embed_provider="local",
-            storage_backend="postgres",
-            vector_backend="pgvector",
-            database_url="sqlite:///wrong.db",
-        )
-
-        assert settings.runtime_configuration_errors() == [
-            "STORAGE_BACKEND=postgres 时 DATABASE_URL 必须是 PostgreSQL URL"
-        ]
-
-    @pytest.mark.parametrize(
-        ("storage_backend", "vector_backend"),
-        [("sqlite", "pgvector"), ("postgres", "chroma")],
-    )
-    def test_rejects_split_brain_storage_profiles(
-        self,
-        storage_backend: str,
-        vector_backend: str,
-    ) -> None:
-        settings = _mk(
-            llm_provider="local",
-            embed_provider="local",
-            storage_backend=storage_backend,
-            vector_backend=vector_backend,
-            database_url="postgresql+psycopg://riskpilot@localhost/riskpilot",
-        )
-
-        assert (
-            "仅支持 sqlite+chroma 本地 Profile 或 postgres+pgvector 生产 Profile"
-            in settings.runtime_configuration_errors()
-        )
-
-    def test_pgvector_requires_the_indexed_embedding_dimension(self) -> None:
-        settings = _mk(
-            llm_provider="local",
-            embed_provider="local",
-            storage_backend="postgres",
-            vector_backend="pgvector",
-            database_url="postgresql+psycopg://riskpilot@localhost/riskpilot",
-            embedding_dimensions=1024,
-        )
-
-        assert (
-            "VECTOR_BACKEND=pgvector 时 EMBEDDING_DIMENSIONS 必须为 2048"
-            in settings.runtime_configuration_errors()
-        )
-
-    def test_s3_credentials_must_be_complete_pairs(self) -> None:
-        settings = _mk(
-            llm_provider="local",
-            embed_provider="local",
-            object_store_backend="s3",
-            s3_access_key_id="only-access-key",
-            s3_secret_access_key=None,
-        )
-
-        assert "S3_ACCESS_KEY_ID 与 S3_SECRET_ACCESS_KEY 必须同时配置或同时省略" in (
-            settings.runtime_configuration_errors()
-        )
-
-    def test_celery_requires_redis_and_shared_production_storage(self) -> None:
-        settings = _mk(
-            llm_provider="local",
-            embed_provider="local",
-            task_backend="celery",
-        )
-
-        errors = settings.runtime_configuration_errors()
-        assert "TASK_BACKEND=celery 时必须配置 Redis CELERY_BROKER_URL 或 REDIS_URL" in errors
-        assert "TASK_BACKEND=celery 时必须使用 postgres+pgvector 生产 Profile" in errors
-        assert "TASK_BACKEND=celery 时必须使用 S3/MinIO 对象存储" in errors
-
-    def test_celery_accepts_complete_production_profile(self) -> None:
-        settings = _mk(
-            llm_provider="local",
-            embed_provider="local",
-            task_backend="celery",
-            storage_backend="postgres",
-            vector_backend="pgvector",
-            object_store_backend="s3",
-            database_url="postgresql+psycopg://riskpilot@localhost/riskpilot",
-            redis_url="redis://localhost:6379/0",
-        )
-
-        settings.validate_runtime_configuration()

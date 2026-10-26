@@ -84,7 +84,15 @@ class AuthService:
             raise OAuthFlowError(f"unknown OAuth provider: {provider!r}")
         self._consume_state(provider, state)
         user = prov.exchange(code, state)
+        lookup = getattr(self._user_repo, "find_by_provider", None)
+        previous = lookup(user.provider, user.provider_id) if callable(lookup) else None
+        if previous is not None:
+            user = user.model_copy(update={"user_id": previous.user_id})
         existing = self._user_repo.get(user.user_id)
+        if existing is not None and (
+            existing.provider != user.provider or existing.provider_id != user.provider_id
+        ):
+            raise OAuthFlowError("认证身份与已保存的账号不匹配")
         if existing is None:
             self._user_repo.upsert(user)
         else:

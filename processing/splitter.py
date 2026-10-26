@@ -34,6 +34,9 @@ class TextSplitter:
         if not text.strip():
             return []
 
+        # 超长表格先按行拆分，并在每个子表重复表头，避免普通字符切分破坏列语义。
+        text = self._split_oversized_markdown_tables(text)
+
         # 保护代码块和表格：临时替换为占位符，切分后还原
         text, protected = self._protect_structures(text)
 
@@ -53,6 +56,45 @@ class TextSplitter:
             f"平均 {sum(sizes) // len(sizes)}"
         )
         return merged
+
+    def _split_oversized_markdown_tables(self, text: str) -> str:
+        """把超长 Markdown 表格拆成多个带相同表头的合法子表。"""
+
+        def split_table(match: re.Match[str]) -> str:
+            table = match.group(0).strip()
+            if len(table) <= self.chunk_size:
+                return table
+            lines = [line.rstrip() for line in table.splitlines() if line.strip()]
+            if len(lines) < 3:
+                return table
+
+            header = lines[:2]
+            header_text = "\n".join(header)
+            groups: list[str] = []
+            rows: list[str] = []
+            for row in lines[2:]:
+                candidate = "\n".join([header_text, *rows, row])
+                if rows and len(candidate) > self.chunk_size:
+                    groups.append("\n".join([header_text, *rows]))
+                    rows = [row]
+                else:
+                    rows.append(row)
+            if rows:
+                groups.append("\n".join([header_text, *rows]))
+
+            logger.info(
+                "超长 Markdown 表格按行拆分: %d 字 → %d 个子表",
+                len(table),
+                len(groups),
+            )
+            return "\n\n".join(groups)
+
+        return re.sub(
+            r"(?:^\|.*\|[ \t]*$\n?){2,}",
+            split_table,
+            text,
+            flags=re.MULTILINE,
+        )
 
     def _protect_structures(self, text: str) -> tuple:
         """将代码块和表格替换为占位符，防止被分隔符切断。

@@ -53,20 +53,43 @@ class SqliteUserRepo:
             return None
         return _row_to_user(row)
 
+    def find_by_provider(self, provider: str, provider_id: str) -> User | None:
+        row = (
+            self._pool.get()
+            .execute(
+                "SELECT * FROM users WHERE provider=? AND provider_id=? ORDER BY created_at LIMIT 1",
+                (provider, provider_id),
+            )
+            .fetchone()
+        )
+        return _row_to_user(row) if row else None
+
     def merge_owner(self, from_id: str, to_id: str) -> int:
         """把 `owner_id == from_id` 的所有 task 迁移到 `to_id`。
 
         users 表本身保留 `from_id`（不删，避免外部仍持有 token 时的悬挂引用）；
-        资源迁移仅涉及 tasks 表（messages / tool_calls / artifacts 通过 task_id 间接归属）。
+        资源迁移以 tasks 为根；messages、tool_calls、附件选择和运行记录按 task_id 关联。
         """
         if from_id == to_id:
             return 0
         conn = self._pool.get()
-        cur = conn.execute(
-            "UPDATE tasks SET owner_id = ? WHERE owner_id = ?",
-            (to_id, from_id),
-        )
-        conn.commit()
+        with conn:
+            cur = conn.execute(
+                "UPDATE tasks SET owner_id = ? WHERE owner_id = ?",
+                (to_id, from_id),
+            )
+            conn.execute(
+                "UPDATE chat_documents SET owner_id = ? WHERE owner_id = ?",
+                (to_id, from_id),
+            )
+            conn.execute(
+                "UPDATE chat_evidence_chunks SET owner_id = ? WHERE owner_id = ?",
+                (to_id, from_id),
+            )
+            conn.execute(
+                "UPDATE conversation_runs SET owner_id = ? WHERE owner_id = ?",
+                (to_id, from_id),
+            )
         return cur.rowcount
 
     def touch(self, user_id: str) -> None:

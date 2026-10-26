@@ -1,80 +1,39 @@
-"""Domain 层端口（Protocol）定义。
-
-每个 Protocol 都是 infra 层适配器的"对接合同"。本文件不实现任何方法，只定义签名。
-约定：
-- 所有 Protocol 标注 `@runtime_checkable`，便于测试使用 `isinstance` 检查 fake 是否满足契约。
-- 不导入 infra / app / api；不引入 IO 或网络依赖。
-- L3+ 记忆相关 Port 暴露 `SessionProfile` / `Fact`，不暴露底层向量库 / SQLite 细节。
-
-模块边界：
-- 检索三段式（BM25 / 向量 / RRF / Reranker）由 infra 层组合，对外只暴露 `RetrievePort`。
-- 鉴权流程由 `AuthPort` 抽象，匿名 / OAuth / JWT 颁发与校验在同一个 Port 下统一。
-"""
+"""Conversation support: owner-scoped data and bounded context."""
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import AbstractContextManager
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, TypeVar, runtime_checkable
 
 from domain.agent import AgentEvent
-from domain.agent_workflow import (
-    AgentRuntimeContext,
-    EvidencePlanRequest,
-    EvidencePlanResult,
-    ToolDefinition,
-    ToolExecutionResult,
-)
-from domain.assessments import Assessment, AssessmentBundle
-from domain.cases import Case
 from domain.document_content import DocumentParseSnapshot
-from domain.documents import CaseDocument, Document, DocumentVersion, ProcessingJob
+from domain.documents import Document, DocumentVersion, ProcessingJob
 from domain.evidence import EvidenceChunk, EvidenceSearchHit
-from domain.facts import (
-    CaseFact,
-    CaseFactEvidence,
-    FactProposalDocument,
-    FactProposalResult,
-)
 from domain.models import (
-    Artifact,
     AuditEntry,
     ChatResponse,
     Chunk,
-    ConsolidationState,
-    Fact,
-    ForgetResult,
+    ConversationRun,
     KbChunk,
     KbDocument,
-    MemoryRecallTrace,
-    MemorySettings,
     Message,
     MessageFeedback,
-    ResearchReport,
-    RiskProfile,
-    SessionProfile,
     Task,
     TaskSummary,
     ToolCall,
     User,
     WebResult,
 )
-from domain.policies import PolicyRule
 from domain.qa import (
     ClaimSupportResult,
     EvidenceQACitation,
     EvidenceQAClaim,
     EvidenceQADraft,
+    UserContextMessage,
 )
-from domain.runs import (
-    AgentRun,
-    CaseDocumentReadiness,
-    RunCheckpoint,
-    RunEvent,
-    WorkflowExecutionResult,
-)
-from domain.visual import VisualAsset, VisualSearchHit
-from domain.workspaces import Workspace, WorkspaceMembership
+
+T = TypeVar("T")
 
 # === 身份 ===
 
@@ -115,51 +74,6 @@ class UserRepoPort(Protocol):
         ...
 
 
-# === V2 Workspace / Case ===
-
-
-@runtime_checkable
-class WorkspaceRepoPort(Protocol):
-    """Workspace 与成员关系持久化端口。"""
-
-    def create(
-        self,
-        workspace: Workspace,
-        creator_membership: WorkspaceMembership,
-    ) -> None:
-        """原子创建 Workspace，并写入创建者成员关系。"""
-        ...
-
-    def get(self, workspace_id: str) -> Workspace | None: ...
-
-    def list_for_user(self, user_id: str, limit: int = 50) -> list[Workspace]: ...
-
-    def get_membership(self, workspace_id: str, user_id: str) -> WorkspaceMembership | None: ...
-
-    def upsert_membership(self, membership: WorkspaceMembership) -> None: ...
-
-    def list_memberships(self, workspace_id: str) -> list[WorkspaceMembership]: ...
-
-
-@runtime_checkable
-class CaseRepoPort(Protocol):
-    """V2 合规案件持久化端口。"""
-
-    def create(self, case: Case) -> None: ...
-
-    def get(self, case_id: str) -> Case | None: ...
-
-    def list_for_workspace(
-        self,
-        workspace_id: str,
-        *,
-        include_archived: bool = False,
-        limit: int = 50,
-    ) -> list[Case]: ...
-
-    def update(self, case: Case) -> None: ...
-
-
 # === V2 Document / Object Store ===
 
 
@@ -177,41 +91,13 @@ class ObjectStorePort(Protocol):
 
 
 @runtime_checkable
-class VisualEmbedPort(Protocol):
-    """Chinese-CLIP 图文共享向量空间。"""
-
-    def embed_images(self, images: list[bytes]) -> list[list[float]]: ...
-
-    def embed_texts(self, texts: list[str]) -> list[list[float]]: ...
-
-
-@runtime_checkable
-class VisualIndexPort(Protocol):
-    """Case 作用域图片元数据与向量索引。"""
-
-    def add(self, asset: VisualAsset, embedding: list[float]) -> None: ...
-
-    def search(
-        self,
-        *,
-        workspace_id: str,
-        case_id: str,
-        query_embedding: list[float],
-        top_k: int,
-    ) -> list[VisualSearchHit]: ...
-
-    def get(self, asset_id: str) -> VisualAsset | None: ...
-
-
-@runtime_checkable
 class DocumentRepoPort(Protocol):
-    """文档、版本、案件绑定和处理任务的元数据端口。"""
+    """文档、版本、处理任务的元数据端口。"""
 
     def create_upload(
         self,
         document: Document,
         version: DocumentVersion,
-        binding: CaseDocument,
         job: ProcessingJob,
     ) -> None:
         """在单个事务中创建首次上传的四个对象。"""
@@ -223,13 +109,9 @@ class DocumentRepoPort(Protocol):
 
     def list_versions(self, document_id: str) -> list[DocumentVersion]: ...
 
-    def get_binding(self, case_id: str, document_id: str) -> CaseDocument | None: ...
-
-    def list_bindings_for_document(self, document_id: str) -> list[CaseDocument]: ...
-
-    def list_for_case(
+    def list_for_owner(
         self,
-        case_id: str,
+        owner_id: str,
         *,
         include_deleted: bool = False,
     ) -> list[Document]: ...
@@ -241,9 +123,9 @@ class DocumentRepoPort(Protocol):
         document_version_id: str,
     ) -> ProcessingJob | None: ...
 
-    def list_jobs_for_case(
+    def list_jobs_for_owner(
         self,
-        case_id: str,
+        owner_id: str,
         *,
         statuses: set[str] | None = None,
         limit: int = 50,
@@ -322,13 +204,12 @@ class EvidenceChunkerPort(Protocol):
         document: Document,
         version: DocumentVersion,
         snapshot: DocumentParseSnapshot,
-        bindings: list[CaseDocument],
     ) -> list[EvidenceChunk]: ...
 
 
 @runtime_checkable
 class EvidenceIndexPort(Protocol):
-    """先按 Workspace/Case 过滤，再执行混合检索的证据索引端口。"""
+    """先按 owner 过滤，再执行混合检索的证据索引端口。"""
 
     def replace_version_chunks(
         self,
@@ -340,23 +221,12 @@ class EvidenceIndexPort(Protocol):
     def search(
         self,
         *,
-        workspace_id: str,
-        case_id: str,
+        owner_id: str,
         query: str,
         query_embedding: list[float],
         top_k: int = 5,
+        document_ids: list[str] | None = None,
     ) -> list[EvidenceSearchHit]: ...
-
-    def search_workspace(
-        self,
-        *,
-        workspace_id: str,
-        query: str,
-        query_embedding: list[float],
-        top_k: int = 5,
-    ) -> list[EvidenceSearchHit]:
-        """只搜索显式标记为 workspace_knowledge 的当前就绪文档。"""
-        ...
 
     def count_version(self, document_version_id: str) -> int: ...
 
@@ -374,212 +244,7 @@ class EvidenceIndexPort(Protocol):
         ...
 
 
-@runtime_checkable
-class CaseFactRepoPort(Protocol):
-    """案件事实当前快照、版本历史和证据引用端口。"""
-
-    def create(
-        self,
-        fact: CaseFact,
-        evidence: list[CaseFactEvidence],
-    ) -> None: ...
-
-    def create_many(
-        self,
-        items: list[tuple[CaseFact, list[CaseFactEvidence]]],
-    ) -> None:
-        """原子创建一批 Fact 及其证据；任一失败不得留下部分结果。"""
-        ...
-
-    def get(self, fact_id: str) -> CaseFact | None: ...
-
-    def get_version(self, fact_id: str, version: int) -> CaseFact | None: ...
-
-    def list_for_case(
-        self,
-        case_id: str,
-        *,
-        statuses: set[str] | None = None,
-    ) -> list[CaseFact]: ...
-
-    def list_evidence(
-        self,
-        fact_id: str,
-        *,
-        fact_version: int | None = None,
-    ) -> list[CaseFactEvidence]: ...
-
-    def save_revision(
-        self,
-        fact: CaseFact,
-        evidence: list[CaseFactEvidence],
-    ) -> None: ...
-
-    def update_status(self, fact: CaseFact) -> None: ...
-
-    def update_statuses(self, facts: list[CaseFact]) -> None:
-        """原子更新一批 Fact 状态，用于唯一确认同字段事实。"""
-        ...
-
-
-@runtime_checkable
-class PolicyRuleRepoPort(Protocol):
-    """版本化 PolicyRule 存储端口。"""
-
-    def create(self, rule: PolicyRule) -> None: ...
-
-    def get(
-        self,
-        workspace_id: str,
-        rule_id: str,
-        ruleset_version: str,
-    ) -> PolicyRule | None: ...
-
-    def list_rules(
-        self,
-        *,
-        workspace_id: str,
-        ruleset_version: str | None = None,
-        jurisdiction: str | None = None,
-        status: str | None = None,
-    ) -> list[PolicyRule]: ...
-
-    def update_status(self, rule: PolicyRule) -> None: ...
-
-
-@runtime_checkable
-class AssessmentRepoPort(Protocol):
-    """不可变 Assessment 版本与 Bundle 持久化端口。"""
-
-    def create_version(
-        self,
-        bundle: AssessmentBundle,
-        previous: Assessment | None,
-        case: Case,
-    ) -> None:
-        """原子保存新版本、supersede 旧版本并更新 Case.active_assessment_id。"""
-        ...
-
-    def get(self, assessment_id: str) -> AssessmentBundle | None: ...
-
-    def get_active(self, case_id: str) -> AssessmentBundle | None: ...
-
-    def list_for_case(self, case_id: str) -> list[Assessment]: ...
-
-    def next_version(self, case_id: str) -> int: ...
-
-    def save_review(self, assessment: Assessment, case: Case) -> None:
-        """原子保存审批结果，并同步更新活动 Case 状态。"""
-        ...
-
-
 # === V2 Workflow Run / Checkpoint ===
-
-
-@runtime_checkable
-class AgentRunRepoPort(Protocol):
-    """AgentRun、轻量检查点和阶段事件的原子持久化端口。"""
-
-    def create(
-        self,
-        run: AgentRun,
-        checkpoint: RunCheckpoint,
-        event: RunEvent,
-    ) -> None: ...
-
-    def get(self, run_id: str) -> AgentRun | None: ...
-
-    def get_checkpoint(self, checkpoint_id: str) -> RunCheckpoint | None: ...
-
-    def get_latest_checkpoint(self, run_id: str) -> RunCheckpoint | None: ...
-
-    def list_for_case(
-        self,
-        case_id: str,
-        *,
-        limit: int = 50,
-    ) -> list[AgentRun]: ...
-
-    def list_events(
-        self,
-        run_id: str,
-        *,
-        after_sequence: int = 0,
-        limit: int = 200,
-    ) -> list[RunEvent]: ...
-
-    def next_checkpoint_version(self, run_id: str) -> int: ...
-
-    def next_event_sequence(self, run_id: str) -> int: ...
-
-    def save_progress(
-        self,
-        run: AgentRun,
-        checkpoint: RunCheckpoint,
-        events: list[RunEvent],
-        *,
-        expected_revision: int,
-    ) -> None:
-        """以乐观锁原子保存 Run、检查点和事件。"""
-        ...
-
-
-@runtime_checkable
-class WorkflowRuntimePort(Protocol):
-    """框架无关的案件评估工作流运行时端口。"""
-
-    def inspect_case_assessment(
-        self,
-        *,
-        thread_id: str,
-    ) -> WorkflowExecutionResult | None: ...
-
-    def start_case_assessment(
-        self,
-        *,
-        thread_id: str,
-        case_id: str,
-        workspace_id: str,
-        actor_id: str,
-        ruleset_version: str,
-        document_readiness: CaseDocumentReadiness,
-        missing_fact_fields: list[str],
-        conflict_field_names: list[str] | None = None,
-        run_id: str | None = None,
-        actor_role: str = "editor",
-        required_fact_fields: list[str] | None = None,
-        max_loop_count: int | None = None,
-        max_tool_calls: int | None = None,
-        max_tokens: int | None = None,
-    ) -> WorkflowExecutionResult: ...
-
-    def resume_case_assessment(
-        self,
-        *,
-        thread_id: str,
-        resume_value: dict[str, Any],
-        state_update: dict[str, Any] | None = None,
-        actor_id: str | None = None,
-        actor_role: str | None = None,
-    ) -> WorkflowExecutionResult: ...
-
-
-@runtime_checkable
-class EvidencePlannerPort(Protocol):
-    def build_plan(self, request: EvidencePlanRequest) -> EvidencePlanResult: ...
-
-
-@runtime_checkable
-class CaseAssessmentToolPort(Protocol):
-    def definitions(self) -> list[ToolDefinition]: ...
-
-    def execute(
-        self,
-        tool_name: str,
-        arguments: dict[str, Any],
-        *,
-        context: AgentRuntimeContext,
-    ) -> ToolExecutionResult: ...
 
 
 # === 任务 / 消息 ===
@@ -601,9 +266,112 @@ class TaskRepoPort(Protocol):
 
     def list_messages(self, task_id: str) -> list[Message]: ...
 
+    def set_attachment_ids(
+        self,
+        task_id: str,
+        owner_id: str,
+        document_ids: list[str],
+    ) -> None: ...
+
+    def list_attachment_ids(self, task_id: str, owner_id: str) -> list[str]: ...
+
     def append_tool_call(self, call: ToolCall) -> None: ...
 
-    def append_artifact(self, art: Artifact) -> None: ...
+
+@runtime_checkable
+class ConversationRunRepoPort(Protocol):
+    def create(self, run: ConversationRun) -> None: ...
+
+    def get(self, run_id: str, owner_id: str) -> ConversationRun | None: ...
+
+    def update(self, run: ConversationRun, *, expected_status: str | None = None) -> None: ...
+
+    def claim_resume(
+        self,
+        run_id: str,
+        owner_id: str,
+        *,
+        updated_at: float,
+    ) -> ConversationRun | None:
+        """Atomically transition one interrupted run to running."""
+        ...
+
+    def commit_terminal(
+        self,
+        run: ConversationRun,
+        message: Message,
+        *,
+        validate_context: Callable[[], None] | None = None,
+    ) -> None:
+        """Atomically append the terminal assistant message and finish the run."""
+        ...
+
+    def reserve_call(
+        self,
+        run_id: str,
+        owner_id: str,
+        *,
+        kind: Literal["model", "tool"],
+        stage: str,
+        now: float,
+    ) -> ConversationRun | None: ...
+
+    def record_model_usage(
+        self,
+        run_id: str,
+        owner_id: str,
+        *,
+        input_tokens: int | None,
+        output_tokens: int | None,
+        now: float,
+    ) -> ConversationRun | None: ...
+
+    def record_retry(
+        self,
+        run_id: str,
+        owner_id: str,
+        *,
+        kind: Literal["model", "tool"],
+        now: float,
+    ) -> ConversationRun | None: ...
+
+    def request_cancel(
+        self,
+        run_id: str,
+        owner_id: str,
+        *,
+        reason: str,
+        now: float,
+    ) -> ConversationRun | None: ...
+
+    def finish_active(
+        self,
+        run_id: str,
+        owner_id: str,
+        *,
+        status: Literal["cancelled", "timed_out", "budget_exhausted", "failed"],
+        reason: str,
+        error_type: str | None,
+        now: float,
+    ) -> ConversationRun | None: ...
+
+    def pause(
+        self,
+        run_id: str,
+        owner_id: str,
+        *,
+        now: float,
+    ) -> ConversationRun | None: ...
+
+    def reconcile_stale(self, *, now: float) -> int:
+        """Close non-terminal runs left without an in-process executor at startup."""
+        ...
+
+    def get_latest_for_task(
+        self,
+        task_id: str,
+        owner_id: str,
+    ) -> ConversationRun | None: ...
 
 
 @runtime_checkable
@@ -624,7 +392,64 @@ class FeedbackRepoPort(Protocol):
 
 @runtime_checkable
 class EmbedPort(Protocol):
-    def embed(self, texts: list[str]) -> list[list[float]]: ...
+    def embed(
+        self,
+        texts: list[str],
+        *,
+        runtime_control: RunControlPort | None = None,
+    ) -> list[list[float]]: ...
+
+
+@runtime_checkable
+class RunControlPort(Protocol):
+    @property
+    def run_id(self) -> str: ...
+
+    def check(self, *, stage: str | None = None) -> ConversationRun: ...
+
+    def before_model_call(self, *, operation: str, stage: str) -> ConversationRun: ...
+
+    def before_tool_call(self, *, operation: str) -> ConversationRun: ...
+
+    def call_model(
+        self,
+        *,
+        operation: str,
+        stage: str,
+        invoke: Callable[[], T],
+        retry: bool = False,
+    ) -> T: ...
+
+    def call_tool(
+        self,
+        *,
+        operation: str,
+        invoke: Callable[[], T],
+        retry: bool = False,
+    ) -> T: ...
+
+    def wait_for_graph_event(self, invoke: Callable[[], T]) -> T: ...
+
+    def wait(self, seconds: float) -> None: ...
+
+    def record_model_usage(
+        self,
+        *,
+        input_tokens: int | None,
+        output_tokens: int | None,
+    ) -> None: ...
+
+    def record_retry(self, *, kind: Literal["model", "tool"]) -> None: ...
+
+    def interrupt(self) -> ConversationRun: ...
+
+    def finish(
+        self,
+        *,
+        status: Literal["cancelled", "timed_out", "budget_exhausted", "failed"],
+        reason: str,
+        error_type: str | None = None,
+    ) -> ConversationRun: ...
 
 
 @runtime_checkable
@@ -636,6 +461,8 @@ class ChatPort(Protocol):
         temperature: float = 0.2,
         max_tokens: int | None = None,
         json_mode: bool = False,
+        runtime_control: RunControlPort | None = None,
+        operation: str = "chat",
     ) -> str: ...
 
     def chat_with_usage(
@@ -645,6 +472,8 @@ class ChatPort(Protocol):
         temperature: float = 0.2,
         max_tokens: int | None = None,
         json_mode: bool = False,
+        runtime_control: RunControlPort | None = None,
+        operation: str = "chat",
     ) -> ChatResponse: ...
 
 
@@ -658,6 +487,24 @@ class CopilotAgentPort(Protocol):
         owner_id: str,
         task_id: str,
         user_message: str,
+        attachment_doc_ids: list[str],
+        run_id: str,
+        thread_id: str,
+        input_message_id: str,
+        runtime_control: RunControlPort,
+    ) -> Iterator[AgentEvent]: ...
+
+    def resume(
+        self,
+        *,
+        owner_id: str,
+        task_id: str,
+        run_id: str,
+        thread_id: str,
+        user_message: str,
+        attachment_doc_ids: list[str],
+        prior_evidence: list[dict[str, Any]],
+        runtime_control: RunControlPort,
     ) -> Iterator[AgentEvent]: ...
 
 
@@ -714,17 +561,6 @@ class MetricsPort(Protocol):
         retry_count: int,
     ) -> None: ...
 
-    def observe_worker_task(
-        self,
-        *,
-        task: str,
-        status: str,
-        duration_seconds: float,
-        retry_count: int,
-    ) -> None: ...
-
-    def set_worker_queue_depth(self, *, queue: str, depth: int) -> None: ...
-
     def record_llm_usage(
         self,
         *,
@@ -751,19 +587,6 @@ class ReadinessPort(Protocol):
 
 
 @runtime_checkable
-class FactProposalGeneratorPort(Protocol):
-    """基于显式字段白名单和案件文档生成待人工确认的 Fact 候选。"""
-
-    def propose(
-        self,
-        *,
-        field_names: list[str],
-        documents: list[FactProposalDocument],
-        max_tokens: int | None = None,
-    ) -> FactProposalResult: ...
-
-
-@runtime_checkable
 class RetrievePort(Protocol):
     """检索三段式（BM25 + 向量 + RRF + Reranker）的高层入口。"""
 
@@ -773,7 +596,7 @@ class RetrievePort(Protocol):
         top_k: int = 5,
         corpus: Literal["law", "user_docs"] = "law",
         owner_id: str | None = None,
-        filters: dict[str, str] | None = None,
+        runtime_control: RunControlPort | None = None,
     ) -> list[Chunk]: ...
 
 
@@ -785,6 +608,8 @@ class ClaimSupportVerifierPort(Protocol):
         self,
         claims: list[EvidenceQAClaim],
         citations: list[EvidenceQACitation],
+        user_context: list[UserContextMessage] | None = None,
+        runtime_control: RunControlPort | None = None,
     ) -> ClaimSupportResult: ...
 
 
@@ -797,44 +622,13 @@ class EvidenceQAGeneratorPort(Protocol):
         *,
         question: str,
         citations: list[EvidenceQACitation],
+        user_context: list[UserContextMessage] | None = None,
+        preferences: list[str] | None = None,
+        runtime_control: RunControlPort | None = None,
     ) -> EvidenceQADraft: ...
 
 
 # === 外部服务 ===
-
-
-@runtime_checkable
-class RiskProfilePort(Protocol):
-    """风险画像评估端口（schema-evidence v1 接口预留）。
-
-    本端口承接「自然语言目标命题 → evidence_state」的 sample-level 评估，
-    对齐 ``schema-evidence-risk-profiling`` 仓库当前阶段输出
-    （`evidence_v1/sample_schema_v1.json`）。
-
-    生产实现通过 HTTP 或本地推理服务接入，infra 负责校验返回 schema。
-    """
-
-    def assess(
-        self,
-        target: str,
-        document: str | None = None,
-        *,
-        language: str = "zh",
-    ) -> RiskProfile: ...
-
-
-@runtime_checkable
-class ResearchPort(Protocol):
-    """LangGraph Deep Research 的高层入口。"""
-
-    def research(
-        self,
-        query: str,
-        *,
-        owner_id: str | None = None,
-        top_k: int = 8,
-        enable_web_search: bool = True,
-    ) -> ResearchReport: ...
 
 
 @runtime_checkable
@@ -936,7 +730,13 @@ class DocumentLoaderPort(Protocol):
 
 @runtime_checkable
 class WebSearchPort(Protocol):
-    def search(self, query: str, max_results: int = 3) -> list[WebResult]: ...
+    def search(
+        self,
+        query: str,
+        max_results: int = 3,
+        *,
+        runtime_control: RunControlPort | None = None,
+    ) -> list[WebResult]: ...
 
 
 # === 记忆（按 owner_id / task_id 多层） ===
@@ -944,10 +744,9 @@ class WebSearchPort(Protocol):
 
 @runtime_checkable
 class MemoryPort(Protocol):
-    """4 层记忆统一入口：L1 短期 / L2 摘要 / L3 用户画像 / L4 语义事实。"""
+    """最近消息与会话摘要。"""
 
     # L1 短期：按 task_id
-    def append_message(self, task_id: str, msg: Message) -> None: ...
 
     def recent_messages(self, owner_id: str, task_id: str, n: int) -> list[Message]: ...
 
@@ -956,123 +755,28 @@ class MemoryPort(Protocol):
 
     def maybe_summarize(self, owner_id: str, task_id: str, threshold: int = 20) -> None: ...
 
-    # L3 用户画像：按 owner_id（跨 task / 跨设备）
-    def get_profile(self, owner_id: str) -> SessionProfile: ...
-
-    def update_profile(self, owner_id: str, facts: dict[str, str]) -> None: ...
-
-    # L4 语义事实：按 owner_id
-    def recall_semantic(self, owner_id: str, query: str, k: int) -> list[Fact]: ...
-
-    def explain_recall(self, owner_id: str, query: str, k: int) -> MemoryRecallTrace: ...
-
-    # L4 事实列表（管理面板展示，过滤已 superseded / 过期，Step 031a）
-    def list_facts(self, owner_id: str) -> list[Fact]: ...
-
-    # L4 单条事实删除（被遗忘权细粒度，Step 034）：返回是否真删了
-    def delete_fact(self, owner_id: str, fact_id: str) -> bool: ...
-
-    # 主动遗忘（被遗忘权）：按 owner_id 级联清除（Step 030d）
-    def forget(self, owner_id: str, *, scope: str = "memory") -> ForgetResult: ...
-
 
 @runtime_checkable
 class SummaryStorePort(Protocol):
-    """L2 摘要存储（``task_summaries`` 表，Step 030b）。"""
+    """会话滚动摘要存储。"""
 
     def get(self, task_id: str, owner_id: str) -> TaskSummary | None: ...
 
     def upsert(self, summary: TaskSummary) -> None: ...
 
-    def delete_owner(self, owner_id: str) -> int:
-        """删除该 owner 的全部摘要，返回删除条数（主动遗忘，Step 030d）。"""
-        ...
-
-
-@runtime_checkable
-class ProfileStorePort(Protocol):
-    """L3 用户画像存储（``profiles`` 表，Step 030d）。
-
-    画像是跨 task 的稳定偏好快照（按 ``owner_id``），无 TTL，靠主动遗忘清除。
-    """
-
-    def get(self, owner_id: str) -> SessionProfile | None: ...
-
-    def upsert(self, profile: SessionProfile) -> None: ...
-
-    def delete_owner(self, owner_id: str) -> int:
-        """删除该 owner 的画像，返回删除条数（0 或 1）。"""
-        ...
-
-
-@runtime_checkable
-class MemorySettingsStorePort(Protocol):
-    """每用户记忆开关存储（``memory_settings`` 表，Step 031a）。
-
-    按 ``owner_id`` 存两个布尔偏好；``get`` 缺失返回 None（调用方视为双开默认）。
-    """
-
-    def get(self, owner_id: str) -> MemorySettings | None: ...
-
-    def upsert(self, settings: MemorySettings) -> None: ...
-
 
 @runtime_checkable
 class MemoryJobSchedulerPort(Protocol):
-    """记忆后台作业调度（§14.1 显式调度起步，Step 030b/030c）。
+    """会话摘要后台调度。
 
-    回复完成后由 use case 显式调用，后台 best-effort 跡出 L2 摘要 / L4 固化，
+    回复完成后由 use case 显式调用，后台 best-effort 跡出 会话摘要，
     不阻塞主回复；失败下一轮按 watermark 自愈补。
     """
 
     def schedule_summarization(self, owner_id: str, task_id: str) -> None: ...
 
-    def schedule_consolidation(self, owner_id: str, task_id: str) -> None: ...
 
-
-@runtime_checkable
-class FactStorePort(Protocol):
-    """L4 语义事实存储（Chroma ``memory_facts`` collection，Step 030c）。
-
-    向量化由调用方（固化 worker / 记忆适配器）用 ``EmbedPort`` 完成后传入，
-    本端口只管"带 owner 隔离的向量 upsert / 近邻查询 / 逻辑删除 / 容量管理"。
-    """
-
-    def add(self, fact: Fact, embedding: list[float]) -> None: ...
-
-    def query(self, owner_id: str, embedding: list[float], k: int) -> list[tuple[Fact, float]]:
-        """按 owner 隔离的近邻检索，返回 ``(fact, 相似度)`` 倒序（含已 superseded，由调用方过滤）。"""
-        ...
-
-    def get(self, owner_id: str, fact_id: str) -> Fact | None: ...
-
-    def mark_superseded(self, owner_id: str, fact_id: str, superseded_by: str) -> None: ...
-
-    def list_owner(self, owner_id: str) -> list[Fact]: ...
-
-    def delete(self, owner_id: str, fact_id: str) -> None: ...
-
-    def delete_owner(self, owner_id: str) -> int:
-        """删除该 owner 的全部事实，返回删除条数（主动遗忘，Step 030d）。"""
-        ...
-
-    def count(self, owner_id: str) -> int: ...
-
-
-@runtime_checkable
-class ConsolidationStatePort(Protocol):
-    """L4 固化进度水位存储（``consolidation_state`` 表，Step 030c）。"""
-
-    def get(self, task_id: str, owner_id: str) -> ConsolidationState | None: ...
-
-    def upsert(self, state: ConsolidationState) -> None: ...
-
-    def delete_owner(self, owner_id: str) -> int:
-        """删除该 owner 的全部固化水位，返回删除条数（主动遗忘，Step 030d）。"""
-        ...
-
-
-# === 审计（Step 021） ===
+# === 审计 ===
 
 
 @runtime_checkable

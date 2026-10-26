@@ -8,6 +8,14 @@ from dataclasses import dataclass, field
 
 
 @dataclass
+class RawSegment:
+    """原始文档中的可独立切分单元，例如 PDF 的单页。"""
+
+    content: str
+    extra_metadata: dict = field(default_factory=dict)
+
+
+@dataclass
 class RawDocument:
     """
     统一的原始文档对象，是文件加载和网页抓取的共同输出。
@@ -26,6 +34,7 @@ class RawDocument:
     title: str
     source_url: str | None = None
     extra_metadata: dict = field(default_factory=dict)
+    segments: list[RawSegment] = field(default_factory=list)
 
 
 class UnifiedLoader:

@@ -10,6 +10,8 @@ from fastapi.testclient import TestClient
 
 from api.v2.deps import make_require_admin
 from app.container import AppContainer
+from app.factories import build_auth
+from app.use_cases.auth_login import AuthLoginUseCase
 
 
 class TestAnonymousLogin:
@@ -29,50 +31,6 @@ class TestAnonymousLogin:
         assert r1.json()["user"]["user_id"] != r2.json()["user"]["user_id"]
 
 
-class TestDemoLogin:
-    def test_demo_login_is_hidden_by_default(self, client: TestClient) -> None:
-        me = client.get("/api/v2/auth/me")
-        response = client.post("/api/v2/auth/demo")
-
-        assert me.json()["demo_login_enabled"] is False
-        assert response.status_code == 404
-        assert "/api/v2/auth/demo" not in client.get("/openapi.json").json()["paths"]
-
-    def test_demo_login_requires_seeded_user(self, client: TestClient) -> None:
-        container: AppContainer = client.app.state.container  # type: ignore[attr-defined]
-        container.settings.demo_login_enabled = True
-
-        me = client.get("/api/v2/auth/me")
-        response = client.post("/api/v2/auth/demo")
-
-        assert me.json()["demo_login_enabled"] is True
-        assert response.status_code == 503
-        assert response.json()["error_code"] == "DEMO_NOT_SEEDED"
-
-    def test_demo_login_sets_cookie_for_configured_seed_user(self, client: TestClient) -> None:
-        from domain.models import User
-
-        container: AppContainer = client.app.state.container  # type: ignore[attr-defined]
-        container.settings.demo_login_enabled = True
-        user_id = container.settings.demo_login_user_id
-        container.user_repo.upsert(
-            User(
-                user_id=user_id,
-                provider="github",
-                provider_id="riskpilot-demo-admin",
-                display_name="RiskPilot Demo Admin",
-                created_at=1.0,
-                last_active_at=1.0,
-            )
-        )
-
-        response = client.post("/api/v2/auth/demo")
-
-        assert response.status_code == 200
-        assert response.json()["user"]["user_id"] == user_id
-        assert container.settings.cookie_name in client.cookies
-
-
 class TestWhoAmI:
     def test_anonymous_returns_not_authenticated(self, client: TestClient) -> None:
         resp = client.get("/api/v2/auth/me")
@@ -80,7 +38,6 @@ class TestWhoAmI:
         assert resp.json() == {
             "authenticated": False,
             "user": None,
-            "demo_login_enabled": False,
         }
 
     def test_after_anonymous_login_returns_user(
@@ -170,12 +127,52 @@ class TestLogout:
 
 
 class TestGithubLogin:
+    @pytest.mark.parametrize(
+        ("client_id", "client_secret"),
+        [
+            ("dev-placeholder-client-id", "dev-placeholder-client-secret"),
+            ("configured-client-id", "dev-placeholder-client-secret"),
+            ("dev-placeholder-client-id", "configured-client-secret"),
+        ],
+    )
+    def test_unconfigured_login_preserves_guest_session(
+        self,
+        client: TestClient,
+        container: AppContainer,
+        client_id: str,
+        client_secret: str,
+    ) -> None:
+        settings = container.settings.model_copy(
+            update={"github_client_id": client_id, "github_client_secret": client_secret}
+        )
+        container.auth = build_auth(settings, container.user_repo)
+        container.auth_login = AuthLoginUseCase(container.auth)
+        guest = client.post("/api/v2/auth/anonymous")
+        assert guest.status_code == 201
+        cookie = client.cookies.get("copilot_session")
+
+        resp = client.get("/api/v2/auth/github/login")
+
+        assert resp.status_code == 503
+        assert resp.json()["error_code"] == "OAUTH_UNAVAILABLE"
+        assert "GitHub 登录尚未配置" in resp.json()["message"]
+        assert "authorize_url" not in resp.json()
+        assert "state" not in resp.json()
+        assert client_id not in resp.text and client_secret not in resp.text
+        assert client.cookies.get("copilot_session") == cookie
+        assert client.get("/api/v2/auth/me").json()["user"] == guest.json()["user"]
+
     def test_returns_authorize_url_and_state(self, client: TestClient) -> None:
         resp = client.get("/api/v2/auth/github/login")
         assert resp.status_code == 200
         body = resp.json()
         assert body["authorize_url"].startswith("https://")
         assert body["state"]
+
+    def test_redirect_endpoint_sends_browser_to_github(self, client: TestClient) -> None:
+        resp = client.get("/api/v2/auth/github/redirect", follow_redirects=False)
+        assert resp.status_code == 303
+        assert resp.headers["location"].startswith("https://fake.local/github/authorize")
 
     def test_callback_success_sets_cookie(self, client: TestClient) -> None:
         # 先 begin 拿一个合法 state

@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import quote
 
 import pytest
 from fastapi.testclient import TestClient
@@ -219,6 +220,15 @@ class TestGet(_AdminBase):
         resp = admin_client.get("/api/v2/documents/missing.pdf")
         assert resp.status_code == 404
         assert resp.json()["error_code"] == "DOCUMENT_NOT_FOUND"
+
+    def test_get_and_delete_web_url_source_name(self, admin_client: TestClient) -> None:
+        source = "https://example.com/regulations/rule?id=1"
+        _seed_chunks(admin_client, source=source, n=1, source_type="web", owner_id=None)
+
+        detail = admin_client.get(f"/api/v2/documents/{quote(source, safe='')}")
+        assert detail.status_code == 200
+        deleted = admin_client.delete(f"/api/v2/documents/{quote(source, safe='')}")
+        assert deleted.status_code == 200
 
 
 # ────────────────────────────── delete ─────────────────────────────────

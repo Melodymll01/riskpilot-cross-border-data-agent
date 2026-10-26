@@ -333,7 +333,7 @@ class KbManagementUseCase:
         extra: dict[str, object] | None = None,
     ) -> KbIngestResult:
         """共用写流程：embed → repo.add_chunks（端口内部先删后插）+ 审计。"""
-        texts = [c.text for c in chunks]
+        texts = [c.embedding_text or c.text for c in chunks]
         try:
             embeddings = self._embedder.embed(texts)
             self._repo.add_chunks(chunks, embeddings)

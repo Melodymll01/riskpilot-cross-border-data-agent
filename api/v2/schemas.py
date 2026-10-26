@@ -46,7 +46,6 @@ class WhoAmIResponse(BaseModel):
 
     authenticated: bool
     user: UserOut | None = None
-    demo_login_enabled: bool = False
 
 
 class AnonymousLoginResponse(BaseModel):
@@ -68,7 +67,6 @@ class TaskOut(BaseModel):
     owner_id: str
     title: str
     state: Literal["planning", "gathering", "evaluating", "answering", "done"]
-    mode: Literal["qa", "research", "profile"] = "qa"
     user_goal: str
     collected_facts: dict[str, Any]
     created_at: float
@@ -80,11 +78,20 @@ class TaskListResponse(BaseModel):
 
 
 class TaskCitationOut(BaseModel):
+    citation_id: str = ""
+    source_id: str = ""
     source_type: str
     source_name: str
     title: str = ""
     source_url: str | None = None
+    source_version: str | None = None
     text_snippet: str = ""
+    chunk_id: str | None = None
+    document_id: str | None = None
+    document_version_id: str | None = None
+    page_number: int | None = None
+    source_sha256: str | None = None
+    clause_id: str | None = None
 
 
 class MessageOut(BaseModel):
@@ -95,9 +102,61 @@ class MessageOut(BaseModel):
     created_at: float
 
 
+class ConversationRunOut(BaseModel):
+    run_id: str
+    task_id: str
+    status: Literal[
+        "running",
+        "interrupted",
+        "cancel_requested",
+        "cancelled",
+        "timed_out",
+        "budget_exhausted",
+        "completed",
+        "failed",
+    ]
+    stage: Literal[
+        "agent",
+        "tool",
+        "generation",
+        "verification",
+        "completed",
+        "cancelled",
+        "timed_out",
+        "budget_exhausted",
+        "failed",
+    ]
+    attachment_doc_ids: list[str]
+    evidence_count: int
+    evidence_ids: list[str]
+    verified_citation_ids: list[str]
+    verified_context_message_ids: list[str]
+    clarification_fields: list[str]
+    max_duration_seconds: float
+    remaining_seconds: float
+    max_model_calls: int
+    max_tool_calls: int
+    model_call_count: int
+    tool_call_count: int
+    model_retry_count: int
+    tool_retry_count: int
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    usage_status: Literal["unknown", "partial", "complete"]
+    answer_message_id: str | None = None
+    error_type: str | None = None
+    end_reason: str | None = None
+    cancel_requested_at: float | None = None
+    finished_at: float | None = None
+    created_at: float
+    updated_at: float
+
+
 class TaskDetailResponse(BaseModel):
     task: TaskOut
     messages: list[MessageOut]
+    attachment_doc_ids: list[str] = Field(default_factory=list)
+    latest_run: ConversationRunOut | None = None
 
 
 class UpdateTaskRequest(BaseModel):
@@ -138,13 +197,11 @@ class FeedbackMapResponse(BaseModel):
 class ChatRequest(BaseModel):
     """POST /copilot/chat[/stream] 请求体。"""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     task_id: str | None = None
     message: str = Field(min_length=1, max_length=8000)
-    attachment_doc_ids: list[str] = Field(default_factory=list, max_length=20)
-    # 仅在首条消息创建新 task 时生效；后续轮次服从已有 task.mode。
-    mode: Literal["qa", "research", "profile"] = "qa"
+    attachment_doc_ids: list[str] | None = Field(default=None, max_length=20)
 
 
 class ChatEventOut(BaseModel):
@@ -156,6 +213,7 @@ class ChatEventOut(BaseModel):
 
 class ChatResponse(BaseModel):
     task_id: str
+    run_id: str
     events: list[ChatEventOut]
 
 
@@ -180,7 +238,7 @@ class KbDocumentListResponse(BaseModel):
 
 
 class KbDocumentStatsResponse(BaseModel):
-    """``GET /documents/stats`` 返回：知识库总览统计。"""
+    """``GET /documents/stats`` 返回：当前 scope 的知识库总览统计。"""
 
     document_count: int = Field(ge=0)
     chunk_count: int = Field(ge=0)
@@ -241,104 +299,3 @@ class AuditLogListResponse(BaseModel):
 
     entries: list[AuditEntryOut]
     count: int = Field(ge=0)
-
-
-# ── Memory（Step 030d）──────────────────────────────────────────────────
-
-
-class ProfileResponse(BaseModel):
-    """``GET /memory/profile`` 返回：当前 owner 的 L3 用户画像。"""
-
-    owner_id: str
-    facts: dict[str, Any] = Field(default_factory=dict)
-    updated_at: float
-
-
-class ForgetRequest(BaseModel):
-    """``POST /memory/forget`` 请求体：遗忘范围。
-
-    ``scope="memory"`` 只清派生记忆（L2/L3/L4）；``"all"`` 额外删 L1 原始 task。
-    """
-
-    scope: Literal["memory", "all"] = "memory"
-
-
-class ForgetResponse(BaseModel):
-    """``POST /memory/forget`` 返回：各层删除计数（被遗忘权回执）。"""
-
-    owner_id: str
-    scope: str
-    summaries_deleted: int = Field(ge=0)
-    profile_deleted: int = Field(ge=0)
-    facts_deleted: int = Field(ge=0)
-    states_deleted: int = Field(ge=0)
-    tasks_deleted: int = Field(ge=0)
-    total_deleted: int = Field(ge=0)
-
-
-# ── Memory Settings（Step 031a）─────────────────────────────────────────
-
-
-class MemorySettingsResponse(BaseModel):
-    """``GET/PUT /memory/settings`` 返回：当前 owner 的记忆开关。"""
-
-    use_saved_memory: bool
-    updated_at: float
-
-
-class UpdateMemorySettingsRequest(BaseModel):
-    """``PUT /memory/settings`` 请求体：部分更新（None 字段保持原值）。"""
-
-    use_saved_memory: bool | None = None
-
-
-class MemoryFactItem(BaseModel):
-    """单条长期事实（管理面板展示）。"""
-
-    fact_id: str
-    text: str
-    tags: list[str] = Field(default_factory=list)
-    source_message_id: str
-    source_quote: str
-    created_at: float
-
-
-class MemoryFactsResponse(BaseModel):
-    """``GET /memory/facts`` 返回：当前生效的长期事实 + 容量信息。"""
-
-    facts: list[MemoryFactItem] = Field(default_factory=list)
-    count: int = Field(ge=0)
-    cap: int = Field(ge=0)
-
-
-class MemoryRecallExplainRequest(BaseModel):
-    """``POST /memory/recall/explain`` 请求：解释指定问题会召回哪些长期事实。"""
-
-    query: str = Field(min_length=1, max_length=2000)
-    k: int = Field(default=3, ge=1, le=20)
-
-
-class MemoryRecallHitResponse(BaseModel):
-    """单条召回命中的安全解释，不返回向量或内部 Prompt。"""
-
-    rank: int = Field(ge=1)
-    fact_id: str
-    text: str
-    tags: list[str] = Field(default_factory=list)
-    source_message_id: str
-    source_quote: str
-    semantic_score: float = Field(ge=0.0, le=1.0)
-    confidence_score: float = Field(ge=0.0, le=1.0)
-    salience_score: float = Field(ge=0.0, le=1.0)
-    freshness_score: float = Field(ge=0.0, le=1.0)
-    final_score: float = Field(ge=0.0, le=1.0)
-
-
-class MemoryRecallExplainResponse(BaseModel):
-    """一次长期记忆召回轨迹。"""
-
-    strategy_version: str
-    candidate_count: int = Field(ge=0)
-    eligible_count: int = Field(ge=0)
-    rejected_counts: dict[str, int] = Field(default_factory=dict)
-    hits: list[MemoryRecallHitResponse] = Field(default_factory=list)

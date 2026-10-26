@@ -2,11 +2,13 @@
 
 import logging
 import uuid
-from dataclasses import dataclass
+from collections import defaultdict
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from ingestion.unified_loader import RawDocument
 from processing.cleaner import TextCleaner
+from processing.sections import section_segments
 from processing.splitter import TextSplitter
 
 logger = logging.getLogger(__name__)
@@ -41,10 +43,12 @@ class ChunkWithMetadata:
     source_type: str
     source_name: str
     title: str
+    embedding_text: str | None = None
     source_url: str | None = None
     chunk_index: int = 0
     category: str = ""  # 文档分类标签
     owner_id: str | None = None  # Step 025a: None=公共，非空=私人
+    source_metadata: dict[str, str] = field(default_factory=dict)
 
     def to_metadata_dict(self) -> dict:
         """转换为可存入向量库的 metadata 字典。
@@ -65,6 +69,38 @@ class ChunkWithMetadata:
             meta["source_url"] = self.source_url
         if self.category:
             meta["category"] = self.category
+        for key in (
+            "source_version",
+            "source_sha256",
+            "legal_document_id",
+            "jurisdiction",
+            "clause_id",
+            "corpus_id",
+            "extraction_method",
+            "extracted_text_chars",
+            "content_link_density",
+            "boilerplate_lines_removed",
+            "pdf_page_count",
+            "pdf_table_count",
+            "pdf_table_pages",
+            "pdf_visual_pages",
+            "pdf_removed_edge_lines",
+            "page_number",
+            "content_kind",
+            "page_table_count",
+            "page_extraction_method",
+            "visual_content_detected",
+            "section_id",
+            "parent_section_id",
+            "section_path",
+            "section_title",
+            "parent_section_title",
+            "chunk_role",
+            "chunk_index_in_section",
+            "index_schema_version",
+        ):
+            if self.source_metadata.get(key):
+                meta[key] = self.source_metadata[key]
         return meta
 
 
@@ -92,28 +128,55 @@ def build_chunks(
     if splitter is None:
         splitter = TextSplitter()
 
-    # 1. 清洗
-    cleaned_text = cleaner.clean(doc.content)
-
-    # 2. 切分
-    chunk_texts = splitter.split(cleaned_text)
-
-    # 3. 构建带元数据的 chunk
+    raw_segments = section_segments(doc)
     chunks: list[ChunkWithMetadata] = []
-    for idx, text in enumerate(chunk_texts):
-        chunk = ChunkWithMetadata(
-            chunk_id=str(uuid.uuid4()),
-            text=text,
-            source_type=doc.source_type,
-            source_name=doc.source_name,
-            title=doc.title,
-            source_url=doc.source_url,
-            chunk_index=idx,
-        )
-        chunks.append(chunk)
+    section_chunk_counts: defaultdict[str, int] = defaultdict(int)
+    cleaned_char_count = 0
+    for segment in raw_segments:
+        cleaned_text = cleaner.clean(segment.content)
+        cleaned_char_count += len(cleaned_text)
+        base_source_metadata = {
+            str(key): str(value)
+            for key, value in {**doc.extra_metadata, **segment.extra_metadata}.items()
+        }
+        for text in splitter.split(cleaned_text):
+            section_id = base_source_metadata["section_id"]
+            chunk_index_in_section = section_chunk_counts[section_id]
+            section_chunk_counts[section_id] += 1
+            source_metadata = {
+                **base_source_metadata,
+                "chunk_index_in_section": str(chunk_index_in_section),
+            }
+            chunks.append(
+                ChunkWithMetadata(
+                    chunk_id=str(uuid.uuid4()),
+                    text=text,
+                    embedding_text=_embedding_text(
+                        section_path=source_metadata["section_path"],
+                        text=text,
+                        max_chars=splitter.chunk_size,
+                    ),
+                    source_type=doc.source_type,
+                    source_name=doc.source_name,
+                    title=doc.title,
+                    source_url=doc.source_url,
+                    chunk_index=len(chunks),
+                    source_metadata=source_metadata,
+                )
+            )
 
     logger.info(
         f"文档 [{doc.title}] 处理完成: "
-        f"原文 {len(doc.content)} 字 → 清洗后 {len(cleaned_text)} 字 → {len(chunks)} 个 chunk"
+        f"原文 {len(doc.content)} 字 → 清洗后 {cleaned_char_count} 字 → {len(chunks)} 个 chunk"
     )
     return chunks
+
+
+def _embedding_text(*, section_path: str, text: str, max_chars: int) -> str:
+    prefix = section_path.strip()
+    if not prefix:
+        return text[:max_chars]
+    if len(prefix) >= max_chars:
+        return prefix[:max_chars]
+    remaining = max_chars - len(prefix) - 1
+    return prefix + "\n" + text[: max(0, remaining)]

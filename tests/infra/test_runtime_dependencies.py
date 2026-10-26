@@ -13,3 +13,11 @@ def test_jwt_runtime_dependency_is_not_dev_only() -> None:
 
     assert "PyJWT" in runtime
     assert "PyJWT" not in development
+
+
+def test_conversation_runtime_declares_langchain_langgraph_and_langsmith() -> None:
+    runtime = (ROOT / "requirements.txt").read_text(encoding="utf-8")
+    assert "langchain>=" in runtime
+    assert "langgraph>=" in runtime
+    assert "langgraph-checkpoint-sqlite>=" in runtime
+    assert "langsmith>=" in runtime

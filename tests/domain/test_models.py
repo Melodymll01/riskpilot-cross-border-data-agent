@@ -16,17 +16,14 @@ import pytest
 from pydantic import ValidationError
 
 from domain import (
-    Artifact,
     AuditAction,
     AuditEntry,
     BaseDomainModel,
     Chunk,
     Citation,
-    Fact,
     KbChunk,
     KbDocument,
     Message,
-    SessionProfile,
     Task,
     ToolCall,
     User,
@@ -84,7 +81,7 @@ class TestUser:
         assert u.avatar_url is None
 
 
-# === Task / Message / ToolCall / Artifact ===
+# === Task / Message / ToolCall ===
 
 
 class TestTask:
@@ -143,13 +140,6 @@ class TestToolCall:
             ToolCall(tool_call_id="tc1", task_id="t1", tool_name="x", duration_ms=-1)
 
 
-class TestArtifact:
-    def test_minimal(self) -> None:
-        a = Artifact(artifact_id="a1", task_id="t1", artifact_type="risk_profile")
-        assert a.payload_json == {}
-        assert a.created_at > 0
-
-
 # === Chunk / WebResult ===
 
 
@@ -164,61 +154,6 @@ class TestChunk:
             Chunk(chunk_id="c1", text="t", source_type="law", source_name="")
 
 
-class TestEvidenceSpan:
-    def test_minimal(self) -> None:
-        from domain.models import EvidenceSpan
-
-        s = EvidenceSpan(text="某条款片段")
-        assert s.text == "某条款片段"
-        assert s.start is None and s.end is None
-
-    def test_with_offsets(self) -> None:
-        from domain.models import EvidenceSpan
-
-        s = EvidenceSpan(text="片段", start=12, end=16)
-        assert s.start == 12 and s.end == 16
-
-    def test_empty_text_rejected(self) -> None:
-        from domain.models import EvidenceSpan
-
-        with pytest.raises(ValidationError):
-            EvidenceSpan(text="")
-
-
-class TestRiskProfile:
-    def test_minimal_supported(self) -> None:
-        from domain.models import EvidenceSpan, RiskProfile
-
-        rp = RiskProfile(
-            target="个人信息出境标准合同备案的适用条件",
-            evidence_state="supported",
-            evidence_spans=[EvidenceSpan(text="非关基/非重要数据/低于阈值")],
-            explanation="文档显式列出三类适用条件",
-        )
-        assert rp.evidence_state == "supported"
-        assert len(rp.evidence_spans) == 1
-
-    def test_default_spans_and_explanation(self) -> None:
-        from domain.models import RiskProfile
-
-        rp = RiskProfile(target="某命题", evidence_state="not_disclosed")
-        assert rp.evidence_spans == []
-        assert rp.explanation == ""
-        assert rp.metadata == {}
-
-    def test_invalid_evidence_state_rejected(self) -> None:
-        from domain.models import RiskProfile
-
-        with pytest.raises(ValidationError):
-            RiskProfile(target="x", evidence_state="bogus")  # type: ignore[arg-type]
-
-    def test_empty_target_rejected(self) -> None:
-        from domain.models import RiskProfile
-
-        with pytest.raises(ValidationError):
-            RiskProfile(target="", evidence_state="supported")
-
-
 class TestWebResult:
     def test_minimal(self) -> None:
         w = WebResult(title="t", url="https://example.com", snippet="s")
@@ -230,19 +165,6 @@ class TestWebResult:
 
 
 # === SessionProfile / Fact ===
-
-
-class TestSessionProfile:
-    def test_minimal(self) -> None:
-        p = SessionProfile(owner_id="anon:u1")
-        assert p.facts == {}
-        assert p.updated_at > 0
-
-
-class TestFact:
-    def test_minimal(self) -> None:
-        f = Fact(fact_id="f1", owner_id="anon:u1", text="prefers PIPL excerpts")
-        assert f.tags == []
 
 
 class TestKbDocument:
@@ -426,11 +348,8 @@ class TestInvariants:
             Task(task_id="t1", owner_id="anon:u1", created_at=1.0, updated_at=1.0),
             Message(msg_id="m1", task_id="t1", role="user", content="hi"),
             ToolCall(tool_call_id="tc1", task_id="t1", tool_name="x"),
-            Artifact(artifact_id="a1", task_id="t1", artifact_type="x"),
             Chunk(chunk_id="c1", text="t", source_type="s", source_name="n"),
             WebResult(title="t", url="https://x.example", snippet=""),
-            SessionProfile(owner_id="anon:u1"),
-            Fact(fact_id="f1", owner_id="anon:u1", text="x"),
         ],
     )
     def test_json_round_trip(self, model_instance: BaseDomainModel) -> None:

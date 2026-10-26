@@ -3,19 +3,10 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import Any
 
-from domain.models import (
-    Artifact,
-    Citation,
-    Message,
-    MessageRole,
-    Task,
-    TaskMode,
-    TaskState,
-    ToolCall,
-    ToolCallStatus,
-)
+from domain.models import Citation, Message, MessageRole, Task, TaskState, ToolCall, ToolCallStatus
 from infra.storage._db import SqliteConnectionPool
 
 
@@ -32,16 +23,15 @@ class SqliteTaskRepo:
         conn.execute(
             """
             INSERT INTO tasks
-                (task_id, owner_id, title, state, mode, user_goal,
+                (task_id, owner_id, title, state, user_goal,
                  collected_facts, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 task.task_id,
                 task.owner_id,
                 task.title,
                 task.state,
-                task.mode,
                 task.user_goal,
                 json.dumps(task.collected_facts, ensure_ascii=False),
                 task.created_at,
@@ -75,7 +65,6 @@ class SqliteTaskRepo:
             UPDATE tasks SET
                 title           = ?,
                 state           = ?,
-                mode            = ?,
                 user_goal       = ?,
                 collected_facts = ?,
                 updated_at      = ?
@@ -84,7 +73,6 @@ class SqliteTaskRepo:
             (
                 task.title,
                 task.state,
-                task.mode,
                 task.user_goal,
                 json.dumps(task.collected_facts, ensure_ascii=False),
                 task.updated_at,
@@ -134,21 +122,67 @@ class SqliteTaskRepo:
     def list_messages(self, task_id: str) -> list[Message]:
         conn = self._pool.get()
         rows = conn.execute(
-            "SELECT * FROM messages WHERE task_id = ? ORDER BY created_at",
+            "SELECT * FROM messages WHERE task_id = ? ORDER BY created_at, rowid",
             (task_id,),
         ).fetchall()
         return [_row_to_message(r) for r in rows]
 
-    # ── ToolCall / Artifact ──────────────────────────────────────────────
+    def set_attachment_ids(
+        self,
+        task_id: str,
+        owner_id: str,
+        document_ids: list[str],
+    ) -> None:
+        if self.get(task_id, owner_id) is None:
+            raise PermissionError("task 不存在或不属于当前 owner")
+        unique_ids = list(dict.fromkeys(document_ids))
+        conn = self._pool.get()
+        if unique_ids:
+            placeholders = ",".join("?" for _ in unique_ids)
+            rows = conn.execute(
+                f"""SELECT document_id FROM chat_documents
+                    WHERE owner_id = ? AND status = 'ready'
+                      AND document_id IN ({placeholders})""",
+                [owner_id, *unique_ids],
+            ).fetchall()
+            if {str(row["document_id"]) for row in rows} != set(unique_ids):
+                raise PermissionError("附件不存在、不属于当前 owner 或尚未 ready")
+        with conn:
+            conn.execute("DELETE FROM task_attachments WHERE task_id = ?", (task_id,))
+            conn.executemany(
+                """INSERT INTO task_attachments
+                    (task_id, document_id, selected_at, selection_order)
+                    VALUES (?, ?, ?, ?)""",
+                [
+                    (task_id, document_id, time.time(), position)
+                    for position, document_id in enumerate(unique_ids)
+                ],
+            )
+
+    def list_attachment_ids(self, task_id: str, owner_id: str) -> list[str]:
+        if self.get(task_id, owner_id) is None:
+            raise PermissionError("task 不存在或不属于当前 owner")
+        rows = (
+            self._pool.get()
+            .execute(
+                """SELECT document_id FROM task_attachments
+                WHERE task_id = ? ORDER BY selection_order""",
+                (task_id,),
+            )
+            .fetchall()
+        )
+        return [str(row["document_id"]) for row in rows]
+
+    # ── ToolCall ────────────────────────────────────────────────────────
 
     def append_tool_call(self, call: ToolCall) -> None:
         conn = self._pool.get()
         conn.execute(
             """
             INSERT INTO tool_calls
-                (tool_call_id, task_id, tool_name, input_json,
+                (tool_call_id, task_id, run_id, tool_name, input_json,
                  output_json, status, duration_ms, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(tool_call_id) DO UPDATE SET
                 output_json = excluded.output_json,
                 status      = excluded.status,
@@ -157,6 +191,7 @@ class SqliteTaskRepo:
             (
                 call.tool_call_id,
                 call.task_id,
+                call.run_id,
                 call.tool_name,
                 json.dumps(call.input_json, ensure_ascii=False),
                 json.dumps(call.output_json, ensure_ascii=False)
@@ -169,41 +204,16 @@ class SqliteTaskRepo:
         )
         conn.commit()
 
-    def append_artifact(self, art: Artifact) -> None:
-        conn = self._pool.get()
-        conn.execute(
-            """
-            INSERT INTO artifacts
-                (artifact_id, task_id, artifact_type, payload_json, created_at)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (
-                art.artifact_id,
-                art.task_id,
-                art.artifact_type,
-                json.dumps(art.payload_json, ensure_ascii=False),
-                art.created_at,
-            ),
-        )
-        conn.commit()
-
 
 # ── Row → Domain Model ──────────────────────────────────────────────────
 
 
 def _row_to_task(row: Any) -> Task:
-    # mode 在老库迁移后不会为 NULL（DEFAULT 'qa'）；充作防御。
-    try:
-        raw_mode = row["mode"]
-    except (IndexError, KeyError):
-        raw_mode = "qa"
-    mode = _validate_mode(raw_mode or "qa")
     return Task(
         task_id=row["task_id"],
         owner_id=row["owner_id"],
         title=row["title"],
         state=_validate_state(row["state"]),
-        mode=mode,
         user_goal=row["user_goal"],
         collected_facts=json.loads(row["collected_facts"]),
         created_at=row["created_at"],
@@ -231,13 +241,6 @@ def _validate_state(value: str) -> TaskState:
     return value  # type: ignore[return-value]
 
 
-def _validate_mode(value: str) -> TaskMode:
-    if value not in ("qa", "research", "profile"):
-        msg = f"invalid task mode in DB: {value!r}"
-        raise ValueError(msg)
-    return value  # type: ignore[return-value]
-
-
 def _validate_role(value: str) -> MessageRole:
     if value not in ("user", "assistant", "tool", "system"):
         msg = f"invalid message role in DB: {value!r}"
@@ -246,7 +249,14 @@ def _validate_role(value: str) -> MessageRole:
 
 
 def _validate_status(value: str) -> ToolCallStatus:  # pragma: no cover - reserved
-    if value not in ("pending", "success", "failed", "timeout"):
+    if value not in (
+        "pending",
+        "success",
+        "failed",
+        "timeout",
+        "cancelled",
+        "budget_exhausted",
+    ):
         msg = f"invalid tool call status in DB: {value!r}"
         raise ValueError(msg)
     return value  # type: ignore[return-value]

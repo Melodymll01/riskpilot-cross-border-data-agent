@@ -6,7 +6,7 @@ import uuid
 from collections.abc import Callable
 
 from domain.document_content import DocumentParseSnapshot
-from domain.documents import CaseDocument, Document, DocumentVersion
+from domain.documents import Document, DocumentVersion
 from domain.evidence import EvidenceChunk
 from processing.splitter import TextSplitter
 
@@ -34,43 +34,35 @@ class PageEvidenceChunker:
         document: Document,
         version: DocumentVersion,
         snapshot: DocumentParseSnapshot,
-        bindings: list[CaseDocument],
     ) -> list[EvidenceChunk]:
         if version.document_id != document.document_id:
             raise ValueError("DocumentVersion 必须属于 Document")
         if snapshot.document_version_id != version.version_id:
             raise ValueError("解析快照必须属于 DocumentVersion")
-        if not bindings:
-            raise ValueError("文档必须至少绑定一个 Case")
-        if any(binding.document_id != document.document_id for binding in bindings):
-            raise ValueError("CaseDocument 必须绑定当前 Document")
-
         created_at = self._clock()
         chunks: list[EvidenceChunk] = []
-        for binding in bindings:
-            chunk_index = 0
-            for page in snapshot.pages:
-                page_parts = [page.text.strip()]
-                page_parts.extend(table.markdown.strip() for table in page.tables)
-                page_text = "\n\n".join(part for part in page_parts if part)
-                if not page_text:
-                    continue
-                for piece in self._splitter.split(page_text):
-                    chunks.append(
-                        EvidenceChunk(
-                            chunk_id=self._id_factory(),
-                            workspace_id=document.workspace_id,
-                            case_id=binding.case_id,
-                            document_id=document.document_id,
-                            document_version_id=version.version_id,
-                            page_number=page.page_number,
-                            chunk_index=chunk_index,
-                            text=piece,
-                            source_sha256=version.sha256,
-                            created_at=created_at,
-                        )
+        chunk_index = 0
+        for page in snapshot.pages:
+            page_parts = [page.text.strip()]
+            page_parts.extend(table.markdown.strip() for table in page.tables)
+            page_text = "\n\n".join(part for part in page_parts if part)
+            if not page_text:
+                continue
+            for piece in self._splitter.split(page_text):
+                chunks.append(
+                    EvidenceChunk(
+                        chunk_id=self._id_factory(),
+                        owner_id=document.owner_id,
+                        document_id=document.document_id,
+                        document_version_id=version.version_id,
+                        page_number=page.page_number,
+                        chunk_index=chunk_index,
+                        text=piece,
+                        source_sha256=version.sha256,
+                        created_at=created_at,
                     )
-                    chunk_index += 1
+                )
+                chunk_index += 1
         if not chunks:
             raise ValueError("解析快照没有可索引文本")
         return chunks

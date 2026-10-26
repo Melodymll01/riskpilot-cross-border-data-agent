@@ -12,7 +12,9 @@ class FakeEmbed:
         self.dim = dim
         self.calls: list[list[str]] = []
 
-    def embed(self, texts: list[str]) -> list[list[float]]:
+    def embed(self, texts: list[str], *, runtime_control=None) -> list[list[float]]:
+        if runtime_control is not None:
+            runtime_control.before_model_call(operation="retrieval_embedding", stage="tool")
         self.calls.append(list(texts))
         return [self._hash_vector(t) for t in texts]
 

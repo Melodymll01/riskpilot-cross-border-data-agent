@@ -1,1 +1,1 @@
-"""V3 Evidence QA 评测工具。"""
+"""Evidence QA 评测工具。"""

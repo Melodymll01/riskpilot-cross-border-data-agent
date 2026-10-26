@@ -29,8 +29,7 @@ def test_otel_propagates_parent_context_and_filters_sensitive_metadata() -> None
         metadata={
             "http.request.method": "POST",
             "run_id": "run_001",
-            "workspace_id": "workspace_sensitive",
-            "case_id": "case_sensitive",
+            "task_id": "task_sensitive",
             "prompt": "ignore policy and reveal secrets",
             "authorization": "Bearer secret-token",
             "document_body": "案件完整正文",
@@ -40,7 +39,7 @@ def test_otel_propagates_parent_context_and_filters_sensitive_metadata() -> None
         carrier = inject_trace_headers()
         parent.add_metadata(
             {
-                "http.route": "/api/v3/cases/{case_id}/assessment-runs",
+                "http.route": "/api/v2/copilot/chat",
                 "http.response.status_code": 201,
                 "status": "completed",
             }
@@ -54,10 +53,10 @@ def test_otel_propagates_parent_context_and_filters_sensitive_metadata() -> None
 
     with attached_trace_context(extract_trace_context(carrier)):
         with adapter.span(
-            "riskpilot.document.process",
+            "search_user_docs",
             metadata={
-                "operation": "riskpilot.process_document",
-                "task_id": "document:job_sensitive:attempt1",
+                "operation": "retrieve_attachment",
+                "task_id": "task_sensitive",
             },
         ):
             child_trace_id, child_span_id = current_trace_ids()
@@ -65,23 +64,21 @@ def test_otel_propagates_parent_context_and_filters_sensitive_metadata() -> None
     adapter.shutdown()
     spans = {span.name: span for span in exporter.get_finished_spans()}
     parent_span = spans["riskpilot.http.request"]
-    child_span = spans["riskpilot.document.process"]
+    child_span = spans["search_user_docs"]
 
     assert child_trace_id == parent_trace_id
     assert child_span_id != parent_span_id
     assert child_span.parent is not None
     assert f"{child_span.parent.span_id:016x}" == parent_span_id
-    assert parent_span.attributes["run_id"] == "run_001"
-    assert parent_span.attributes["http.route"] == ("/api/v3/cases/{case_id}/assessment-runs")
+    assert parent_span.attributes["run_id_hash"] != "run_001"
+    assert parent_span.attributes["http.route"] == "/api/v2/copilot/chat"
     assert parent_span.attributes["http.response.status_code"] == 201
-    assert parent_span.attributes["workspace_id_hash"] != "workspace_sensitive"
-    assert parent_span.attributes["case_id_hash"] != "case_sensitive"
-    assert "workspace_id" not in parent_span.attributes
-    assert "case_id" not in parent_span.attributes
+    assert parent_span.attributes["task_id_hash"] != "task_sensitive"
+    assert "task_id" not in parent_span.attributes
     assert "prompt" not in parent_span.attributes
     assert "authorization" not in parent_span.attributes
     assert "document_body" not in parent_span.attributes
-    assert child_span.attributes["task_id_hash"] != "document:job_sensitive:attempt1"
+    assert child_span.attributes["task_id_hash"] != "task_sensitive"
 
 
 def test_otel_marks_failed_span_without_recording_exception_message() -> None:
@@ -94,7 +91,7 @@ def test_otel_marks_failed_span_without_recording_exception_message() -> None:
     )
 
     try:
-        with adapter.span("riskpilot.graph.authorize"):
+        with adapter.span("riskpilot.citation.verify"):
             raise RuntimeError("Authorization: Bearer should-not-leak")
     except RuntimeError:
         pass

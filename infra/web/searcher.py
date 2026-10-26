@@ -4,12 +4,17 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 from urllib.parse import parse_qs, unquote, urlparse
 
 import requests
 from bs4 import BeautifulSoup
 
+from domain.errors import ConversationRunStopped
 from infra.web.safe_http import SafeHttpClient
+
+if TYPE_CHECKING:
+    from domain.ports import RunControlPort
 
 logger = logging.getLogger(__name__)
 
@@ -42,16 +47,34 @@ class WebSearcher:
             max_response_bytes=2 * 1024 * 1024,
         )
 
-    def search(self, query: str, max_results: int = 3) -> list[WebSearchResult]:
+    def search(
+        self,
+        query: str,
+        max_results: int = 3,
+        *,
+        runtime_control: RunControlPort | None = None,
+    ) -> list[WebSearchResult]:
         if not query.strip() or max_results < 1:
             return []
         results: list[WebSearchResult] = []
-        for backend_name, backend in (
-            ("DuckDuckGo", self._search_duckduckgo),
-            ("Bing", self._search_bing),
+        for attempt, (backend_name, backend) in enumerate(
+            (
+                ("DuckDuckGo", self._search_duckduckgo),
+                ("Bing", self._search_bing),
+            ),
+            start=1,
         ):
             try:
+                if runtime_control is not None:
+                    runtime_control.check(stage="tool")
+                if attempt > 1 and runtime_control is not None:
+                    runtime_control.before_tool_call(operation="web_search_retry")
+                    runtime_control.record_retry(kind="tool")
                 results = backend(query, max_results)
+                if runtime_control is not None:
+                    runtime_control.check(stage="tool")
+            except ConversationRunStopped:
+                raise
             except Exception:
                 logger.warning("%s 搜索异常", backend_name, exc_info=True)
                 results = []
@@ -59,6 +82,8 @@ class WebSearcher:
                 break
         enriched: list[WebSearchResult] = []
         for result in results:
+            if runtime_control is not None:
+                runtime_control.check(stage="tool")
             try:
                 full_text = self._fetch_page_text(result.url)
             except Exception:
@@ -71,6 +96,8 @@ class WebSearcher:
                     full_text=full_text,
                 )
             )
+            if runtime_control is not None:
+                runtime_control.check(stage="tool")
         return enriched
 
     def _search_duckduckgo(

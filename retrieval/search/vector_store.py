@@ -6,7 +6,7 @@ from typing import Any, Optional
 
 import chromadb
 
-from config import settings
+from config import Settings, settings
 from processing.metadata import PUBLIC_OWNER_MARKER, ChunkWithMetadata
 
 logger = logging.getLogger(__name__)
@@ -65,9 +65,11 @@ _UNSET: Any = _Unset()
 class VectorStore:
     """封装 ChromaDB 的存储、检索和管理操作。"""
 
-    def __init__(self):
-        self.client = chromadb.PersistentClient(path=settings.chroma_persist_dir)
-        self.collection = self.client.get_or_create_collection(
+    def __init__(self, *, config: Settings | None = None):
+        self._settings = config or settings
+        self._embedding_identity = self._settings.embedding_identity
+        self.client = chromadb.PersistentClient(path=self._settings.chroma_persist_dir)
+        self.collection: Any = self.client.get_or_create_collection(
             name=COLLECTION_NAME,
             metadata={"hnsw:space": "cosine"},  # 使用余弦相似度
         )
@@ -80,6 +82,38 @@ class VectorStore:
     def register_change_listener(self, callback) -> None:
         """注册数据变动回调（参数无入参，仅用作失效通知）。"""
         self._change_listeners.append(callback)
+
+    def validate_embeddings(self, embeddings: list[list[float]]) -> None:
+        if not embeddings or not embeddings[0] or len({len(v) for v in embeddings}) != 1:
+            raise ValueError("Embedding 维度必须非零且一致")
+        self._validate_embedding_identity(len(embeddings[0]), writing=True)
+
+    def _validate_embedding_identity(self, dimensions: int, *, writing: bool = False) -> None:
+        if not getattr(self, "_embedding_identity", None):
+            return
+        current = self.client.get_collection(COLLECTION_NAME)
+        metadata = current.metadata or {}
+        stored = metadata.get("riskpilot_embedding_identity")
+        if stored is None:
+            if current.count():
+                raise ValueError("已有 Chroma 索引缺少 Embedding 模型信息，请在新目录重建索引")
+            if writing:
+                current.modify(
+                    metadata={
+                        **{
+                            key: value
+                            for key, value in metadata.items()
+                            if not key.startswith("hnsw:")
+                        },
+                        "riskpilot_embedding_identity": self._embedding_identity,
+                        "riskpilot_embedding_dimensions": dimensions,
+                    }
+                )
+        elif (
+            stored != self._embedding_identity
+            or metadata.get("riskpilot_embedding_dimensions") != dimensions
+        ):
+            raise ValueError("Embedding 模型或维度与 Chroma 索引不一致，请使用原配置或重建索引")
 
     def _notify_changed(self) -> None:
         for cb in self._change_listeners:
@@ -102,6 +136,13 @@ class VectorStore:
         """
         if not chunks:
             return
+        if (
+            len(embeddings) != len(chunks)
+            or not embeddings[0]
+            or len({len(v) for v in embeddings}) != 1
+        ):
+            raise ValueError("Embedding 数量和维度必须与入库内容一致")
+        self._validate_embedding_identity(len(embeddings[0]), writing=True)
 
         ids = [c.chunk_id for c in chunks]
         documents = [c.text for c in chunks]
@@ -138,6 +179,7 @@ class VectorStore:
             检索结果列表，每项包含 id, text, metadata, distance
         """
         owner_clause = _build_owner_clause(owners)
+        self._validate_embedding_identity(len(query_embedding))
         merged_where = _and_clause(where_filter, owner_clause)
 
         query_kwargs = {
@@ -402,3 +444,43 @@ class VectorStore:
 
         pairs.sort(key=lambda x: x[0])
         return [text for _, text in pairs]
+
+    def get_section_chunks(
+        self,
+        source_name: str,
+        parent_section_id: str,
+        owners: Iterable[str | None],
+    ) -> list[dict[str, Any]]:
+        """读取同一来源、同一父章节的全部子块，并保持文档顺序。"""
+        clauses: list[dict[str, Any]] = [
+            {"source_name": source_name},
+            {"parent_section_id": parent_section_id},
+        ]
+        owner_clause = _build_owner_clause(owners)
+        if owner_clause:
+            clauses.append(owner_clause)
+        try:
+            results = self.collection.get(
+                where={"$and": clauses},
+                include=["documents", "metadatas"],
+            )
+        except Exception as exc:
+            logger.debug(f"获取父章节 chunk 失败: {exc}")
+            return []
+        if not results or not results["ids"]:
+            return []
+        items = [
+            {
+                "id": results["ids"][index],
+                "text": results["documents"][index],
+                "metadata": results["metadatas"][index],
+            }
+            for index in range(len(results["ids"]))
+        ]
+        items.sort(
+            key=lambda item: (
+                int(item["metadata"].get("chunk_index", 0)),
+                int(item["metadata"].get("chunk_index_in_section", 0)),
+            )
+        )
+        return items

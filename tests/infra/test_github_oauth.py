@@ -65,7 +65,7 @@ class TestExchangeSuccess:
         )
         user = provider.exchange(code="abc123", state="state_xxx")
         assert isinstance(user, User)
-        assert user.user_id == "github:alice"
+        assert user.user_id == "github:id:12345"
         assert user.provider == "github"
         assert user.provider_id == "12345"
         assert user.email == "alice@example.com"

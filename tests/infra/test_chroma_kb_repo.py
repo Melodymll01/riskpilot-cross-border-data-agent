@@ -41,6 +41,9 @@ class _StubVectorStore:
     def add_chunks(self, chunks: list[Any], embeddings: list[list[float]]) -> None:
         self.add_calls.append((list(chunks), list(embeddings)))
 
+    def validate_embeddings(self, embeddings):
+        assert embeddings
+
     def delete_by_source(self, source_name: str, *, owner_id: Any = ...) -> int:
         self.delete_calls.append((source_name, owner_id))
         return sum(1 for s in self._sources if s.get("source_name") == source_name)

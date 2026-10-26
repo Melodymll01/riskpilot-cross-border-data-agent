@@ -123,29 +123,29 @@ def build_documents_routes(
     @router.get(
         "/stats",
         response_model=KbDocumentStatsResponse,
-        summary="知识库总览统计（document_count 按 scope，chunk_count 为全库总数）",
+        summary="知识库总览统计（document_count 与 chunk_count 均按 scope）",
     )
     def get_stats(
         scope: Literal["public", "mine", "all"] = Query(
             "all",
-            description="文档数按 scope 计算；chunk 总数仍是全库（仅 admin 视角准确）",
+            description="文档数与 chunk 总数均按 scope 计算",
         ),
         owner_id: str = Depends(require_owner),
     ) -> KbDocumentStatsResponse:
-        # 调一次 list 即可拿到 doc_count；chunk_count 走 use case
+        # 按同一 scope 统计，避免把当前用户不可见的私人材料计入公共视图。
         docs = container.kb_management.list_documents(
             viewer_id=owner_id,
             viewer_is_admin=_is_admin(owner_id),
             scope=scope,
         )
-        chunks = container.kb_management.count_chunks()
+        chunks = sum(d.chunk_count for d in docs)
         return KbDocumentStatsResponse(
             document_count=len(docs),
             chunk_count=chunks,
         )
 
     @router.get(
-        "/{source_name}",
+        "/{source_name:path}",
         response_model=KbDocumentOut,
         summary="按 source_name 取文档详情（仅可见范围内）",
     )
@@ -171,7 +171,7 @@ def build_documents_routes(
         return _to_document_out(doc)
 
     @router.delete(
-        "/{source_name}",
+        "/{source_name:path}",
         response_model=DeleteDocumentResponse,
         summary="删除文档（admin 可删任意；普通用户仅可删自己上传的）",
     )

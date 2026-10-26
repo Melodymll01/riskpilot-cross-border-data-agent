@@ -10,6 +10,6 @@ class FakeWebSearch:
         self._results = list(results) if results else []
         self.calls: list[tuple[str, int]] = []
 
-    def search(self, query: str, max_results: int = 3) -> list[WebResult]:
+    def search(self, query: str, max_results: int = 3, *, runtime_control=None) -> list[WebResult]:
         self.calls.append((query, max_results))
         return list(self._results[:max_results])

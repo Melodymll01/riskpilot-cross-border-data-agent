@@ -8,7 +8,6 @@ from prometheus_client import (
     CONTENT_TYPE_LATEST,
     CollectorRegistry,
     Counter,
-    Gauge,
     Histogram,
     generate_latest,
     multiprocess,
@@ -25,12 +24,6 @@ class NoopMetricsAdapter:
         del kwargs
 
     def observe_tool(self, **kwargs: object) -> None:
-        del kwargs
-
-    def observe_worker_task(self, **kwargs: object) -> None:
-        del kwargs
-
-    def set_worker_queue_depth(self, **kwargs: object) -> None:
         del kwargs
 
     def record_llm_usage(self, **kwargs: object) -> None:
@@ -109,31 +102,6 @@ class PrometheusMetricsAdapter:
             ("tool",),
             registry=metric_registry,
         )
-        self._worker_tasks = Counter(
-            "riskpilot_worker_tasks_total",
-            "Celery worker task executions",
-            ("task", "status"),
-            registry=metric_registry,
-        )
-        self._worker_duration = Histogram(
-            "riskpilot_worker_task_duration_seconds",
-            "Celery worker task duration",
-            ("task",),
-            registry=metric_registry,
-        )
-        self._worker_retries = Counter(
-            "riskpilot_worker_task_retries_total",
-            "Celery retry count",
-            ("task",),
-            registry=metric_registry,
-        )
-        self._worker_queue_depth = Gauge(
-            "riskpilot_worker_queue_depth",
-            "Broker queue depth",
-            ("queue",),
-            registry=metric_registry,
-            multiprocess_mode="livemostrecent",
-        )
         self._llm_tokens = Counter(
             "riskpilot_llm_tokens_total",
             "LLM token usage",
@@ -201,23 +169,6 @@ class PrometheusMetricsAdapter:
         self._tool_duration.labels(tool_label).observe(max(0.0, duration_seconds))
         if retry_count:
             self._tool_retries.labels(tool_label).inc(retry_count)
-
-    def observe_worker_task(
-        self,
-        *,
-        task: str,
-        status: str,
-        duration_seconds: float,
-        retry_count: int,
-    ) -> None:
-        task_label = _label(task)
-        self._worker_tasks.labels(task_label, _label(status)).inc()
-        self._worker_duration.labels(task_label).observe(max(0.0, duration_seconds))
-        if retry_count:
-            self._worker_retries.labels(task_label).inc(retry_count)
-
-    def set_worker_queue_depth(self, *, queue: str, depth: int) -> None:
-        self._worker_queue_depth.labels(_label(queue)).set(max(0, depth))
 
     def record_llm_usage(
         self,

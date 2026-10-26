@@ -120,6 +120,7 @@ class ChromaKbRepo:
             raise ValueError(msg)
         if not chunks:
             return
+        self._vs.validate_embeddings(embeddings)
 
         # 先删后插：按 (source_name, owner_id) 维度替换（同名跨 owner 互不干扰）
         keys: set[tuple[str, str | None]] = {(c.source_name, c.owner_id) for c in chunks}
@@ -159,6 +160,7 @@ class ChromaKbRepo:
         return ChunkWithMetadata(
             chunk_id=c.chunk_id,
             text=c.text,
+            embedding_text=c.embedding_text,
             source_type=c.source_type,
             source_name=c.source_name,
             title=c.title,
@@ -166,4 +168,5 @@ class ChromaKbRepo:
             chunk_index=c.chunk_index,
             category=c.category,
             owner_id=c.owner_id,
+            source_metadata=dict(c.source_metadata),
         )

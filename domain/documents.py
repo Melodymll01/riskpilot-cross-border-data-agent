@@ -45,7 +45,7 @@ _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 class Document(BaseDomainModel):
-    """Workspace 内的逻辑文档，可拥有多个不可变版本。"""
+    """用户拥有的逻辑文档，可拥有多个不可变版本。"""
 
     _ALLOWED_TRANSITIONS: ClassVar[dict[str, frozenset[str]]] = {
         "uploaded": frozenset({"queued", "deleted"}),
@@ -62,7 +62,7 @@ class Document(BaseDomainModel):
     }
 
     document_id: str = Field(min_length=1)
-    workspace_id: str = Field(min_length=1)
+    owner_id: str = Field(min_length=1)
     logical_name: str = Field(min_length=1, max_length=255)
     document_type: str = Field(min_length=1, max_length=100)
     status: DocumentStatus = "uploaded"
@@ -124,16 +124,6 @@ class DocumentVersion(BaseDomainModel):
         if not _SHA256_RE.fullmatch(self.sha256):
             raise ValueError("sha256 必须是 64 位小写十六进制")
         return self
-
-
-class CaseDocument(BaseDomainModel):
-    """Document 与 Case 的显式绑定关系。"""
-
-    case_id: str = Field(min_length=1)
-    document_id: str = Field(min_length=1)
-    purpose: str = Field(default="", max_length=500)
-    added_by: str = Field(min_length=1)
-    added_at: float
 
 
 class ProcessingJob(BaseDomainModel):

@@ -6,14 +6,78 @@
 - 渐进降级：表格抽取依赖 pdfplumber；文本层缺失页回退到 RapidOCR 本地识别，依赖未装时自动关闭
 """
 
+import io
 import logging
 import re
 from collections import Counter
+from dataclasses import dataclass
 from pathlib import Path
 
 import fitz  # PyMuPDF
 
 logger = logging.getLogger(__name__)
+
+PDFSource = Path | bytes
+
+
+@dataclass(frozen=True)
+class ExtractedPDFTable:
+    """PDF 单页中保留下来的结构化表格。"""
+
+    markdown: str
+    row_count: int
+    column_count: int
+
+
+@dataclass(frozen=True)
+class ExtractedPDFPage:
+    """版面感知的单页抽取结果，供知识库与附件链路共同复用。"""
+
+    page_number: int
+    text: str
+    tables: tuple[ExtractedPDFTable, ...] = ()
+    extraction_method: str = "native"
+    content_kind: str = "body"
+    visual_content_detected: bool = False
+
+    @property
+    def content(self) -> str:
+        parts = [self.text.strip()]
+        parts.extend(table.markdown.strip() for table in self.tables)
+        return "\n\n".join(part for part in parts if part)
+
+
+@dataclass(frozen=True)
+class PDFExtractionResult:
+    """整份 PDF 的页级结果与可审计质量信息。"""
+
+    pages: tuple[ExtractedPDFPage, ...]
+    removed_edge_lines: int = 0
+
+    @property
+    def content(self) -> str:
+        return "\n\n".join(page.content for page in self.pages if page.content)
+
+    @property
+    def table_count(self) -> int:
+        return sum(len(page.tables) for page in self.pages)
+
+    @property
+    def metadata(self) -> dict[str, str]:
+        table_pages = [str(page.page_number) for page in self.pages if page.tables]
+        visual_pages = [
+            str(page.page_number) for page in self.pages if page.visual_content_detected
+        ]
+        return {
+            "extraction_method": "pdf_layout",
+            "extracted_text_chars": str(len(self.content)),
+            "pdf_page_count": str(len(self.pages)),
+            "pdf_table_count": str(self.table_count),
+            "pdf_table_pages": ",".join(table_pages),
+            "pdf_visual_pages": ",".join(visual_pages),
+            "pdf_removed_edge_lines": str(self.removed_edge_lines),
+        }
+
 
 try:
     import pdfplumber
@@ -85,36 +149,76 @@ class PDFExtractor:
 
     # ---------- 公共入口 ----------
 
-    def extract(self, path: Path) -> str:
+    def extract(self, source: PDFSource) -> str:
         """抽取 PDF 全部文本。
 
         Returns:
             清洗后的文本，页之间用两个换行分隔
         """
-        if self.extract_tables:
-            pages = self._extract_with_tables(path)
-        else:
-            pages = self._extract_text_only(path)
-
-        # OCR 降级：对文本层缺失/过少的页（扫描件、图片页）逐页补偿
-        if self.enable_ocr:
-            pages = self._ocr_fill_pages(path, pages)
-
-        if not any(p.strip() for p in pages):
+        result = self.extract_pages(source)
+        if not result.content:
             raise ValueError("PDF 文件未能提取到任何文本（可能为扫描件或纯图片 PDF）")
+        return result.content
 
-        # 页眉页脚剔除：基于行级跨页重复
+    def extract_pages(self, source: PDFSource) -> PDFExtractionResult:
+        """按页抽取正文与表格，同时保留页码、内容类型和视觉内容提示。"""
+        if self.extract_tables:
+            raw_pages, page_texts, page_tables, visual_flags = self._extract_with_table_details(
+                source
+            )
+        else:
+            raw_pages = self._extract_text_only(source)
+            page_texts = list(raw_pages)
+            page_tables = [[] for _ in page_texts]
+            visual_flags = self._detect_visual_pages(source, len(page_texts))
+
+        extraction_methods = ["native" for _ in page_texts]
+        if self.enable_ocr:
+            need_ocr = [
+                index
+                for index, text in enumerate(page_texts)
+                if len(text.strip()) < self.ocr_min_chars and not page_tables[index]
+            ]
+            page_texts = self._ocr_fill_pages(source, page_texts, indexes=need_ocr)
+            for index in need_ocr:
+                if page_texts[index].strip():
+                    extraction_methods[index] = "ocr"
+
+        removed_count = 0
         if self.remove_headers_footers:
-            pages = self._strip_headers_footers(pages)
+            repeated = self._find_repeated_edge_patterns(raw_pages)
+            page_texts, removed_count = self._remove_repeated_patterns(page_texts, repeated)
 
-        return "\n\n".join(p for p in pages if p.strip())
+        template_context = False
+        pages: list[ExtractedPDFPage] = []
+        for index, text in enumerate(page_texts):
+            tables = tuple(page_tables[index])
+            template_context = self._next_template_context(text, template_context)
+            content_kind = self._classify_page(
+                text,
+                tables=tables,
+                is_template=template_context,
+                has_visual=visual_flags[index],
+            )
+            pages.append(
+                ExtractedPDFPage(
+                    page_number=index + 1,
+                    text=text.strip(),
+                    tables=tables,
+                    extraction_method=extraction_methods[index],
+                    content_kind=content_kind,
+                    visual_content_detected=visual_flags[index],
+                )
+            )
+
+        return PDFExtractionResult(tuple(pages), removed_edge_lines=removed_count)
 
     # ---------- 文本抽取（PyMuPDF，兜底通道）----------
 
-    def _extract_text_only(self, path: Path) -> list[str]:
+    def _extract_text_only(self, source: PDFSource) -> list[str]:
         """纯文本抽取：使用 PyMuPDF（fitz），按页返回。"""
         pages: list[str] = []
-        with fitz.open(str(path)) as doc:
+        with self._open_fitz(source) as doc:
             for i, page in enumerate(doc):
                 try:
                     text = page.get_text("text") or ""
@@ -124,15 +228,39 @@ class PDFExtractor:
                 pages.append(text)
         return pages
 
+    @staticmethod
+    def _open_fitz(source: PDFSource):
+        if isinstance(source, bytes):
+            return fitz.open(stream=source, filetype="pdf")
+        return fitz.open(str(source))
+
+    @staticmethod
+    def _pdfplumber_source(source: PDFSource):
+        if isinstance(source, bytes):
+            return io.BytesIO(source)
+        return str(source)
+
     # ---------- OCR 降级（rapidocr-onnxruntime 通道）----------
 
-    def _ocr_fill_pages(self, path: Path, pages: list[str]) -> list[str]:
+    def _ocr_fill_pages(
+        self,
+        source: PDFSource,
+        pages: list[str],
+        *,
+        indexes: list[int] | None = None,
+    ) -> list[str]:
         """对文本层不足的页用 OCR 重新识别，逐页替换。
 
         仅渲染并识别 strip 后字符数 < ocr_min_chars 的页，
         纯数字原生 PDF 不会触发任何 OCR 开销。
         """
-        need_ocr = [i for i, p in enumerate(pages) if len((p or "").strip()) < self.ocr_min_chars]
+        need_ocr = indexes
+        if need_ocr is None:
+            need_ocr = [
+                i
+                for i, page_text in enumerate(pages)
+                if len(page_text.strip()) < self.ocr_min_chars
+            ]
         if not need_ocr:
             return pages
 
@@ -143,7 +271,7 @@ class PDFExtractor:
             logger.warning(f"OCR 引擎初始化失败，跳过 OCR 降级: {e}")
             return pages
 
-        with fitz.open(str(path)) as doc:
+        with self._open_fitz(source) as doc:
             for i in need_ocr:
                 try:
                     ocr_text = self._ocr_single_page(engine, doc[i])
@@ -166,24 +294,52 @@ class PDFExtractor:
 
     # ---------- 文本 + 表格抽取（pdfplumber 通道）----------
 
-    def _extract_with_tables(self, path: Path) -> list[str]:
+    def _extract_with_tables(self, source: PDFSource) -> list[str]:
         """文本 + 表格抽取：表格区域单独序列化为 Markdown，正文排除该区域。"""
+        _, page_texts, page_tables, _ = self._extract_with_table_details(source)
         pages: list[str] = []
-        with pdfplumber.open(str(path)) as pdf:
+        for text, tables in zip(page_texts, page_tables, strict=True):
+            parts = [text.strip()]
+            parts.extend(table.markdown for table in tables)
+            pages.append("\n\n".join(part for part in parts if part))
+        return pages
+
+    def _extract_with_table_details(
+        self, source: PDFSource
+    ) -> tuple[list[str], list[str], list[list[ExtractedPDFTable]], list[bool]]:
+        """同时返回原始页文本、去表格正文、结构化表格与视觉内容候选。"""
+        raw_pages: list[str] = []
+        page_texts: list[str] = []
+        page_tables: list[list[ExtractedPDFTable]] = []
+        visual_flags: list[bool] = []
+        with pdfplumber.open(self._pdfplumber_source(source)) as pdf:
             for i, page in enumerate(pdf.pages):
                 try:
-                    page_text = self._extract_single_page_with_tables(page)
+                    raw_text = page.extract_text() or ""
                 except Exception as e:
-                    logger.warning(f"PDF 第 {i + 1} 页抽取失败，回退纯文本: {e}")
-                    try:
-                        page_text = page.extract_text() or ""
-                    except Exception:
-                        page_text = ""
-                pages.append(page_text)
-        return pages
+                    logger.warning(f"PDF 第 {i + 1} 页原始文本抽取失败: {e}")
+                    raw_text = ""
+                try:
+                    page_text, tables = self._extract_single_page_table_details(page)
+                except Exception as e:
+                    logger.warning(f"PDF 第 {i + 1} 页版面抽取失败，回退纯文本: {e}")
+                    page_text = raw_text
+                    tables = []
+                raw_pages.append(raw_text)
+                page_texts.append(page_text)
+                page_tables.append(tables)
+                visual_flags.append(self._is_visual_page(page, raw_text, bool(tables)))
+        return raw_pages, page_texts, page_tables, visual_flags
 
     def _extract_single_page_with_tables(self, page) -> str:
         """单页：抽取表格 bbox，正文 filter 排除表格区域，最后拼接。"""
+        non_table_text, tables = self._extract_single_page_table_details(page)
+        parts = [non_table_text.strip()]
+        parts.extend(table.markdown for table in tables)
+        return "\n\n".join(part for part in parts if part)
+
+    def _extract_single_page_table_details(self, page) -> tuple[str, list[ExtractedPDFTable]]:
+        """单页抽取，正文与表格分开返回，避免后续再次丢失二维结构。"""
         try:
             tables = page.find_tables() or []
         except Exception:
@@ -213,7 +369,7 @@ class PDFExtractor:
             non_table_text = page.extract_text() or ""
 
         # 2. 序列化每个表格为 Markdown
-        md_tables: list[str] = []
+        extracted_tables: list[ExtractedPDFTable] = []
         for table in tables:
             try:
                 rows = table.extract()
@@ -223,12 +379,42 @@ class PDFExtractor:
                 continue
             md = self._rows_to_markdown(rows)
             if md:
-                md_tables.append(md)
+                column_count = max(len(row) for row in rows)
+                row_count = sum(1 for row in rows if any(cell for cell in row))
+                extracted_tables.append(
+                    ExtractedPDFTable(
+                        markdown=md,
+                        row_count=row_count,
+                        column_count=column_count,
+                    )
+                )
 
-        if md_tables:
-            # 表格放在正文之后，splitter 的 markdown 表格保护逻辑会保持其完整性
-            return non_table_text + "\n\n" + "\n\n".join(md_tables)
-        return non_table_text
+        return non_table_text, extracted_tables
+
+    @staticmethod
+    def _is_visual_page(page, raw_text: str, has_tables: bool) -> bool:
+        """标记可能包含图示/流程图的页；只做提示，不伪造图形关系。"""
+        if getattr(page, "images", None):
+            return True
+        vector_count = sum(
+            len(getattr(page, attr, None) or ()) for attr in ("lines", "curves", "rects")
+        )
+        return not has_tables and vector_count >= 20 and len(raw_text.strip()) < 240
+
+    def _detect_visual_pages(self, source: PDFSource, page_count: int) -> list[bool]:
+        flags = [False] * page_count
+        with self._open_fitz(source) as document:
+            for index, page in enumerate(document):
+                if index >= page_count:
+                    break
+                try:
+                    flags[index] = bool(page.get_images(full=True)) or (
+                        len(page.get_drawings()) >= 20
+                        and len((page.get_text("text") or "").strip()) < 240
+                    )
+                except Exception:
+                    flags[index] = False
+        return flags
 
     @staticmethod
     def _rows_to_markdown(rows: list[list[str | None]]) -> str:
@@ -260,8 +446,14 @@ class PDFExtractor:
 
     def _strip_headers_footers(self, pages: list[str]) -> list[str]:
         """跨页重复行检测，剔除页眉页脚。"""
+        repeated = self._find_repeated_edge_patterns(pages)
+        cleaned, _ = self._remove_repeated_patterns(pages, repeated)
+        return cleaned
+
+    def _find_repeated_edge_patterns(self, pages: list[str]) -> set[str]:
+        """先在原始阅读顺序中识别跨页重复的页眉、页脚和页码模式。"""
         if len(pages) < self.min_pages_for_detection:
-            return pages
+            return set()
 
         # 每页拆行
         pages_lines: list[list[str]] = [
@@ -273,7 +465,10 @@ class PDFExtractor:
         for lines in pages_lines:
             if not lines:
                 continue
-            candidates = lines[: self.head_n] + lines[-self.tail_n :]
+            # 短页不能把全部正文都当成边缘候选；最多使用该页行数的四分之一。
+            head_count = min(self.head_n, max(1, len(lines) // 4))
+            tail_count = min(self.tail_n, max(1, len(lines) // 4))
+            candidates = lines[:head_count] + lines[-tail_count:]
             # 同页去重，避免一页内重复行被双倍计数
             seen_in_page = set()
             for ln in candidates:
@@ -285,32 +480,60 @@ class PDFExtractor:
         threshold = max(2, int(len(pages_lines) * self.repeat_ratio))
         repeated = {ln for ln, c in counter.items() if c >= threshold}
 
+        return repeated
+
+    def _remove_repeated_patterns(
+        self, pages: list[str], repeated: set[str]
+    ) -> tuple[list[str], int]:
+        """从版面重排后的正文移除已确认边缘模式。
+
+        表格抽取会把 Markdown 表格追加到正文后，原本处于页脚的页码可能因此移动到
+        页面文本中间。模式必须先从原始页边缘识别，再按整行精确匹配移除。
+        """
         if not repeated:
-            return pages
+            return pages, 0
 
         logger.info(f"检测到 {len(repeated)} 个页眉/页脚模式，将从 {len(pages)} 页中剔除")
-
-        # 仅在头尾位置剔除，避免误删正文中偶然重复的句子
         cleaned_pages: list[str] = []
-        for lines in pages_lines:
-            if not lines:
-                cleaned_pages.append("")
-                continue
-            head_keep_start = 0
-            for i in range(min(self.head_n, len(lines))):
-                if self._normalize_for_match(lines[i]) in repeated:
-                    head_keep_start = i + 1
-                else:
-                    break
-            tail_keep_end = len(lines)
-            for i in range(1, min(self.tail_n, len(lines)) + 1):
-                if self._normalize_for_match(lines[-i]) in repeated:
-                    tail_keep_end = len(lines) - i
-                else:
-                    break
-            kept = lines[head_keep_start:tail_keep_end]
-            cleaned_pages.append("\n".join(kept))
-        return cleaned_pages
+        removed = 0
+        for page in pages:
+            kept: list[str] = []
+            for line in page.splitlines():
+                stripped = line.strip()
+                if stripped and self._normalize_for_match(stripped) in repeated:
+                    removed += 1
+                    continue
+                kept.append(line)
+            cleaned_pages.append("\n".join(kept).strip())
+        return cleaned_pages, removed
+
+    @staticmethod
+    def _next_template_context(text: str, current: bool) -> bool:
+        """附件标题出现时更新是否处于表单/报告模板章节。"""
+        leading = "\n".join(line.strip() for line in text.splitlines()[:8])
+        if re.search(r"(?m)^附件\s*\d+\s*$", leading):
+            return "模板" in leading
+        return current
+
+    @staticmethod
+    def _classify_page(
+        text: str,
+        *,
+        tables: tuple[ExtractedPDFTable, ...],
+        is_template: bool,
+        has_visual: bool,
+    ) -> str:
+        if is_template and tables:
+            return "template_table"
+        if is_template:
+            return "template"
+        if tables:
+            return "table"
+        if has_visual:
+            return "visual"
+        if len(text.strip()) < 120:
+            return "low_information"
+        return "body"
 
     @staticmethod
     def _normalize_for_match(line: str) -> str:

@@ -1,6 +1,6 @@
 """test_metadata.py — Metadata 构建和处理链路测试。"""
 
-from ingestion.unified_loader import RawDocument
+from ingestion.unified_loader import RawDocument, RawSegment
 from processing.metadata import ChunkWithMetadata, build_chunks
 
 
@@ -107,3 +107,30 @@ class TestBuildChunks:
         assert "\u200b" not in text
         assert "\u3000" not in text
         assert "\x00" not in text
+
+    def test_structured_segments_keep_page_metadata_and_boundaries(self):
+        doc = RawDocument(
+            content="第一页正文\n\n第二页表格",
+            source_type="file",
+            source_name="guide.pdf",
+            title="指南",
+            extra_metadata={"pdf_page_count": "2"},
+            segments=[
+                RawSegment(
+                    content="第一页正文",
+                    extra_metadata={"page_number": "1", "content_kind": "body"},
+                ),
+                RawSegment(
+                    content="第二页表格",
+                    extra_metadata={"page_number": "2", "content_kind": "table"},
+                ),
+            ],
+        )
+        chunks = build_chunks(doc)
+        assert [chunk.text for chunk in chunks] == ["第一页正文", "第二页表格"]
+        assert [chunk.source_metadata["page_number"] for chunk in chunks] == ["1", "2"]
+        assert [chunk.source_metadata["content_kind"] for chunk in chunks] == [
+            "body",
+            "table",
+        ]
+        assert all(chunk.source_metadata["pdf_page_count"] == "2" for chunk in chunks)

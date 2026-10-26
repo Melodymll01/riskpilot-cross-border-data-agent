@@ -14,7 +14,6 @@ class FakeEvidenceIndex:
     ) -> None:
         self.chunks: dict[str, tuple[EvidenceChunk, list[float]]] = {}
         self.search_calls: list[dict[str, object]] = []
-        self.workspace_search_calls: list[dict[str, object]] = []
         self._document_repo = document_repo
 
     def replace_version_chunks(
@@ -58,16 +57,15 @@ class FakeEvidenceIndex:
     def search(
         self,
         *,
-        workspace_id: str,
-        case_id: str,
+        owner_id: str,
         query: str,
         query_embedding: list[float],
         top_k: int = 5,
+        document_ids: list[str] | None = None,
     ) -> list[EvidenceSearchHit]:
         self.search_calls.append(
             {
-                "workspace_id": workspace_id,
-                "case_id": case_id,
+                "owner_id": owner_id,
                 "query": query,
                 "query_embedding": query_embedding,
                 "top_k": top_k,
@@ -76,7 +74,8 @@ class FakeEvidenceIndex:
         scoped = [
             chunk
             for chunk, _ in self.chunks.values()
-            if chunk.workspace_id == workspace_id and chunk.case_id == case_id
+            if chunk.owner_id == owner_id
+            and (document_ids is None or chunk.document_id in document_ids)
         ]
         return [
             EvidenceSearchHit(
@@ -86,51 +85,6 @@ class FakeEvidenceIndex:
                 bm25_score=1.0,
             )
             for chunk in scoped[:top_k]
-        ]
-
-    def search_workspace(
-        self,
-        *,
-        workspace_id: str,
-        query: str,
-        query_embedding: list[float],
-        top_k: int = 5,
-    ) -> list[EvidenceSearchHit]:
-        self.workspace_search_calls.append(
-            {
-                "workspace_id": workspace_id,
-                "query": query,
-                "query_embedding": query_embedding,
-                "top_k": top_k,
-            }
-        )
-        if self._document_repo is None:
-            return []
-        deduplicated: dict[tuple[str, int, int], EvidenceChunk] = {}
-        for chunk, _ in self.chunks.values():
-            document = self._document_repo.get(chunk.document_id)
-            if (
-                chunk.workspace_id != workspace_id
-                or document is None
-                or document.document_type != "workspace_knowledge"
-                or document.status != "ready"
-                or document.current_version_id != chunk.document_version_id
-            ):
-                continue
-            key = (
-                chunk.document_version_id,
-                chunk.page_number,
-                chunk.chunk_index,
-            )
-            deduplicated.setdefault(key, chunk)
-        return [
-            EvidenceSearchHit(
-                chunk=chunk,
-                score=0.02,
-                vector_score=0.5,
-                bm25_score=1.0,
-            )
-            for chunk in list(deduplicated.values())[:top_k]
         ]
 
     def count_version(self, document_version_id: str) -> int:

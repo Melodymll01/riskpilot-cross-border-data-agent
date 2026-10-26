@@ -16,7 +16,7 @@ class FakeRetrieve:
         top_k: int = 5,
         corpus: Corpus = "law",
         owner_id: str | None = None,
-        filters: dict[str, str] | None = None,
+        runtime_control=None,
     ) -> list[Chunk]:
         self.calls.append(
             {
@@ -24,7 +24,6 @@ class FakeRetrieve:
                 "top_k": top_k,
                 "corpus": corpus,
                 "owner_id": owner_id,
-                "filters": filters,
             }
         )
         return list(self._chunks[:top_k])

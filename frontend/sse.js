@@ -20,8 +20,19 @@
  * @returns {AbortController} 调用方可 .abort() 取消
  */
 export function streamChat(body, { onEvent, onError, onDone }) {
+  return streamRequest("/api/v2/copilot/chat/stream", body, { onEvent, onError, onDone });
+}
+
+export function streamRunResume(runId, { onEvent, onError, onDone }) {
+  return streamRequest(
+    `/api/v2/copilot/runs/${encodeURIComponent(runId)}/resume`,
+    undefined,
+    { onEvent, onError, onDone },
+  );
+}
+
+function streamRequest(url, body, { onEvent, onError, onDone }) {
   const ac = new AbortController();
-  const url = "/api/v2/copilot/chat/stream";
 
   (async () => {
     try {
@@ -33,7 +44,7 @@ export function streamChat(body, { onEvent, onError, onDone }) {
           "Content-Type": "application/json",
           "Accept": "text/event-stream",
         },
-        body: JSON.stringify(body),
+        ...(body === undefined ? {} : {body: JSON.stringify(body)}),
       });
 
       if (!resp.ok) {
@@ -42,7 +53,9 @@ export function streamChat(body, { onEvent, onError, onDone }) {
           const j = await resp.json();
           detail = j?.message || j?.detail?.message || j?.error_code || detail;
         } catch { /* keep default */ }
-        onError?.(new Error(detail));
+        const error = new Error(detail);
+        error.status = resp.status;
+        onError?.(error);
         return;
       }
 
@@ -52,8 +65,12 @@ export function streamChat(body, { onEvent, onError, onDone }) {
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          buf += decoder.decode();
+          break;
+        }
         buf += decoder.decode(value, { stream: true });
+        buf = buf.replace(/\r\n/g, "\n");
 
         // 按 \n\n 切帧
         let sepIdx;
@@ -64,6 +81,8 @@ export function streamChat(body, { onEvent, onError, onDone }) {
           if (frame) onEvent?.(frame);
         }
       }
+      const finalFrame = parseFrame(buf);
+      if (finalFrame) onEvent?.(finalFrame);
       onDone?.();
     } catch (err) {
       if (err.name === "AbortError") return; // 主动取消，不报错

@@ -29,14 +29,14 @@ def test_ready_checks_dependencies_and_lists_tools(client: TestClient) -> None:
     assert body["status"] == "ok"
     assert body["checks"] == {
         "database": True,
-        "redis": "disabled",
         "ready": True,
     }
     assert set(body["tools"]) == {
+        "assess_risk",
+        "request_clarification",
         "search_law",
         "search_user_docs",
         "web_search",
-        "risk_profile_assess",
     }
 
 

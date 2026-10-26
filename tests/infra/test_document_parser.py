@@ -50,6 +50,22 @@ def _pdf_bytes(*page_writers: Callable[[fitz.Page], None]) -> bytes:
     return content
 
 
+def _draw_table(page: fitz.Page) -> None:
+    xs = [72, 200, 330]
+    ys = [100, 140, 180]
+    for x in xs:
+        page.draw_line((x, ys[0]), (x, ys[-1]), color=(0, 0, 0), width=1)
+    for y in ys:
+        page.draw_line((xs[0], y), (xs[-1], y), color=(0, 0, 0), width=1)
+    for x, y, text in (
+        (80, 125, "Field"),
+        (210, 125, "Value"),
+        (80, 165, "Region"),
+        (210, 165, "EU"),
+    ):
+        page.insert_text((x, y), text, fontsize=10)
+
+
 def _docx_bytes() -> bytes:
     document = DocxDocument()
     document.add_heading("数据出境合同", level=1)
@@ -97,6 +113,59 @@ class TestPdfParsing:
         assert snapshot.pages[1].extraction_method == "empty"
         assert "需要 OCR" in snapshot.pages[1].warnings[0]
         assert any("第 2 页" in warning for warning in snapshot.warnings)
+
+    def test_repeated_headers_footers_are_removed_without_losing_body(self) -> None:
+        def page_writer(index: int):
+            def write(page: fitz.Page) -> None:
+                page.insert_text((72, 36), "CONFIDENTIAL")
+                page.insert_text((72, 100), f"body-{index}")
+                page.insert_text((300, 810), str(index))
+
+            return write
+
+        content = _pdf_bytes(*(page_writer(index) for index in range(1, 5)))
+        snapshot = _parser().parse(
+            _version(content, mime_type="application/pdf"),
+            content,
+        )
+        assert [page.text for page in snapshot.pages] == [
+            "body-1",
+            "body-2",
+            "body-3",
+            "body-4",
+        ]
+
+    def test_extracts_pdf_table_as_markdown(self) -> None:
+        content = _pdf_bytes(_draw_table)
+        snapshot = _parser().parse(
+            _version(content, mime_type="application/pdf"),
+            content,
+        )
+        page = snapshot.pages[0]
+        assert page.text == ""
+        assert page.extraction_method == "native"
+        assert len(page.tables) == 1
+        assert page.tables[0].row_count == 2
+        assert page.tables[0].column_count == 2
+        assert "| Field | Value |" in page.tables[0].markdown
+        assert "| Region | EU |" in page.tables[0].markdown
+
+    def test_visual_page_is_flagged_instead_of_claiming_graph_relations(self) -> None:
+        def draw_visual(page: fitz.Page) -> None:
+            for index in range(25):
+                x = 40 + (index % 5) * 90
+                y = 80 + (index // 5) * 90
+                page.draw_circle((x, y), 20)
+            page.insert_text((72, 700), "flow labels")
+
+        content = _pdf_bytes(draw_visual)
+        snapshot = _parser().parse(
+            _version(content, mime_type="application/pdf"),
+            content,
+        )
+        assert snapshot.pages[0].text == "flow labels"
+        assert "未解析图形关系" in snapshot.pages[0].warnings[0]
+        assert "未解析图形关系" in snapshot.warnings[0]
 
     def test_broken_pdf_rejected(self) -> None:
         content = b"%PDF-broken"

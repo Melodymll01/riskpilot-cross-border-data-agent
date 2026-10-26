@@ -1,4 +1,4 @@
-"""V2 案件证据索引领域模型。"""
+"""V2 用户文档证据索引领域模型。"""
 
 from __future__ import annotations
 
@@ -12,11 +12,10 @@ _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 class EvidenceChunk(BaseDomainModel):
-    """可检索的案件证据块，作用域字段均为必填。"""
+    """可检索的用户文档证据块，作用域字段均为必填。"""
 
     chunk_id: str = Field(min_length=1)
-    workspace_id: str = Field(min_length=1)
-    case_id: str = Field(min_length=1)
+    owner_id: str = Field(min_length=1)
     document_id: str = Field(min_length=1)
     document_version_id: str = Field(min_length=1)
     page_number: int = Field(ge=1)

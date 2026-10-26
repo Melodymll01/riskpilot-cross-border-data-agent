@@ -1,40 +1,13 @@
-"""L1 短期 + L2 摘要记忆：以 ``TaskRepoPort`` 为后端的记忆适配器（S-030a/b）。
-
-设计要点：
-- L1 数据不另存一份，直接复用 task 消息表，避免双写与一致性问题。
-- 读取前强制 ``owner_id`` 归属校验：非本人 task 一律返回空，
-  既不抛异常（图省事降级）也不泄露跨用户数据。
-- L2 滚动摘要走独立 ``SummaryStorePort``（``task_summaries`` 表），
-  LLM **增量精炼**（旧摘要 + 新增消息 → 新摘要，成本 O(1)/轮），
-  靠 ``msg_watermark`` 幂等：重试不重复摘要、漏摘下一轮自动补。
-- TTL 逻辑遗忘：读取时过滤过期记忆（L1 原文 / L2 摘要 / L4 事实），过期永不注入。
-- L4 语义事实读路径（``recall_semantic``）走独立 ``FactStorePort``（Chroma），
-  写路径（提取-验证-巩固）在 ``ConsolidationWorker`` 后台完成，本类只读。
-- L3 用户画像（``get_profile`` / ``update_profile``）走独立 ``ProfileStorePort``
-  （``profiles`` 表），起步只承载显式偏好声明 + 系统配置偏好（设计 §14.5）。
-- 主动遗忘（``forget``）级联清除 L2/L3/L4（+ 可选 L1 task），实现被遗忘权。
-"""
+"""Conversation support: owner-scoped data and bounded context."""
 
 from __future__ import annotations
 
 import logging
 import time
 
-from domain.memory import MemoryRecallPolicy
-from domain.models import (
-    Fact,
-    ForgetResult,
-    MemoryRecallTrace,
-    Message,
-    SessionProfile,
-    TaskSummary,
-)
+from domain.models import Message, TaskSummary
 from domain.ports import (
     ChatPort,
-    ConsolidationStatePort,
-    EmbedPort,
-    FactStorePort,
-    ProfileStorePort,
     SummaryStorePort,
     TaskRepoPort,
 )
@@ -59,40 +32,20 @@ class TaskBackedMemory:
         *,
         summary_store: SummaryStorePort | None = None,
         chat: ChatPort | None = None,
-        fact_store: FactStorePort | None = None,
-        embedder: EmbedPort | None = None,
-        profile_store: ProfileStorePort | None = None,
-        state_store: ConsolidationStatePort | None = None,
         l1_ttl_days: float = 30.0,
         l2_ttl_days: float = 180.0,
-        l4_ttl_days: float = 365.0,
         summary_threshold: int = 20,
-        recall_policy: MemoryRecallPolicy | None = None,
-        recall_candidate_multiplier: int = 4,
+        summary_max_tokens: int = 800,
     ) -> None:
         self._repo = task_repo
         self._summary_store = summary_store
         self._chat = chat
-        self._fact_store = fact_store
-        self._embedder = embedder
-        self._profile_store = profile_store
-        self._state_store = state_store
         self._l1_ttl_days = l1_ttl_days
         self._l2_ttl_days = l2_ttl_days
-        self._l4_ttl_days = l4_ttl_days
         self._summary_threshold = summary_threshold
-        self._recall_policy = recall_policy or MemoryRecallPolicy()
-        self._recall_candidate_multiplier = max(1, recall_candidate_multiplier)
+        self._summary_max_tokens = summary_max_tokens
 
     # ── L1 短期 ────────────────────────────────────────────────────────────
-
-    def append_message(self, task_id: str, msg: Message) -> None:
-        """写入一条消息（薄委托给 task 仓储）。
-
-        注意：当前 agent 主循环仍直接经 ``task_repo`` 落库，
-        本方法保留以保证 ``MemoryPort`` L1 语义完整。
-        """
-        self._repo.append_message(msg)
 
     def recent_messages(self, owner_id: str, task_id: str, n: int) -> list[Message]:
         """返回该 task 最近 n 条消息；非本人 / 越界 / 过期一律过滤。"""
@@ -162,147 +115,6 @@ class TaskBackedMemory:
             )
         )
 
-    # ── L4 语义事实（读） ──────────────────────────────────────────────────
-
-    def recall_semantic(self, owner_id: str, query: str, k: int) -> list[Fact]:
-        """按混合评分召回该 owner 的长期事实。
-
-        未配置 fact_store/embedder、k≤0、query 为空均安全返回空列表。
-        owner 隔离由 ``FactStorePort.query`` 的 owner_id 过滤保证。
-        """
-        trace = self.explain_recall(owner_id, query, k)
-        return [hit.fact for hit in trace.hits]
-
-    def explain_recall(self, owner_id: str, query: str, k: int) -> MemoryRecallTrace:
-        """返回 L4 召回结果及分数组成，供调试、评测和用户解释。"""
-        normalized_query = (query or "").strip()
-        if self._fact_store is None or self._embedder is None:
-            return self._empty_recall_trace(owner_id, normalized_query)
-        if k <= 0 or not normalized_query:
-            return self._empty_recall_trace(owner_id, normalized_query)
-        try:
-            embedding = self._embedder.embed([normalized_query])[0]
-            candidate_k = max(k, k * self._recall_candidate_multiplier)
-            candidates = self._fact_store.query(owner_id, embedding, candidate_k)
-        except Exception:  # noqa: BLE001 — 召回失败时降级为无事实，不影响主回复
-            logger.warning("L4 语义召回失败（已降级为空）", exc_info=True)
-            return self._empty_recall_trace(owner_id, normalized_query)
-        return self._recall_policy.rank(
-            owner_id=owner_id,
-            query=normalized_query,
-            candidates=candidates,
-            k=k,
-            now=time.time(),
-            ttl_days=self._l4_ttl_days,
-        )
-
-    def _empty_recall_trace(self, owner_id: str, query: str) -> MemoryRecallTrace:
-        return MemoryRecallTrace(
-            owner_id=owner_id,
-            query=query,
-            strategy_version=self._recall_policy.strategy_version,
-            candidate_count=0,
-            eligible_count=0,
-        )
-
-    def list_facts(self, owner_id: str) -> list[Fact]:
-        """列出该 owner 当前生效的长期事实（管理面板展示，Step 031a）。
-
-        过滤口径与 ``recall_semantic`` 一致：剔除已 superseded / 过 TTL 的事实，
-        只回"用户此刻真实可被召回"的那批。未配置 fact_store 时安全返回空列表。
-        按 ``created_at`` 倒序（新在前），便于前端直接渲染。
-        """
-        if self._fact_store is None:
-            return []
-        try:
-            all_facts = self._fact_store.list_owner(owner_id)
-        except Exception:  # noqa: BLE001 — 读取失败降级为空，不影响主流程
-            logger.warning("L4 事实列举失败（已降级为空）", exc_info=True)
-            return []
-        cutoff = (
-            time.time() - self._l4_ttl_days * _SECONDS_PER_DAY if self._l4_ttl_days > 0 else None
-        )
-        facts = [
-            f
-            for f in all_facts
-            if f.superseded_by is None and not (cutoff is not None and f.created_at < cutoff)
-        ]
-        facts.sort(key=lambda f: f.created_at, reverse=True)
-        return facts
-
-    def delete_fact(self, owner_id: str, fact_id: str) -> bool:
-        """物理删除该 owner 的单条长期事实（被遗忘权细粒度，Step 034）。
-
-        返回是否真的删了：未配置 fact_store / 事实不存在 / 不属于该 owner
-        都返回 ``False``（供 API 层映射 404）。owner 隔离由 fact_store.get 保证。
-        """
-        if self._fact_store is None:
-            return False
-        if self._fact_store.get(owner_id, fact_id) is None:
-            return False
-        self._fact_store.delete(owner_id, fact_id)
-        return True
-
-    # ── L3 用户画像 ──────────────────────────────────────────────────────────
-
-    def get_profile(self, owner_id: str) -> SessionProfile:
-        """返回该 owner 的画像；未配置 / 不存在时返回空画像（不抛）。
-
-        起步只承载显式偏好声明 + 系统配置偏好（设计 §14.5），自动抽取推迟。
-        """
-        if self._profile_store is None:
-            return SessionProfile(owner_id=owner_id, facts={})
-        profile = self._profile_store.get(owner_id)
-        if profile is None:
-            return SessionProfile(owner_id=owner_id, facts={})
-        return profile
-
-    def update_profile(self, owner_id: str, facts: dict[str, str]) -> None:
-        """合并写入画像偏好（浅合并：同名 key 覆盖）；未配置 store 时静默跳过。
-
-        空 ``facts`` 视为无操作，避免无谓写库。
-        """
-        if self._profile_store is None or not facts:
-            return
-        existing = self._profile_store.get(owner_id)
-        merged: dict[str, object] = dict(existing.facts) if existing else {}
-        merged.update(facts)
-        self._profile_store.upsert(
-            SessionProfile(owner_id=owner_id, facts=merged, updated_at=time.time())
-        )
-
-    # ── 主动遗忘（被遗忘权） ──────────────────────────────────────────────────
-
-    def forget(self, owner_id: str, *, scope: str = "memory") -> ForgetResult:
-        """级联清除该 owner 的记忆，返回各层删除计数（Step 030d）。
-
-        - ``scope="memory"``（默认）：只清派生记忆 L2 摘要 / L3 画像 / L4 事实 /
-          固化水位，保留 L1 原始 task 与消息。
-        - ``scope="all"``：额外删 L1 原始 task（FK 级联连带消息），实现完整被遗忘权。
-
-        各层 store 缺失（未启用）时该层计 0，不抛。删除异常向上抛由调用方审计失败。
-        """
-        normalized = scope if scope in ("memory", "all") else "memory"
-        summaries_deleted = self._summary_store.delete_owner(owner_id) if self._summary_store else 0
-        states_deleted = self._state_store.delete_owner(owner_id) if self._state_store else 0
-        profile_deleted = self._profile_store.delete_owner(owner_id) if self._profile_store else 0
-        facts_deleted = self._fact_store.delete_owner(owner_id) if self._fact_store else 0
-        tasks_deleted = 0
-        if normalized == "all":
-            # 先删派生记忆（上面已做），再删 L1 task（级联连带消息/残留摘要/水位）。
-            for task in self._repo.list_for_owner(owner_id, limit=100_000):
-                if self._repo.delete(task.task_id, owner_id):
-                    tasks_deleted += 1
-        return ForgetResult(
-            owner_id=owner_id,
-            scope=normalized,
-            summaries_deleted=summaries_deleted,
-            profile_deleted=profile_deleted,
-            facts_deleted=facts_deleted,
-            states_deleted=states_deleted,
-            tasks_deleted=tasks_deleted,
-        )
-
     # ── 内部 ────────────────────────────────────────────────────────────────
 
     def _refine_summary(self, old_summary: str, backlog: list[Message]) -> str:
@@ -316,6 +128,8 @@ class TaskBackedMemory:
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.1,
+            max_tokens=self._summary_max_tokens,
+            operation="memory_summary",
         ).strip()
 
     def _filter_ttl(self, msgs: list[Message], ttl_days: float) -> list[Message]:

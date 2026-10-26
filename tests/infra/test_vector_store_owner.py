@@ -67,6 +67,7 @@ def _make_cwm(
     source_name: str,
     owner_id: str | None,
     chunk_index: int = 0,
+    source_metadata: dict[str, str] | None = None,
 ) -> ChunkWithMetadata:
     return ChunkWithMetadata(
         chunk_id=chunk_id,
@@ -78,6 +79,7 @@ def _make_cwm(
         chunk_index=chunk_index,
         category="",
         owner_id=owner_id,
+        source_metadata=source_metadata or {},
     )
 
 
@@ -218,6 +220,47 @@ class TestDeleteByOwner:
         rows = isolated_vs.get_all_sources(owners=None)
         names = {r["source_name"] for r in rows}
         assert "alice.txt" not in names
+
+
+class TestParentSectionExpansion:
+    def test_get_section_chunks_keeps_order_and_owner_scope(self, isolated_vs: VectorStore) -> None:
+        chunks = [
+            _make_cwm(
+                chunk_id=f"public-{index}",
+                text=f"公共章节 {index}",
+                source_name="guide.pdf",
+                owner_id=None,
+                chunk_index=index,
+                source_metadata={
+                    "parent_section_id": "sec-flow",
+                    "section_id": f"leaf-{index}",
+                    "chunk_index_in_section": str(index),
+                },
+            )
+            for index in (2, 0, 1)
+        ]
+        chunks.append(
+            _make_cwm(
+                chunk_id="private-0",
+                text="私人章节",
+                source_name="guide.pdf",
+                owner_id="github:alice",
+                source_metadata={
+                    "parent_section_id": "sec-flow",
+                    "section_id": "private-leaf",
+                    "chunk_index_in_section": "0",
+                },
+            )
+        )
+        isolated_vs.add_chunks(chunks, [[1.0, 0.0, 0.0, 0.0]] * len(chunks))
+
+        results = isolated_vs.get_section_chunks(
+            "guide.pdf",
+            "sec-flow",
+            owners=[None],
+        )
+
+        assert [item["id"] for item in results] == ["public-0", "public-1", "public-2"]
 
 
 # ── migrate_owner_id_marker 启动迁移 + 幂等 ────────────────────────

@@ -73,6 +73,25 @@ class TestTextSplitter:
         assert "def hello():" in full_text
         assert "print('hello')" in full_text
 
+    def test_oversized_markdown_table_repeats_header(self):
+        """长表格应按行拆分，每个子表都保留表头，不能按字符拦腰截断。"""
+        splitter = TextSplitter(chunk_size=150, chunk_overlap=20)
+        rows = [f"| 字段{i} | 内容{i}{'长' * 18} |" for i in range(1, 13)]
+        table = "\n".join(
+            [
+                "| 字段 | 内容 |",
+                "| --- | --- |",
+                *rows,
+            ]
+        )
+        chunks = splitter.split(table)
+        assert len(chunks) > 1
+        assert all("| 字段 | 内容 |" in chunk for chunk in chunks)
+        assert all("| --- | --- |" in chunk for chunk in chunks)
+        assert all(len(chunk) <= splitter.chunk_size for chunk in chunks)
+        joined = "\n".join(chunks)
+        assert all(f"字段{i}" in joined for i in range(1, 13))
+
     def test_consistent_output(self):
         """相同输入应产生相同输出（确定性）。"""
         splitter = TextSplitter(chunk_size=100, chunk_overlap=20)

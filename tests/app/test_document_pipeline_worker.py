@@ -10,14 +10,7 @@ from app.workers import (
     DocumentProcessingWorker,
     EvidenceIndexWorker,
 )
-from domain import (
-    CaseDocument,
-    Document,
-    DocumentParseSnapshot,
-    DocumentVersion,
-    ParsedPage,
-    ProcessingJob,
-)
+from domain import Document, DocumentParseSnapshot, DocumentVersion, ParsedPage, ProcessingJob
 from tests.fakes import (
     FakeDocumentOcr,
     FakeDocumentParser,
@@ -45,7 +38,7 @@ def _setup(*, requires_ocr: bool = False):
     )
     document = Document(
         document_id="doc_001",
-        workspace_id="ws_001",
+        owner_id="ws_001",
         logical_name="source.pdf" if requires_ocr else "source.txt",
         document_type="case_material",
         status="queued",
@@ -64,12 +57,6 @@ def _setup(*, requires_ocr: bool = False):
     repo.create_upload(
         document,
         version,
-        CaseDocument(
-            case_id="case_001",
-            document_id=document.document_id,
-            added_by="github:alice",
-            added_at=100.0,
-        ),
         job,
     )
     objects.put(version.object_key, content)

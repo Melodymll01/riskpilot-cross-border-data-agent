@@ -72,6 +72,25 @@ class TestProtocolConformance:
         assert isinstance(auth, AuthPort)
 
 
+def test_provider_identity_survives_login_rename(auth, gh_provider):
+    _, state = auth.begin_oauth("github")
+    first = auth.complete_oauth("github", "code", state)
+    gh_provider.login = "renamed-alice"
+    _, state = auth.begin_oauth("github")
+    second = auth.complete_oauth("github", "code", state)
+    assert second.user_id == first.user_id
+    assert second.provider_id == first.provider_id
+
+
+def test_mutable_login_collision_cannot_take_over_another_identity(auth, gh_provider):
+    _, state = auth.begin_oauth("github")
+    auth.complete_oauth("github", "code", state)
+    gh_provider.provider_id = "different-person"
+    _, state = auth.begin_oauth("github")
+    with pytest.raises(OAuthFlowError, match="不匹配"):
+        auth.complete_oauth("github", "code", state)
+
+
 # ── begin / complete 主流程 ────────────────────────────────────────────
 
 

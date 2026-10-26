@@ -61,29 +61,6 @@ def build_auth_routes(container: AppContainer, *, limiter: RateLimiter | None = 
         set_session_cookie(response, token, container.settings)
         return AnonymousLoginResponse(user=_to_user_out(user, admin_ids))
 
-    @router.post(
-        "/demo",
-        response_model=AnonymousLoginResponse,
-        status_code=status.HTTP_200_OK,
-        include_in_schema=False,
-        summary="本地 Compose 演示身份登录",
-    )
-    def login_demo(response: Response) -> AnonymousLoginResponse:
-        if not container.settings.demo_login_enabled:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-        user = container.user_repo.get(container.settings.demo_login_user_id)
-        if user is None:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail={
-                    "error_code": "DEMO_NOT_SEEDED",
-                    "message": "请先执行 make seed-demo。",
-                },
-            )
-        token = container.auth.issue_jwt(user.user_id)
-        set_session_cookie(response, token, container.settings)
-        return AnonymousLoginResponse(user=_to_user_out(user, admin_ids))
-
     # ── GitHub OAuth：begin ───────────────────────────────────────────
     @router.get(
         "/github/login",
@@ -102,6 +79,25 @@ def build_auth_routes(container: AppContainer, *, limiter: RateLimiter | None = 
                 },
             ) from exc
         return GithubLoginResponse(authorize_url=url, state=state)
+
+    @router.get(
+        "/github/redirect",
+        summary="直接跳转到 GitHub OAuth 授权页",
+        include_in_schema=False,
+    )
+    def github_redirect() -> RedirectResponse:
+        """给浏览器原生链接使用，避免前端先取 JSON 再二次跳转。"""
+        try:
+            url, _state = container.auth_login.begin("github")
+        except OAuthFlowError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "error_code": "OAUTH_UNAVAILABLE",
+                    "message": str(exc),
+                },
+            ) from exc
+        return RedirectResponse(url=url, status_code=status.HTTP_303_SEE_OTHER)
 
     # ── GitHub OAuth：callback ────────────────────────────────────────
     @router.get(
@@ -142,7 +138,6 @@ def build_auth_routes(container: AppContainer, *, limiter: RateLimiter | None = 
             return WhoAmIResponse(
                 authenticated=False,
                 user=None,
-                demo_login_enabled=container.settings.demo_login_enabled,
             )
         user = container.user_repo.get(owner_id)
         if user is None:
@@ -150,12 +145,10 @@ def build_auth_routes(container: AppContainer, *, limiter: RateLimiter | None = 
             return WhoAmIResponse(
                 authenticated=False,
                 user=None,
-                demo_login_enabled=container.settings.demo_login_enabled,
             )
         return WhoAmIResponse(
             authenticated=True,
             user=_to_user_out(user, admin_ids),
-            demo_login_enabled=container.settings.demo_login_enabled,
         )
 
     # ── 登出 ──────────────────────────────────────────────────────────

@@ -166,8 +166,8 @@ class TestRetrieveDelegation:
         adapter = HybridRetrieverAdapter(retriever=_StubRetriever())
         assert adapter.retrieve("query") == []
 
-    def test_extra_args_currently_ignored(self) -> None:
-        """corpus / owner_id / filters 当前阶段应能传入但不报错。"""
+    def test_user_docs_scope_is_forwarded(self) -> None:
+        """用户文档查询只带当前用户作用域。"""
         stub = _StubRetriever(
             results=[
                 {"id": "c1", "text": "x", "distance": 0.1, "metadata": {"source_name": "PIPL"}}
@@ -179,6 +179,19 @@ class TestRetrieveDelegation:
             top_k=1,
             corpus="user_docs",
             owner_id="github:alice",
-            filters={"category": "法规"},
         )
         assert len(result) == 1
+        assert stub.viewers_calls == [["github:alice"]]
+
+
+def test_public_law_never_uses_private_owner():
+    stub = _StubRetriever()
+    HybridRetrieverAdapter(stub).retrieve("query", corpus="law", owner_id="alice")
+    assert stub.viewers_calls == [[None]]
+
+
+def test_user_documents_require_owner():
+    import pytest
+
+    with pytest.raises(ValueError):
+        HybridRetrieverAdapter(_StubRetriever()).retrieve("query", corpus="user_docs")

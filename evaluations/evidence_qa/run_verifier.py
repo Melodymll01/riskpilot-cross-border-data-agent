@@ -46,12 +46,12 @@ def main(argv: list[str] | None = None) -> int:
     if not args.live:
         parser.error("真实验证器评测必须显式传入 --live")
 
+    from app.factories import build_chat
     from config import settings
-    from infra.chat import OpenAIChatAdapter
     from infra.qa import StructuredClaimSupportVerifier
 
     dataset = load_dataset(args.dataset)
-    verifier = StructuredClaimSupportVerifier(OpenAIChatAdapter())
+    verifier = StructuredClaimSupportVerifier(build_chat(settings))
     predictions = build_verifier_predictions(
         dataset,
         verifier,

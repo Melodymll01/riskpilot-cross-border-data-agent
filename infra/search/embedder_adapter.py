@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from domain.ports import RunControlPort
 
 
 class _EmbedderLike(Protocol):
-    def embed_texts(self, texts: list[str]) -> list[list[float]]: ...
+    def embed_texts(
+        self,
+        texts: list[str],
+        *,
+        runtime_control: RunControlPort | None = None,
+    ) -> list[list[float]]: ...
 
 
 class EmbedderAdapter:
@@ -19,5 +27,12 @@ class EmbedderAdapter:
             embedder = Embedder()
         self._embedder = embedder
 
-    def embed(self, texts: list[str]) -> list[list[float]]:
-        return self._embedder.embed_texts(texts)
+    def embed(
+        self,
+        texts: list[str],
+        *,
+        runtime_control: RunControlPort | None = None,
+    ) -> list[list[float]]:
+        if runtime_control is None:
+            return self._embedder.embed_texts(texts)
+        return self._embedder.embed_texts(texts, runtime_control=runtime_control)

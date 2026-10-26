@@ -7,13 +7,7 @@ import hashlib
 import pytest
 
 from app.workers import DocumentProcessingWorker
-from domain import (
-    CaseDocument,
-    Document,
-    DocumentVersion,
-    InvalidDocumentContent,
-    ProcessingJob,
-)
+from domain import Document, DocumentVersion, InvalidDocumentContent, ProcessingJob
 from domain.document_content import DocumentParseSnapshot, ParsedPage
 from tests.fakes import FakeDocumentParser, FakeObjectStore, InMemoryDocumentRepo
 
@@ -42,7 +36,7 @@ def _seed(
     )
     document = Document(
         document_id="doc_001",
-        workspace_id="ws_001",
+        owner_id="ws_001",
         logical_name="source.txt",
         document_type="case_material",
         status="queued",
@@ -51,12 +45,6 @@ def _seed(
         created_at=100.0,
         updated_at=100.0,
     )
-    binding = CaseDocument(
-        case_id="case_001",
-        document_id=document.document_id,
-        added_by="github:alice",
-        added_at=100.0,
-    )
     job = ProcessingJob(
         job_id="job_001",
         document_version_id=version.version_id,
@@ -64,7 +52,7 @@ def _seed(
         created_at=100.0,
         updated_at=100.0,
     )
-    repo.create_upload(document, version, binding, job)
+    repo.create_upload(document, version, job)
     objects.put(version.object_key, content)
     times = iter([101.0, 102.0, 103.0, 104.0])
     worker = DocumentProcessingWorker(

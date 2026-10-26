@@ -1,4 +1,4 @@
-"""V2 案件文档上传、查询与下载用例。"""
+"""Conversation support: owner-scoped data and bounded context."""
 
 from __future__ import annotations
 
@@ -12,21 +12,16 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING
 
-from domain.documents import CaseDocument, Document, DocumentVersion, ProcessingJob
+from domain.documents import Document, DocumentVersion, ProcessingJob
 from domain.errors import (
-    CaseArchived,
     DocumentNotFound,
     DocumentTooLarge,
     InvalidDocumentContent,
     ProcessingJobNotFound,
     UnsupportedDocumentType,
-    WorkspaceNotFound,
 )
-from domain.workspaces import WorkspaceRole
 
 if TYPE_CHECKING:
-    from app.use_cases.case_management import CaseManagementUseCase
-    from app.use_cases.workspace_management import WorkspaceManagementUseCase
     from app.workers import (
         DocumentProcessingWorker,
         EvidenceIndexWorker,
@@ -36,7 +31,6 @@ if TYPE_CHECKING:
     from domain.ports import BackgroundJobDispatcherPort, DocumentRepoPort, ObjectStorePort
 
 _SUPPORTED_SUFFIXES = {".pdf", ".docx", ".txt", ".md", ".markdown"}
-_WRITE_ROLES: set[WorkspaceRole] = {"editor", "reviewer", "admin"}
 _DOCX_REQUIRED_ENTRIES = {"[Content_Types].xml", "word/document.xml"}
 _DOCX_MAX_ENTRIES = 2_000
 _DOCX_MAX_COMPRESSION_RATIO = 100
@@ -47,7 +41,6 @@ logger = logging.getLogger(__name__)
 class DocumentUploadResult:
     document: Document
     version: DocumentVersion
-    binding: CaseDocument
     job: ProcessingJob
 
 
@@ -55,12 +48,11 @@ class DocumentUploadResult:
 class DocumentDetail:
     document: Document
     version: DocumentVersion
-    binding: CaseDocument
     latest_job: ProcessingJob | None
 
 
 @dataclass(frozen=True)
-class CaseDocumentSummary:
+class DocumentSummary:
     document: Document
     latest_job: ProcessingJob | None
 
@@ -84,8 +76,6 @@ class DocumentManagementUseCase:
         *,
         document_repo: DocumentRepoPort,
         object_store: ObjectStorePort,
-        case_management: CaseManagementUseCase,
-        workspace_management: WorkspaceManagementUseCase,
         max_upload_bytes: int,
         job_dispatcher: BackgroundJobDispatcherPort,
         processing_worker: DocumentProcessingWorker | None = None,
@@ -95,8 +85,6 @@ class DocumentManagementUseCase:
             raise ValueError("max_upload_bytes 必须大于 0")
         self._repo = document_repo
         self._objects = object_store
-        self._case_management = case_management
-        self._workspace_management = workspace_management
         self._max_upload_bytes = max_upload_bytes
         self._dispatcher = job_dispatcher
         self._processing_worker = processing_worker
@@ -109,28 +97,20 @@ class DocumentManagementUseCase:
     def bind_index_worker(self, worker: EvidenceIndexWorker) -> None:
         self._index_worker = worker
 
+    def allocate_document_id(self) -> str:
+        """为需要先持久化命令收据的调用方预分配 Document ID。"""
+        return _new_id("doc")
+
     def upload(
         self,
         actor_id: str,
         *,
-        case_id: str,
         filename: str,
         content: bytes,
-        document_type: str = "case_material",
-        purpose: str = "",
+        document_id: str | None = None,
     ) -> DocumentUploadResult:
-        case = self._case_management.get_case(case_id, actor_id)
-        if case.status == "archived":
-            raise CaseArchived(case.case_id)
-        allowed_roles: set[WorkspaceRole] = (
-            {"admin"} if document_type == "workspace_knowledge" else _WRITE_ROLES
-        )
-        self._workspace_management.require_role(
-            case.workspace_id,
-            actor_id,
-            allowed_roles,
-            action="上传案件材料",
-        )
+        if not actor_id:
+            raise ValueError("actor_id 必填")
         logical_name, suffix = _normalize_filename(filename)
         mime_type = _validate_content(
             suffix,
@@ -139,12 +119,12 @@ class DocumentManagementUseCase:
         )
 
         now = time.time()
-        document_id = _new_id("doc")
+        document_id = document_id or self.allocate_document_id()
         version_id = _new_id("ver")
         job_id = _new_id("job")
         object_key = str(
             PurePosixPath(
-                case.workspace_id,
+                actor_id,
                 document_id,
                 version_id,
                 f"source{suffix}",
@@ -152,9 +132,9 @@ class DocumentManagementUseCase:
         )
         document = Document(
             document_id=document_id,
-            workspace_id=case.workspace_id,
+            owner_id=actor_id,
             logical_name=logical_name,
-            document_type=document_type,
+            document_type="user_document",
             status="queued",
             created_by=actor_id,
             current_version_id=version_id,
@@ -171,13 +151,6 @@ class DocumentManagementUseCase:
             size_bytes=len(content),
             created_at=now,
         )
-        binding = CaseDocument(
-            case_id=case.case_id,
-            document_id=document_id,
-            purpose=purpose,
-            added_by=actor_id,
-            added_at=now,
-        )
         job = ProcessingJob(
             job_id=job_id,
             document_version_id=version_id,
@@ -188,7 +161,7 @@ class DocumentManagementUseCase:
 
         self._objects.put(object_key, content)
         try:
-            self._repo.create_upload(document, version, binding, job)
+            self._repo.create_upload(document, version, job)
         except Exception:
             self._objects.delete(object_key)
             raise
@@ -202,19 +175,16 @@ class DocumentManagementUseCase:
         return DocumentUploadResult(
             document=dispatched_document,
             version=version,
-            binding=binding,
             job=dispatched_job,
         )
 
-    def list_case_documents(
+    def list_documents(
         self,
-        case_id: str,
         actor_id: str,
-    ) -> list[CaseDocumentSummary]:
-        self._case_management.get_case(case_id, actor_id)
-        documents = self._repo.list_for_case(case_id)
+    ) -> list[DocumentSummary]:
+        documents = self._repo.list_for_owner(actor_id)
         return [
-            CaseDocumentSummary(
+            DocumentSummary(
                 document=document,
                 latest_job=self._get_latest_job(document),
             )
@@ -223,14 +193,11 @@ class DocumentManagementUseCase:
 
     def get_detail(
         self,
-        case_id: str,
         document_id: str,
         actor_id: str,
     ) -> DocumentDetail:
-        self._case_management.get_case(case_id, actor_id)
-        binding = self._repo.get_binding(case_id, document_id)
         document = self._repo.get(document_id)
-        if binding is None or document is None or document.status == "deleted":
+        if document is None or document.owner_id != actor_id or document.status == "deleted":
             raise DocumentNotFound(document_id)
         if document.current_version_id is None:
             raise InvalidDocumentContent("文档缺少当前版本")
@@ -240,17 +207,15 @@ class DocumentManagementUseCase:
         return DocumentDetail(
             document=document,
             version=version,
-            binding=binding,
             latest_job=self._repo.get_latest_job_for_version(version.version_id),
         )
 
     def download(
         self,
-        case_id: str,
         document_id: str,
         actor_id: str,
     ) -> DocumentDownload:
-        detail = self.get_detail(case_id, document_id, actor_id)
+        detail = self.get_detail(document_id, actor_id)
         return DocumentDownload(
             filename=detail.document.logical_name,
             mime_type=detail.version.mime_type,
@@ -263,15 +228,13 @@ class DocumentManagementUseCase:
 
     def list_jobs(
         self,
-        case_id: str,
         actor_id: str,
         *,
         statuses: set[str] | None = None,
         limit: int = 50,
     ) -> list[ProcessingJob]:
-        self._case_management.get_case(case_id, actor_id)
-        return self._repo.list_jobs_for_case(
-            case_id,
+        return self._repo.list_jobs_for_owner(
+            actor_id,
             statuses=statuses,
             limit=limit,
         )
@@ -315,7 +278,7 @@ class DocumentManagementUseCase:
         try:
             self._dispatcher.cancel_document(job.job_id, attempt=job.retry_count)
         except Exception:
-            logger.warning("Celery revoke 失败，数据库 cancelled 状态仍然生效", exc_info=True)
+            logger.warning("后台取消 失败，数据库 cancelled 状态仍然生效", exc_info=True)
         return cancelled_job
 
     def run_index_stage(
@@ -344,21 +307,8 @@ class DocumentManagementUseCase:
         document = self._repo.get(version.document_id)
         if document is None:
             raise ProcessingJobNotFound(job_id)
-        try:
-            if write:
-                self._workspace_management.require_role(
-                    document.workspace_id,
-                    actor_id,
-                    _WRITE_ROLES,
-                    action="执行文档处理任务",
-                )
-            else:
-                self._workspace_management.require_membership(
-                    document.workspace_id,
-                    actor_id,
-                )
-        except WorkspaceNotFound as exc:
-            raise ProcessingJobNotFound(job_id) from exc
+        if document.owner_id != actor_id or document.status == "deleted":
+            raise ProcessingJobNotFound(job_id)
         return job, document
 
     def _get_latest_job(self, document: Document) -> ProcessingJob | None:

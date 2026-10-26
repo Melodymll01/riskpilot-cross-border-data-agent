@@ -43,6 +43,9 @@ class TestTextDeduplication:
 
     def setup_method(self):
         self.retriever = Retriever.__new__(Retriever)
+        from config import Settings
+
+        self.retriever._settings = Settings(_env_file=None)
 
     def test_identical_texts(self):
         """完全相同的文本应被去重。"""
@@ -104,3 +107,137 @@ class TestTextOverlapRatio:
         assert Retriever._text_overlap_ratio("", "某段文本") == 0.0
         assert Retriever._text_overlap_ratio("某段文本", "") == 0.0
         assert Retriever._text_overlap_ratio("", "") == 0.0
+
+
+class TestPdfContentPreference:
+    def test_normal_legal_question_prefers_body_over_template(self):
+        results = [
+            {"id": "template", "metadata": {"content_kind": "template_table"}},
+            {"id": "body", "metadata": {"content_kind": "body"}},
+            {"id": "legacy", "metadata": {}},
+        ]
+        ranked = Retriever._prefer_primary_pdf_content("哪些情形需要安全评估", results)
+        assert [item["id"] for item in ranked] == ["body", "legacy", "template"]
+
+    def test_template_question_keeps_relevance_order(self):
+        results = [
+            {"id": "template", "metadata": {"content_kind": "template_table"}},
+            {"id": "body", "metadata": {"content_kind": "body"}},
+        ]
+        ranked = Retriever._prefer_primary_pdf_content("申报表模板如何填写", results)
+        assert ranked == results
+
+
+class _SectionStore:
+    def __init__(self):
+        self.section_calls = []
+
+    def get_section_chunks(self, source_name, parent_section_id, owners=None):
+        self.section_calls.append((source_name, parent_section_id, owners))
+        return [
+            {
+                "id": "c0",
+                "text": "账号注册与登录。",
+                "metadata": {"chunk_index": 3},
+            },
+            {
+                "id": "c1",
+                "text": "项目新建并上传材料。",
+                "metadata": {"chunk_index": 4},
+            },
+            {
+                "id": "c2",
+                "text": "省级网信办开展完备性查验。",
+                "metadata": {"chunk_index": 5},
+            },
+        ]
+
+    def get_neighbor_chunks(self, **_kwargs):
+        raise AssertionError("流程问题不应回退为固定窗口")
+
+
+class TestParentSectionExpansion:
+    def test_parent_deduplication_happens_before_top_k_cutoff(self):
+        results = [
+            {
+                "id": "a1",
+                "metadata": {
+                    "owner_id": "__public__",
+                    "source_name": "a.pdf",
+                    "parent_section_id": "parent-a",
+                },
+            },
+            {
+                "id": "a2",
+                "metadata": {
+                    "owner_id": "__public__",
+                    "source_name": "a.pdf",
+                    "parent_section_id": "parent-a",
+                },
+            },
+            {
+                "id": "b1",
+                "metadata": {
+                    "owner_id": "__public__",
+                    "source_name": "b.pdf",
+                    "parent_section_id": "parent-b",
+                },
+            },
+        ]
+        selected = Retriever._select_top_results("办理流程", results, top_k=2)
+        assert [item["id"] for item in selected] == ["a1", "b1"]
+
+    def test_process_query_expands_parent_once_and_deduplicates_siblings(self):
+        from config import Settings
+
+        retriever = Retriever.__new__(Retriever)
+        retriever._settings = Settings(_env_file=None, section_expansion_max_chars=1000)
+        retriever.vector_store = _SectionStore()
+        results = [
+            {
+                "id": "seed-1",
+                "text": "项目新建并上传材料。",
+                "metadata": {
+                    "source_name": "guide.pdf",
+                    "chunk_index": 4,
+                    "parent_section_id": "sec-flow",
+                },
+            },
+            {
+                "id": "seed-2",
+                "text": "完备性查验。",
+                "metadata": {
+                    "source_name": "guide.pdf",
+                    "chunk_index": 5,
+                    "parent_section_id": "sec-flow",
+                },
+            },
+        ]
+
+        expanded = retriever._expand_context(
+            results,
+            query="申报流程是什么？",
+            viewers=[None],
+        )
+
+        assert len(expanded) == 1
+        assert expanded[0]["id"] == "sec-flow"
+        assert "账号注册与登录" in expanded[0]["text"]
+        assert "省级网信办开展完备性查验" in expanded[0]["text"]
+        assert expanded[0]["metadata"]["context_expansion_mode"] == "parent_section"
+        assert expanded[0]["metadata"]["seed_chunk_id"] == "seed-1"
+        assert retriever.vector_store.section_calls == [("guide.pdf", "sec-flow", [None])]
+
+    def test_pack_section_context_honors_budget_around_seed(self):
+        chunks = [
+            {"text": "甲" * 80, "metadata": {"chunk_index": 1}},
+            {"text": "乙" * 80, "metadata": {"chunk_index": 2}},
+            {"text": "丙" * 80, "metadata": {"chunk_index": 3}},
+        ]
+        packed = Retriever._pack_section_context(
+            chunks,
+            seed_chunk_index=2,
+            max_chars=170,
+        )
+        assert "乙" * 80 in packed
+        assert len(packed) <= 170

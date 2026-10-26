@@ -121,19 +121,22 @@ class BM25Index:
             if not viewer_set:
                 return []  # 空集 == 谁都看不到
 
-        # 取候选：viewers 不为 None 时多取一些以缓冲过滤损耗
-        candidate_n = top_k * 4 if viewer_set is not None else top_k
-        indexed = [(i, float(scores[i])) for i in range(len(scores)) if scores[i] > 0]
+        # 先按可见范围过滤，再在 scope 内排序和编号；避免其他租户占满候选名额。
+        indexed = [
+            (i, float(scores[i]))
+            for i in range(len(scores))
+            if scores[i] > 0
+            and (
+                viewer_set is None
+                or _owner_matches(self._docs[i]["metadata"].get("owner_id"), viewer_set)
+            )
+        ]
         indexed.sort(key=lambda x: x[1], reverse=True)
-        indexed = indexed[:candidate_n]
+        indexed = indexed[:top_k]
 
         results = []
         for rank, (idx, score) in enumerate(indexed, start=1):
             doc = self._docs[idx]
-            if viewer_set is not None and not _owner_matches(
-                doc["metadata"].get("owner_id"), viewer_set
-            ):
-                continue
             results.append(
                 {
                     "id": doc["id"],
@@ -144,6 +147,4 @@ class BM25Index:
                     "match_type": "bm25",
                 }
             )
-            if len(results) >= top_k:
-                break
         return results

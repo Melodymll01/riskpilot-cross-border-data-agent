@@ -5,13 +5,22 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from domain.models import WebResult
 
+if TYPE_CHECKING:
+    from domain.ports import RunControlPort
+
 
 class _WebSearcherLike(Protocol):
-    def search(self, query: str, max_results: int = 3) -> list: ...
+    def search(
+        self,
+        query: str,
+        max_results: int = 3,
+        *,
+        runtime_control: RunControlPort | None = None,
+    ) -> list: ...
 
 
 class DuckDuckGoAdapter:
@@ -24,8 +33,21 @@ class DuckDuckGoAdapter:
             searcher = WebSearcher()
         self._searcher = searcher
 
-    def search(self, query: str, max_results: int = 3) -> list[WebResult]:
-        raw = self._searcher.search(query, max_results=max_results)
+    def search(
+        self,
+        query: str,
+        max_results: int = 3,
+        *,
+        runtime_control: RunControlPort | None = None,
+    ) -> list[WebResult]:
+        if runtime_control is None:
+            raw = self._searcher.search(query, max_results=max_results)
+        else:
+            raw = self._searcher.search(
+                query,
+                max_results=max_results,
+                runtime_control=runtime_control,
+            )
         out: list[WebResult] = []
         for r in raw:
             url = getattr(r, "url", "") or ""

@@ -12,7 +12,7 @@ import time
 import uuid
 from typing import TYPE_CHECKING, Any
 
-from domain.models import Citation, Message, Task, TaskMode
+from domain.models import Citation, Message, Task
 
 if TYPE_CHECKING:
     from domain.ports import TaskRepoPort
@@ -32,7 +32,6 @@ class TaskManagementUseCase:
         *,
         title: str = "",
         user_goal: str = "",
-        mode: TaskMode = "qa",
     ) -> Task:
         if not owner_id:
             msg = "owner_id 必填"
@@ -43,7 +42,6 @@ class TaskManagementUseCase:
             owner_id=owner_id,
             title=title,
             state="planning",
-            mode=mode,
             user_goal=user_goal,
             collected_facts={},
             created_at=now,
@@ -107,6 +105,19 @@ class TaskManagementUseCase:
     def list_messages(self, task_id: str, owner_id: str) -> list[Message]:
         self._ensure_owner(task_id, owner_id)
         return self._repo.list_messages(task_id)
+
+    def set_attachment_ids(
+        self,
+        task_id: str,
+        owner_id: str,
+        document_ids: list[str],
+    ) -> None:
+        self._ensure_owner(task_id, owner_id)
+        self._repo.set_attachment_ids(task_id, owner_id, document_ids)
+
+    def list_attachment_ids(self, task_id: str, owner_id: str) -> list[str]:
+        self._ensure_owner(task_id, owner_id)
+        return self._repo.list_attachment_ids(task_id, owner_id)
 
     def _ensure_owner(self, task_id: str, owner_id: str) -> None:
         if self._repo.get(task_id, owner_id) is None:

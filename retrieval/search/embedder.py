@@ -10,6 +10,8 @@
 -风险：维度问题我看这里是1024，有的是2048，如果程序启动有问题，注意审查
 """
 
+from __future__ import annotations
+
 import asyncio
 import hashlib
 import logging
@@ -18,6 +20,7 @@ import threading
 import time
 from collections import OrderedDict
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from openai import (
     APIConnectionError,
@@ -27,7 +30,11 @@ from openai import (
     RateLimitError,
 )
 
-from config import settings
+from config import Settings, settings
+from domain.errors import ConversationRunStopped
+
+if TYPE_CHECKING:
+    from domain.ports import RunControlPort
 
 logger = logging.getLogger(__name__)
 
@@ -58,19 +65,41 @@ class Embedder:
     - 全部重试失败后降级返回零向量，不抛异常
     """
 
-    def __init__(self):
+    def __init__(self, *, config: Settings | None = None):
+        configuration = config or settings
+        self._identity = configuration.embedding_identity
+        self._local_backend = None
+        if configuration.embed_provider == "sentence_transformer":
+            from infra.search.local_embedder import LocalSentenceEmbedder
+
+            self._local_backend = LocalSentenceEmbedder(
+                configuration.local_sentence_embedding_model,
+                max_input_tokens=configuration.embedding_max_input_tokens,
+            )
         # 同步客户端（向后兼容）
-        self.client = OpenAI(
-            api_key=settings.effective_embed_api_key,
-            base_url=settings.effective_embed_base_url,
+        self.client = (
+            None
+            if self._local_backend is not None
+            else OpenAI(
+                api_key=configuration.effective_embed_api_key,
+                base_url=configuration.effective_embed_base_url,
+                max_retries=0,
+                timeout=configuration.conversation_model_call_timeout_seconds,
+            )
         )
         # 异步客户端（批量入库用）
-        self.async_client = AsyncOpenAI(
-            api_key=settings.effective_embed_api_key,
-            base_url=settings.effective_embed_base_url,
+        self.async_client = (
+            None
+            if self._local_backend is not None
+            else AsyncOpenAI(
+                api_key=configuration.effective_embed_api_key,
+                base_url=configuration.effective_embed_base_url,
+            )
         )
-        self.model = settings.effective_embed_model
-        self.dimensions = settings.embedding_dimensions
+        self.model = configuration.effective_embed_model
+        self.dimensions = (
+            None if self._local_backend is not None else configuration.embedding_dimensions
+        )
 
         # ── 双层缓存 ──────────────────────────────────────────────────────
         # L1: 内存 LRU（快，进程内有效）
@@ -148,7 +177,12 @@ class Embedder:
 
     # ── 同步方法（向后兼容）─────────────────────────────────────────────
 
-    def embed_texts(self, texts: list[str]) -> list[list[float]]:
+    def embed_texts(
+        self,
+        texts: list[str],
+        *,
+        runtime_control: RunControlPort | None = None,
+    ) -> list[list[float]]:
         """批量计算文本向量（同步），自动分批防止单次请求过大。"""
         if not texts:
             return []
@@ -159,7 +193,7 @@ class Embedder:
         all_embeddings: list[list[float]] = []
         for i in range(0, len(texts), EMBED_BATCH_SIZE):
             batch = texts[i : i + EMBED_BATCH_SIZE]
-            batch_embeddings = self._embed_with_retry(batch)
+            batch_embeddings = self._embed_with_retry(batch, runtime_control=runtime_control)
             all_embeddings.extend(batch_embeddings)
 
         if all_embeddings and all_embeddings[0]:
@@ -167,37 +201,79 @@ class Embedder:
         logger.info(f"Embedding 计算完成，共 {len(all_embeddings)} 条，维度: {self._zero_dim}")
         return all_embeddings
 
-    def _embed_with_retry(self, texts: list[str]) -> list[list[float]]:
+    def _embed_with_retry(
+        self,
+        texts: list[str],
+        *,
+        runtime_control: RunControlPort | None = None,
+    ) -> list[list[float]]:
         """调用 embedding API，失败时自动重试；全部失败时降级返回零向量。"""
+        if self._local_backend is not None:
+            return self._local_backend.embed_texts(texts, runtime_control=runtime_control)
         last_error: Exception | None = None
         for attempt in range(1, MAX_RETRIES + 1):
             try:
-                kwargs = {"model": self.model, "input": texts}
+                kwargs: dict[str, Any] = {"model": self.model, "input": texts}
                 if self.dimensions is not None:
                     kwargs["dimensions"] = self.dimensions
-                response = self.client.embeddings.create(**kwargs)
+
+                def invoke(call_kwargs=kwargs):
+                    return self.client.embeddings.create(**call_kwargs)
+
+                response = (
+                    runtime_control.call_model(
+                        operation="retrieval_embedding",
+                        stage="tool",
+                        invoke=invoke,
+                        retry=attempt > 1,
+                    )
+                    if runtime_control is not None
+                    else invoke()
+                )
+                if runtime_control is not None:
+                    usage = getattr(response, "usage", None)
+                    prompt_tokens = getattr(usage, "prompt_tokens", None)
+                    total_tokens = getattr(usage, "total_tokens", None)
+                    runtime_control.record_model_usage(
+                        input_tokens=prompt_tokens if isinstance(prompt_tokens, int) else None,
+                        output_tokens=(
+                            max(0, total_tokens - prompt_tokens)
+                            if isinstance(total_tokens, int) and isinstance(prompt_tokens, int)
+                            else None
+                        ),
+                    )
                 return [item.embedding for item in sorted(response.data, key=lambda x: x.index)]
+            except ConversationRunStopped:
+                raise
             except (APITimeoutError, APIConnectionError, RateLimitError) as e:
                 last_error = e
                 if attempt == MAX_RETRIES:
                     break
                 wait = 2**attempt + random.uniform(0, 1)
                 logger.warning(f"Embedding API 调用失败 (第{attempt}次)，{wait:.1f}s 后重试: {e}")
-                time.sleep(wait)
+                if runtime_control is not None:
+                    runtime_control.wait(wait)
+                else:
+                    time.sleep(wait)
 
         # ── fallback: 全部重试失败，返回零向量 ──
         logger.error(f"Embedding API {MAX_RETRIES} 次重试全部失败，降级返回零向量: {last_error}")
         return [self._zero_vector() for _ in texts]
 
-    def embed_query(self, query: str) -> list[float]:
+    def embed_query(
+        self,
+        query: str,
+        *,
+        runtime_control: RunControlPort | None = None,
+    ) -> list[float]:
         """计算单条查询文本的向量（带双层 LRU 缓存，线程安全）。"""
-        cache_key = hashlib.md5(query.encode()).hexdigest()
+        cache_key = self._cache_key(query)
 
         cached = self._cache_get(cache_key)
         if cached is not None:
             return cached
 
-        result = self.embed_texts([query])
+        result = self.embed_texts([query], runtime_control=runtime_control)
         embedding = result[0]
 
         self._cache_put(cache_key, embedding)
@@ -210,6 +286,8 @@ class Embedder:
 
         10 万条文档入库时使用此方法，比同步版本快数倍。
         """
+        if self._local_backend is not None:
+            return await asyncio.to_thread(self._local_backend.embed_texts, texts)
         if not texts:
             return []
 
@@ -238,9 +316,10 @@ class Embedder:
         last_error: Exception | None = None
         for attempt in range(1, MAX_RETRIES + 1):
             try:
-                kwargs = {"model": self.model, "input": texts}
+                kwargs: dict[str, Any] = {"model": self.model, "input": texts}
                 if self.dimensions is not None:
                     kwargs["dimensions"] = self.dimensions
+                assert self.async_client is not None
                 response = await self.async_client.embeddings.create(**kwargs)
                 return [item.embedding for item in sorted(response.data, key=lambda x: x.index)]
             except (APITimeoutError, APIConnectionError, RateLimitError) as e:
@@ -260,7 +339,7 @@ class Embedder:
 
     async def embed_query_async(self, query: str) -> list[float]:
         """异步计算单条查询向量（带双层缓存）。"""
-        cache_key = hashlib.md5(query.encode()).hexdigest()
+        cache_key = self._cache_key(query)
 
         cached = self._cache_get(cache_key)
         if cached is not None:
@@ -271,3 +350,6 @@ class Embedder:
 
         self._cache_put(cache_key, embedding)
         return embedding
+
+    def _cache_key(self, query: str) -> str:
+        return hashlib.sha256(f"{self._identity}:{query}".encode()).hexdigest()

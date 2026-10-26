@@ -1,0 +1,106 @@
+中国（广西）自由贸易试验区数据出境管理清单（负面清单）(2025版）China (Guangxi) Pilot Free Trade Zone Data Exit Management List (Negative List)(2025 Version)
+添加时间：2025-08-08 08:31:01
+来源：
+中国（广西）自由贸易试验区数据出境
+管理清单（负面清单
+）
+China (Guangxi) Pilot Free Trade Zone Data Exit
+Management List (Negative List)
+(2025
+版）
+(2025
+V
+ersion)
+说
+明
+Explanatory Notes
+一、中国（广西）自由贸易试验区（以下简称广西自贸试验区）数据出境管理清单是指根据《网络数据安全管理条例》《数据出境安全评估办法》《个人信息出境标准合同办法》《促进和规范数据跨境流动规定》等政策法规，需要纳入数据出境安全评估、个人信息出境标准合同、个人信息保护认证管理范围的数据清单（以下简称负面清单）。
+I. China (Guangxi) Pilot Free Trade Zone (hereinafter referred to as Guangxi Pilot Free Trade Zone) Data Exit Management List refers to the list of data that needs to be included in the data exit security assessment, personal information exit standard contract, personal information protection certification management scope (hereinafter referred to as the Negative List) in accordance with the
+Regulations on the Administration of Network Data Security
+,
+Measures for the Security Assessment of Data Exit
+,
+Measures for the Standard Contract of Personal Information Exit
+,
+Regulations for Promoting and Regulating Cross-border Flow of Data
+and other policies and regulations.
+二、负面清单适用于在广西自贸试验区范围内登记注册并开展数据出境等相关活动的企业、事业单位、机构、协会和其他组织等数据处理者。
+II. The Negative List applies to data processors such as enterprises, institutions, agencies, associations and other organizations that are registered within the scope of the Guangxi Pilot Free Trade Zone and carry out data exit and other related activities.
+三、负面清单按照行业领域分批次制定。
+2025
+年批次发布地理信息与气象数据服务、企业信用信息服务、直播跨境电商、海外音视频制作与传播四个行业领域负面清单。
+III
+.
+The Negative List is formulated in batches according to industry sectors.
+The 2025 batch releases the negative lists for four industry sectors: geographic information and meteorological data services, enterprise credit information services, live cross-border e-commerce, and overseas audio-visual production and dissemination.
+四、负面清单涉及的行业领域中，如涉及《中华人民共和国出口管制法》规定的管制物项相关技术资料等数据或《中华人民共和国对外贸易法》规定的技术出口管理事项等数据出境的，按照《中华人民共和国出口管制法》《中华人民共和国对外贸易法》等法律、法规、规章规定执行。
+IV. In the industry fields covered by the Negative List, if the data related to the technical information of the controlled items stipulated in the
+Export Control Law of the People's Republic of China
+or the data related to the management of technological exports stipulated in the
+Foreign Trade Law of the People's Republic of China
+go out of the country, they shall be implemented in accordance with the
+Export Control Law of the People's Republic of China
+and the
+Foreign Trade Law of the People's Republic of China
+, as well as the provisions of other laws, regulations and rules.
+五、
+数据处理者开展数据出境活动前，应当自主识别和认定出境数据类型、数量等，并对出境数据是否适用于负面清单进行研判。
+V. Before data processors carry out data exit activities, they shall independently identify and recognize the types and quantities of outbound data, etc., and examine and judge whether the outbound data are applicable to the negative list.
+六、
+出境数据属于负面清单所列行业领域的，经研判，出境数据属于负面清单内的，需要按照负面清单要求，申报数据出境安全评估、订立个人信息出境标准合同或通过个人信息保护认证；出境数据不属于负面清单内的，数据处理者可自行向境外提供。
+VI. If the outbound data
+falls within
+the
+scope of
+the Negative List, after investigation and judgment, if the outbound data falls within the scope of the Negative List, it is necessary to declare the security assessment of the outbound data, enter into a standard contract for the export of personal information or pass the certification for the protection of personal information in accordance with the requirements of the Negative List; if the outbound data does not belong to the Negative List, the data processor may provide the data outside the country on its own.
+七、
+出境数据不属于负面清单所列行业领域的，按《网络数据安全管理条例》《数据出境安全评估办法》《个人信息出境标准合同办法》《促进和规范数据跨境流动规定》等国家相关规定执行。
+VII. If the outbound data does not belong to the industry sectors listed in the Negative List, it shall be implemented in accordance with the
+Regulations on the Administration of Network Data Security
+,
+Measures for Security Assessment of Outbound Data
+,
+Measures for Standard Contracts for Outbound Personal Information
+,
+Provisions on Promoting and Regulating Cross-border Flows of Data
+, and other relevant national regulations.
+八、数据处理者向境外提供个人信息的，应当按照法律、行政法规的规定，履行告知、取得个人单独同意、进行个人信息保护影响评估等义务。
+VIII. If a data processor provides personal information outside the country, it shall, in accordance with the provisions of laws and administrative regulations, fulfill the obligations of informing, obtaining the individual's separate consent, and conducting an impact assessment on the protection of personal information.
+九、数据处理者向境外提供数据的，应当遵守法律法规规定，履行数据安全保护义务，采取技术措施和其他必要措施，保障数据出境安全。发生或者可能发生数据安全事件的，应当采取补救措施，及时向网信部门和其他有关行业主管部门报告。
+IX. Data processors who provide data outside the country shall comply with laws and regulations, fulfill data security protection obligations, and take technical measures and other necessary measures to safeguard the security of data out of the country. Where a data security incident occurs or is likely to occur, it shall take remedial measures and promptly report to the cyberspace administration and other relevant industry authorities.
+十、自治区网信办、自治区数据局、自治区公安厅、广西国家安全厅会同自治区各行业主管部门加强对数据处理者的数据出境活动的监督检查以及抽查，数据处理者应予以积极配合。
+X. The Cyberspace Administration of
+Guang
+xi Zhuang Autonomous Region,
+the
+Big Data Bureau of
+Guang
+xi Zhuang Autonomous Region, the Public Security Department of Guangxi Zhuang Autonomous Region and the State Security Department of Guangxi Zhuang Autonomous Region, in conjunction with the competent authorities of the autonomous region in various industries, will strengthen the supervision and inspection of the data exit activities of data processors as well as spot checks, and the data processors shall actively cooperate with them.
+十一、负面清单实行动态管理，对于已出台的负面清单，跟踪评估实施情况和安全风险，统筹开展负面清单修订工作；对于尚未出台负面清单的行业领域，及时研判数据出境实际需求，研究制定相应行业领域负面清单，不断完善广西自贸试验区数据跨境流动管理政策体系。
+XI. The Negative List adopts dynamic management, for the Negative List has been issued, tracking and assessment of the implementation of the situation and security risks, and coordinate the revision of the Negative List; for the Negative List has not yet been issued in the industry sector, timely study and judgment of the actual demand for data out of the country, research and development of the corresponding industry sector negative list, and constantly improve the Guangxi Pilot Free Trade Zone data cross-border flow management policy system.
+十二、全国其他自贸试验区正式发布的负面清单，广西自贸试验区可参照执行。
+XII. The Negative List officially issued by other pilot free trade zones in the country may be implemented in Guangxi Pilot Free Trade Zone.
+十三、
+负面清单未尽事项由
+自治区网信办、自治区数据局、自治区商务厅、中国（广西）自由贸易试验区工作办公室
+负责解释。
+XIII
+. Matters not covered in the Negative List shall be interpreted
+by the Cyberspace Administration of
+Guang
+xi Zhuang Autonomous Region, the Big Data Bureau of
+Guang
+xi Zhuang Autonomous Region, the Commerce Department of
+Guang
+xi Zhuang Autonomous Region, and the China (Guangxi) Pilot Free Trade Zone Working Offic
+e.
+添加时间：2025-08-08 08:31:01
+来源：
+您当前的位置：
+网站首页
+/
+政策速递
+上一篇
+自治区商务厅 自治区自贸办 自治区网信办 自治区数据局关于印发《中国（广西）自由贸易试验区数据出境负面清单管理办法（试行）》《中国（广西）自由贸易试验区数据出境管理清单（负面清单）（2025版）》的通知
+下一篇
+商务部等9部门印发《关于促进服务出口的若干政策措施》的通知

@@ -56,25 +56,35 @@ def test_metadata_allowlist_hashes_ids_and_drops_content() -> None:
     sanitized = sanitize_trace_metadata(
         {
             "owner_id": "github:alice",
-            "case_id": "case_001",
-            "ruleset_version": "private-customer-rules-v7",
+            "task_id": "task_001",
+            "run_id": "run_001",
+            "thread_id": "thread_001",
             "query": "某企业是否需要申报安全评估",
             "document": "含个人信息的合同正文",
             "answer": "模型生成的长答案",
             "status": "completed",
+            "end_reason": "answered",
+            "model_retry_count": 1,
+            "tool_retry_count": 2,
+            "usage_reported_model_calls": 3,
             "query_length": 15,
-            "web_search_used": False,
+            "refused": False,
         },
         hash_salt="test-salt-with-16-characters",
     )
 
     assert sanitized["owner_id_hash"] != "github:alice"
-    assert sanitized["case_id_hash"] != "case_001"
-    assert sanitized["ruleset_version_hash"] != "private-customer-rules-v7"
+    assert sanitized["task_id_hash"] != "task_001"
+    assert sanitized["run_id_hash"] != "run_001"
+    assert sanitized["thread_id_hash"] != "thread_001"
     assert len(str(sanitized["owner_id_hash"])) == 24
     assert sanitized["status"] == "completed"
+    assert sanitized["end_reason"] == "answered"
+    assert sanitized["model_retry_count"] == 1
+    assert sanitized["tool_retry_count"] == 2
+    assert sanitized["usage_reported_model_calls"] == 3
     assert sanitized["query_length"] == 15
-    assert sanitized["web_search_used"] is False
+    assert sanitized["refused"] is False
     assert "query" not in sanitized
     assert "document" not in sanitized
     assert "answer" not in sanitized

@@ -6,7 +6,6 @@ import pytest
 from pydantic import ValidationError
 
 from domain import (
-    CaseDocument,
     Document,
     DocumentVersion,
     InvalidDocumentTransition,
@@ -20,7 +19,7 @@ _SHA256 = "a" * 64
 def _document(**overrides: object) -> Document:
     values: dict[str, object] = {
         "document_id": "doc_001",
-        "workspace_id": "ws_001",
+        "owner_id": "ws_001",
         "logical_name": "数据出境合同.docx",
         "document_type": "contract",
         "created_by": "github:alice",
@@ -121,18 +120,6 @@ class TestDocumentVersion:
                 size_bytes=0,
                 created_at=100.0,
             )
-
-
-class TestCaseDocument:
-    def test_happy_path(self) -> None:
-        binding = CaseDocument(
-            case_id="case_001",
-            document_id="doc_001",
-            purpose="证明境外接收方责任",
-            added_by="github:alice",
-            added_at=100.0,
-        )
-        assert binding.purpose == "证明境外接收方责任"
 
 
 class TestProcessingJob:

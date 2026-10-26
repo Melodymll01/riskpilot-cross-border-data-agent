@@ -28,6 +28,8 @@ def make_identify_owner(container: AppContainer) -> Callable[[Request], str | No
     cookie_name = container.settings.cookie_name
 
     def _identify(request: Request) -> str | None:
+        if container.settings.internal_service_required:
+            return getattr(request.state, "gateway_owner", None)
         token = request.cookies.get(cookie_name)
         return container.auth_login.identify(token)
 
@@ -36,11 +38,10 @@ def make_identify_owner(container: AppContainer) -> Callable[[Request], str | No
 
 def make_require_owner(container: AppContainer) -> Callable[[Request], str]:
     """构造 ``require_owner`` Depends：找不到 owner 抛 401。"""
-    cookie_name = container.settings.cookie_name
+    identify = make_identify_owner(container)
 
     def _require(request: Request) -> str:
-        token = request.cookies.get(cookie_name)
-        uid = container.auth_login.identify(token)
+        uid = identify(request)
         if uid is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -66,12 +67,11 @@ def make_require_admin(container: AppContainer) -> Callable[[Request], str]:
         @router.delete("/documents/{id}")
         def remove(id: str, admin_id: str = Depends(admin_dep)): ...
     """
-    cookie_name = container.settings.cookie_name
+    identify = make_identify_owner(container)
     admin_set = set(container.settings.admin_user_ids)
 
     def _require_admin(request: Request) -> str:
-        token = request.cookies.get(cookie_name)
-        uid = container.auth_login.identify(token)
+        uid = identify(request)
         if uid is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,

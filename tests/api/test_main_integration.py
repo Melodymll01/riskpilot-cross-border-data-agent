@@ -1,4 +1,4 @@
-"""集成测试：``main:app`` 同时挂载 ``/api/v2/*`` 与 ``/api/v3/*``。
+"""集成测试：``main:app`` 挂载当前 ``/api/v2/*`` 对话接口。
 
 策略：
 - 不再用 fresh FastAPI + 全 Fake container（那是 unit-level 测试，见 tests/api/）
@@ -19,7 +19,6 @@ def main_client():
     import main as main_module
 
     # 避免集成测试依赖后台预热时序。
-    main_module.app.state.container.research.warmup = lambda: None  # type: ignore[method-assign]
 
     with TestClient(main_module.app) as c:
         yield c
@@ -31,7 +30,8 @@ def test_main_app_has_container_in_state(main_client):
 
     assert hasattr(main_module.app.state, "container")
     assert main_module.app.state.container.copilot_agent.tool_names == [
-        "risk_profile_assess",
+        "assess_risk",
+        "request_clarification",
         "search_law",
         "search_user_docs",
         "web_search",
@@ -56,13 +56,13 @@ def test_v2_ready_lists_all_tools(main_client):
     body = resp.json()
     assert body["status"] == "ok"
     assert body["checks"]["database"] is True
-    assert body["checks"]["redis"] == "disabled"
     assert body["checks"]["ready"] is True
     assert set(body["tools"]) == {
+        "assess_risk",
+        "request_clarification",
         "search_law",
         "search_user_docs",
         "web_search",
-        "risk_profile_assess",
     }
 
 
@@ -88,97 +88,19 @@ def test_v2_require_owner_blocks_unauthed(main_client):
         assert resp.json()["error_code"] == "AUTH_REQUIRED"
 
 
-def test_v3_workspace_route_mounted(main_client):
-    """真实主应用挂载 V3；无登录态访问时应命中鉴权而非 404。"""
-    from fastapi.testclient import TestClient
-
-    import main as main_module
-
-    with TestClient(main_module.app) as fresh:
-        resp = fresh.get("/api/v3/workspaces")
-        assert resp.status_code == 401
-        assert resp.json()["error_code"] == "AUTH_REQUIRED"
-
-
-def test_openapi_contains_v2_and_v3(main_client):
+def test_openapi_contains_conversation_routes(main_client):
     paths = main_client.get("/openapi.json").json()["paths"]
     assert "/api/v2/copilot/chat/stream" in paths
-    assert "/api/v3/workspaces" in paths
-    assert "/api/v3/cases/{case_id}/transitions" in paths
-    assert "/api/v3/cases/{case_id}/documents" in paths
-    assert "/api/v3/processing-jobs/{job_id}" in paths
-    assert "/api/v3/processing-jobs/{job_id}/parse" in paths
-    assert "/api/v3/processing-jobs/{job_id}/retry" in paths
-    assert "/api/v3/processing-jobs/{job_id}/index" in paths
-    assert "/api/v3/cases/{case_id}/evidence/search" in paths
-    assert "/api/v3/cases/{case_id}/visual-assets" in paths
-    assert "/api/v3/cases/{case_id}/visual-assets/search" in paths
-    assert "/api/v3/cases/{case_id}/facts" in paths
-    assert "/api/v3/facts/{fact_id}/transitions" in paths
-    assert "/api/v3/workspaces/{workspace_id}/policy-rules" in paths
-    assert "/api/v3/cases/{case_id}/policy-evaluations" in paths
+    assert "/api/v2/copilot/runs/{run_id}/cancel" in paths
+    assert "/api/v2/files" in paths
+    assert "/api/v2/qa" in paths
+    assert not any(path.startswith("/api/v3/") for path in paths)
 
 
 def test_legacy_root_still_served(main_client):
     """老的 ``GET /`` 静态前端入口保留（由 main.py 直接服务，非 v1 路由）。"""
     resp = main_client.get("/")
-    # frontend/index.html 存在 → 200；不存在则 404；任一都说明静态入口仍挂着
-    assert resp.status_code in (200, 404)
-
-
-class TestWarmupResearch:
-    """``_warmup_research`` lifespan 辅助：best-effort 预热，绝不影响服务可用性。"""
-
-    @staticmethod
-    def _run(coro):
-        import asyncio
-
-        return asyncio.run(coro)
-
-    def test_calls_warmup_once(self):
-        import main as main_module
-
-        calls = []
-
-        class _C:
-            class research:  # noqa: N801 — 简单命名空间
-                @staticmethod
-                def warmup():
-                    calls.append(1)
-
-        self._run(main_module._warmup_research(_C()))
-        assert calls == [1]
-
-    def test_swallows_warmup_exception(self):
-        import main as main_module
-
-        class _C:
-            class research:  # noqa: N801
-                @staticmethod
-                def warmup():
-                    raise RuntimeError("模型加载炸了")
-
-        # 不抛——best-effort，首个 research 仍可懒加载
-        self._run(main_module._warmup_research(_C()))
-
-    def test_noop_when_no_warmup_method(self):
-        import main as main_module
-
-        class _C:
-            research = object()  # 无 warmup 属性
-
-        # 不抛
-        self._run(main_module._warmup_research(_C()))
-
-    def test_lifespan_actually_invokes_warmup(self):
-        """走真实 main.app lifespan：确认 warmup 被后台任务真正调用（recording stub 不加载模型）。"""
-        from fastapi.testclient import TestClient
-
-        import main as main_module
-
-        calls: list[int] = []
-        main_module.app.state.container.research.warmup = lambda: calls.append(1)  # type: ignore[method-assign]
-        with TestClient(main_module.app) as c:
-            # 触发一次请求让事件循环驱动后台预热任务完成
-            c.get("/api/v2/health")
-        assert calls == [1]
+    assert resp.status_code == 200
+    assert 'id="app"' in resp.text
+    assert 'id="composer-input"' in resp.text
+    assert 'id="btn-stop"' in resp.text

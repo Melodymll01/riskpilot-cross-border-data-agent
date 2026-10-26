@@ -4,11 +4,16 @@
 后续可实现基于 cross-encoder 或 API 的重排序策略。
 """
 
+from __future__ import annotations
+
 import logging
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from config import settings
+from config import Settings, settings
+
+if TYPE_CHECKING:
+    from domain.ports import RunControlPort
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +22,13 @@ class BaseReranker(ABC):
     """重排序器基类，定义统一接口。"""
 
     @abstractmethod
-    def rerank(self, query: str, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def rerank(
+        self,
+        query: str,
+        results: list[dict[str, Any]],
+        *,
+        runtime_control: RunControlPort | None = None,
+    ) -> list[dict[str, Any]]:
         """
         对检索结果进行重排序。
 
@@ -34,7 +45,14 @@ class BaseReranker(ABC):
 class PassthroughReranker(BaseReranker):
     """直通重排序器：不做任何重排序，直接返回原始结果。"""
 
-    def rerank(self, query: str, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def rerank(
+        self,
+        query: str,
+        results: list[dict[str, Any]],
+        *,
+        runtime_control: RunControlPort | None = None,
+    ) -> list[dict[str, Any]]:
+        del runtime_control
         logger.debug("使用 PassthroughReranker，跳过重排序")
         return results
 
@@ -45,7 +63,14 @@ class DistanceThresholdReranker(BaseReranker):
     def __init__(self, max_distance: float = settings.distance_threshold):
         self.max_distance = max_distance
 
-    def rerank(self, query: str, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def rerank(
+        self,
+        query: str,
+        results: list[dict[str, Any]],
+        *,
+        runtime_control: RunControlPort | None = None,
+    ) -> list[dict[str, Any]]:
+        del runtime_control
         if not results:
             return results
 
@@ -110,12 +135,32 @@ class CrossEncoderReranker(BaseReranker):
         self.device = device
         self.score_threshold = score_threshold
 
-    def rerank(self, query: str, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def rerank(
+        self,
+        query: str,
+        results: list[dict[str, Any]],
+        *,
+        runtime_control: RunControlPort | None = None,
+    ) -> list[dict[str, Any]]:
         if not results:
             return results
 
         pairs = [(query, r.get("text", "")) for r in results]
-        scores = self.model.predict(pairs)
+
+        def invoke():
+            return self.model.predict(pairs)
+
+        scores = (
+            runtime_control.call_model(
+                operation="retrieval_rerank",
+                stage="tool",
+                invoke=invoke,
+            )
+            if runtime_control is not None
+            else invoke()
+        )
+        if runtime_control is not None:
+            runtime_control.record_model_usage(input_tokens=None, output_tokens=None)
 
         for r, s in zip(results, scores, strict=True):
             r["rerank_score"] = float(s)
@@ -143,7 +188,7 @@ class CrossEncoderReranker(BaseReranker):
 # ---- 工厂：按 settings 选择重排序器 ----
 
 
-def build_reranker() -> BaseReranker:
+def build_reranker(*, config: Settings | None = None) -> BaseReranker:
     """根据 ``settings`` 选择重排序器。
 
     - ``enable_reranker=True`` → ``CrossEncoderReranker``（bge-reranker 精排）；
@@ -153,14 +198,15 @@ def build_reranker() -> BaseReranker:
     注意：``CrossEncoderReranker.__init__`` 会**同步加载模型（~1GB）**，调用方应在
     首次检索时懒构造（见 ``HybridRetrieverAdapter``），避免容器构造即阻塞启动。
     """
-    if not settings.enable_reranker:
-        return DistanceThresholdReranker()
+    configuration = config or settings
+    if not configuration.enable_reranker:
+        return DistanceThresholdReranker(configuration.distance_threshold)
     try:
         return CrossEncoderReranker(
-            model_name=settings.reranker_model,
-            device=settings.reranker_device,
-            score_threshold=settings.reranker_score_threshold,
+            model_name=configuration.reranker_model,
+            device=configuration.reranker_device,
+            score_threshold=configuration.reranker_score_threshold,
         )
     except Exception as exc:  # noqa: BLE001 — 加载失败必须回退，不能让检索整体挂掉
         logger.warning("Cross-Encoder 加载失败，回退到距离阈值重排序: %s", exc)
-        return DistanceThresholdReranker()
+        return DistanceThresholdReranker(configuration.distance_threshold)

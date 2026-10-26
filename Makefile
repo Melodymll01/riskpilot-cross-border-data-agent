@@ -1,89 +1,45 @@
-# RagDataOut Makefile
-# Usage on Windows PowerShell: `make test` works if you have GNU Make installed.
-#                              Otherwise see scripts/* equivalents.
-
 PY ?= python
-PIP ?= pip
-PORT ?= 8000
-
-.PHONY: help install install-dev lint format type-check test test-cov agent-eval \
-        serve clean docker-build docker-up docker-down docker-observability \
-        docker-smoke seed-demo hooks ci
-
+GO ?= go
+PORT ?= 8765
+.PHONY: help install install-dev lint format type-check test test-cov evidence-eval serve serve-python serve-stop serve-status go-test ci docker-build docker-up docker-down docker-smoke
 help:
-	@echo "Available targets:"
-	@echo "  install       - install runtime deps"
-	@echo "  install-dev   - install dev deps (pytest, ruff, mypy, ...)"
-	@echo "  lint          - ruff check"
-	@echo "  format        - ruff format"
-	@echo "  type-check    - mypy on domain/app/infra"
-	@echo "  test          - run pytest (offline)"
-	@echo "  test-cov      - run pytest with coverage"
-	@echo "  agent-eval    - run offline Agent trajectory evaluation"
-	@echo "  serve         - uvicorn dev server on :$(PORT)"
-	@echo "  hooks         - install pre-commit hooks"
-	@echo "  ci            - lint + type-check + test (mirrors GitHub Actions)"
-	@echo "  docker-build  - docker compose build"
-	@echo "  docker-up     - docker compose up -d"
-	@echo "  docker-down   - docker compose down"
-	@echo "  seed-demo     - create idempotent synthetic cases"
-	@echo "  docker-observability - start optional Prometheus"
-	@echo "  docker-smoke  - verify healthy stack + seeded cases"
-	@echo "  clean         - remove caches"
-
+	@echo "install-dev | lint | type-check | test | evidence-eval | serve | docker-up"
 install:
-	$(PIP) install -r requirements.txt
-
+	$(PY) -m pip install -r requirements.txt
 install-dev:
-	$(PIP) install -r requirements-dev.txt
-
+	$(PY) -m pip install -r requirements-dev.txt
 lint:
-	ruff check .
-	ruff format --check .
-
+	$(PY) -m ruff check .
+	$(PY) -m ruff format --check .
 format:
-	ruff check --fix .
-	ruff format .
-
+	$(PY) -m ruff check --fix .
+	$(PY) -m ruff format .
 type-check:
-	mypy domain app infra observability_context.py scripts/seed_demo.py
-
+	$(PY) -m mypy domain app infra observability_context.py
 test:
-	pytest -q
-
+	$(PY) -m pytest -q
 test-cov:
-	pytest -ra --cov --cov-report=term-missing
-
-agent-eval:
-	python -m evaluations.agent_runs.run --no-write
-
+	$(PY) -m pytest --cov --cov-report=term-missing
+evidence-eval:
+	$(PY) -m evaluations.evidence_qa.run --oracle-self-check --no-write
+serve-python:
+	$(PY) -m uvicorn main:app --host 127.0.0.1 --port $(PORT)
 serve:
-	uvicorn main:app --reload --port $(PORT)
-
-hooks:
-	pre-commit install
-
-ci: lint type-check test agent-eval
-
+	$(PY) scripts/dev_stack.py start --python $(PY) --go $(GO)
+serve-stop:
+	$(PY) scripts/dev_stack.py stop
+serve-status:
+	$(PY) scripts/dev_stack.py status
+go-test:
+	RISKPILOT_GO=$(GO) $(PY) scripts/go_tool.py vet ./...
+	RISKPILOT_GO=$(GO) $(PY) scripts/go_tool.py test -race ./...
+ci: lint type-check go-test test evidence-eval
 docker-build:
-	./scripts/compose.sh build app
-
+	./scripts/compose.sh build app gateway
 docker-up:
-	./scripts/compose.sh up -d
-
+	$(PY) scripts/dev_stack.py prepare
+	RISKPILOT_UID=$$(id -u) RISKPILOT_GID=$$(id -g) ./scripts/compose.sh up -d
 docker-down:
 	./scripts/compose.sh down
-
-docker-observability:
-	./scripts/compose.sh --profile observability up -d prometheus
-
-seed-demo:
-	./scripts/compose.sh --profile tools run --rm seed
-
 docker-smoke:
 	./scripts/compose_smoke.sh
-
-clean:
-	@echo "Cleaning caches..."
-	-rm -rf .pytest_cache .mypy_cache .ruff_cache htmlcov .coverage coverage.xml
-	-find . -type d -name __pycache__ -prune -exec rm -rf {} +

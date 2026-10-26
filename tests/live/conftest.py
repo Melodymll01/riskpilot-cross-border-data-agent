@@ -37,6 +37,8 @@ def _has_real_keys() -> bool:
     embed_ok = bool(embed_key) and embed_key != _PLACEHOLDER
     chat_key = settings.chat_api_key or settings.openai_api_key
     chat_ok = bool(chat_key) and chat_key != _PLACEHOLDER
+    chat_ok = chat_ok or settings.llm_provider in {"traex", "local"}
+    embed_ok = embed_ok or settings.embed_provider in {"sentence_transformer", "local"}
     return embed_ok and chat_ok
 
 

@@ -13,7 +13,12 @@ class AgentEventType(StrEnum):
     TOOL_CALL = "tool_call"
     TOOL_RESULT = "tool_result"
     TOOL_ERROR = "tool_error"
-    ASK_USER = "ask_user"
+    RUN_STARTED = "run_started"
+    RUN_INTERRUPTED = "run_interrupted"
+    RUN_RESUMED = "run_resumed"
+    RUN_STATUS = "run_status"
+    DRAFT_DELTA = "draft_delta"
+    DRAFT_DISCARDED = "draft_discarded"
     ANSWER = "answer"
 
 
@@ -52,15 +57,37 @@ class AgentEvent:
         )
 
     @classmethod
-    def ask_user(
+    def run_started(cls, run_id: str) -> AgentEvent:
+        return cls(AgentEventType.RUN_STARTED, {"run_id": run_id})
+
+    @classmethod
+    def run_interrupted(cls, run_id: str, stage: str) -> AgentEvent:
+        return cls(AgentEventType.RUN_INTERRUPTED, {"run_id": run_id, "stage": stage})
+
+    @classmethod
+    def run_resumed(cls, run_id: str) -> AgentEvent:
+        return cls(AgentEventType.RUN_RESUMED, {"run_id": run_id})
+
+    @classmethod
+    def run_status(
         cls,
-        question: str,
-        missing_facts: list[str] | None = None,
+        run_id: str,
+        status: str,
+        stage: str,
+        reason: str | None = None,
     ) -> AgentEvent:
-        return cls(
-            AgentEventType.ASK_USER,
-            {"question": question, "missing_facts": list(missing_facts or [])},
-        )
+        payload: dict[str, Any] = {"run_id": run_id, "status": status, "stage": stage}
+        if reason:
+            payload["reason"] = reason
+        return cls(AgentEventType.RUN_STATUS, payload)
+
+    @classmethod
+    def draft_delta(cls, run_id: str, text: str) -> AgentEvent:
+        return cls(AgentEventType.DRAFT_DELTA, {"run_id": run_id, "text": text})
+
+    @classmethod
+    def draft_discarded(cls, run_id: str, reason: str) -> AgentEvent:
+        return cls(AgentEventType.DRAFT_DISCARDED, {"run_id": run_id, "reason": reason})
 
     @classmethod
     def answer(

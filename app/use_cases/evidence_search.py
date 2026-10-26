@@ -5,9 +5,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from app.use_cases.case_management import CaseManagementUseCase
     from domain.evidence import EvidenceSearchHit
-    from domain.ports import EmbedPort, EvidenceIndexPort
+    from domain.ports import EmbedPort, EvidenceIndexPort, RunControlPort
 
 
 class EvidenceSearchUseCase:
@@ -16,26 +15,29 @@ class EvidenceSearchUseCase:
         *,
         evidence_index: EvidenceIndexPort,
         embedder: EmbedPort,
-        case_management: CaseManagementUseCase,
     ) -> None:
         self._index = evidence_index
         self._embedder = embedder
-        self._case_management = case_management
 
     def search(
         self,
         actor_id: str,
         *,
-        case_id: str,
+        document_ids: list[str] | None = None,
         query: str,
         top_k: int = 5,
+        runtime_control: RunControlPort | None = None,
     ) -> list[EvidenceSearchHit]:
-        case = self._case_management.get_case(case_id, actor_id)
-        query_embedding = self._embedder.embed([query])[0]
-        return self._index.search(
-            workspace_id=case.workspace_id,
-            case_id=case.case_id,
+        query_embedding = self._embedder.embed([query], runtime_control=runtime_control)[0]
+        if runtime_control is not None:
+            runtime_control.check(stage="tool")
+        result = self._index.search(
+            owner_id=actor_id,
+            document_ids=document_ids,
             query=query,
             query_embedding=query_embedding,
             top_k=top_k,
         )
+        if runtime_control is not None:
+            runtime_control.check(stage="tool")
+        return result

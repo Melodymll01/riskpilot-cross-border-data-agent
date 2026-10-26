@@ -34,15 +34,15 @@ def test_http_observability_uses_route_template_not_resource_id(
     container.metrics = metrics
     sensitive_run_id = "run-sensitive-123"
 
-    response = client.get(f"/api/v3/runs/{sensitive_run_id}")
+    response = client.get(f"/api/v2/tasks/{sensitive_run_id}")
 
     assert response.status_code == 401
     http_span = trace.spans[-1]
     assert http_span["name"] == "riskpilot.http.request"
-    assert http_span["metadata"]["http.route"] == "/api/v3/runs/{run_id}"
+    assert http_span["metadata"]["http.route"] == "/api/v2/tasks/{task_id}"
     assert sensitive_run_id not in str(http_span["metadata"])
     payload = metrics.render().decode()
-    assert 'route="/api/v3/runs/{run_id}"' in payload
+    assert 'route="/api/v2/tasks/{task_id}"' in payload
     assert sensitive_run_id not in payload
 
 

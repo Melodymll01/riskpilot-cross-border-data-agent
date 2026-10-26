@@ -11,8 +11,7 @@ from domain import EvidenceChunk, EvidenceSearchHit
 def _chunk(**overrides: object) -> EvidenceChunk:
     values: dict[str, object] = {
         "chunk_id": "evc_001",
-        "workspace_id": "ws_001",
-        "case_id": "case_001",
+        "owner_id": "ws_001",
         "document_id": "doc_001",
         "document_version_id": "ver_001",
         "page_number": 1,
@@ -28,7 +27,7 @@ def _chunk(**overrides: object) -> EvidenceChunk:
 class TestEvidenceChunk:
     def test_happy_path(self) -> None:
         chunk = _chunk()
-        assert chunk.case_id == "case_001"
+        assert chunk.owner_id == "ws_001"
         assert chunk.page_number == 1
 
     def test_scope_fields_required(self) -> None:

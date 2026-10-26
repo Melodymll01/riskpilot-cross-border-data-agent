@@ -20,8 +20,11 @@ data: <single-line JSON>
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
+import logging
 from collections.abc import AsyncIterator, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -49,6 +52,7 @@ def sse_error(error_code: str, message: str) -> str:
 
 # StopIteration / 结束哨兵——不能用 ``None``（事件 payload 可能合法为 None）
 _STREAM_END: object = object()
+logger = logging.getLogger(__name__)
 
 
 async def stream_with_keepalive(
@@ -70,6 +74,10 @@ async def stream_with_keepalive(
     """
     loop = asyncio.get_running_loop()
     iterator = iter(sync_events)
+    # A generator may hold ContextVar tokens across yields. next() and close()
+    # must execute in one logical context, never in the event-loop callback.
+    context = contextvars.copy_context()
+    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="sse-stream")
 
     def _next() -> object:
         """同步 next；走到尾返回 ``_STREAM_END`` 哨兵。"""
@@ -79,10 +87,11 @@ async def stream_with_keepalive(
             return _STREAM_END
 
     task: asyncio.Future[object] | None = None
+    finished = False
     try:
         while True:
             if task is None:
-                task = loop.run_in_executor(None, _next)
+                task = loop.run_in_executor(executor, context.run, _next)
             # 用 wait 而非 wait_for，超时不会 cancel task —— 它继续在后台跑
             done, _pending = await asyncio.wait({task}, timeout=keepalive_seconds)
             if not done:
@@ -95,13 +104,39 @@ async def stream_with_keepalive(
             try:
                 ev = current_task.result()
             except Exception as exc:  # noqa: BLE001 — agent 内部异常都翻译成 SSE error
-                yield sse_error("AGENT_EXCEPTION", f"{type(exc).__name__}: {exc}")
+                finished = True
+                yield sse_error("AGENT_EXCEPTION", f"{type(exc).__name__}")
                 return
 
             if ev is _STREAM_END:
+                finished = True
                 return
             yield event_to_sse(ev)  # type: ignore[arg-type]
     finally:
-        # 客户端断流 / 上游异常：尽力 cancel；executor 线程的 next() 仍可能跑完
-        if task is not None and not task.done():
-            task.cancel()
+        # 客户端异常断流时先通知后端运行控制；正常 EOF 只释放资源。
+        # 不能依赖 Future.cancel()：同步 next() 可能已经在线程中执行；
+        # 等它返回后再 close iterator，触发资源释放。
+        try:
+            if not finished:
+                disconnect = getattr(sync_events, "disconnect", None)
+                if callable(disconnect):
+                    disconnect()
+        finally:
+            try:
+                close = getattr(sync_events, "close", None)
+                if callable(close):
+                    # Queue behind any running next(). Shutdown must retain this
+                    # cleanup even when the response task has been cancelled.
+                    cleanup = executor.submit(context.run, close)
+
+                    def report_cleanup(future):
+                        try:
+                            future.result()
+                        except Exception as exc:
+                            logger.warning("SSE cleanup failed: %s", type(exc).__name__)
+
+                    cleanup.add_done_callback(report_cleanup)
+                    if task is None or task.done():
+                        await asyncio.shield(asyncio.wrap_future(cleanup))
+            finally:
+                executor.shutdown(wait=False)

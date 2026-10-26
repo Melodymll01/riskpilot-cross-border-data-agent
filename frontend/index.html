@@ -1,636 +1,210 @@
 <!DOCTYPE html>
+
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>数智合规 · DataCompliance AI</title>
-  <link rel="stylesheet" href="/static/style.css" />
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>RiskPilot · 跨境数据合规助手</title>
+<link href="/static/style.css?v=20261023-ui17&memory=20261026-v2" rel="stylesheet"/>
 </head>
 <body>
-  <div class="app" id="app">
-    <!-- ─────────── 左侧任务边栏 ─────────── -->
-    <aside class="sidebar">
-      <div class="brand">
-        <div class="brand-logo">DC</div>
-        <div class="brand-text">
-          <div class="brand-title">数智合规</div>
-          <div class="brand-sub">数据出境合规 · v2</div>
-        </div>
-      </div>
+<div class="app" id="app">
 
-      <button class="btn btn-primary btn-block" id="btn-new-task">
-        <span class="ico">＋</span> 新建任务
+<aside class="sidebar">
+<div class="brand">
+<div aria-hidden="true" class="brand-logo">
+<svg fill="none" viewBox="0 0 32 32"><path d="M8.5 6.5h10a5 5 0 0 1 5 5v14h-10a5 5 0 0 1-5-5v-14Z"/><path d="M12.5 11.5h7M12.5 15.5h7M12.5 19.5h4"/></svg>
+</div>
+<div class="brand-text">
+<div class="brand-title">RiskPilot</div>
+<div class="brand-sub">跨境数据合规助手</div>
+</div>
+<button aria-label="关闭导航" class="btn btn-ghost btn-icon sidebar-close" id="btn-sidebar-close" type="button">
+<svg fill="none" viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"/></svg>
+</button>
+</div>
+<button class="btn btn-primary btn-block" id="btn-new-task">
+<svg aria-hidden="true" fill="none" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> 新建研判
       </button>
+<button aria-controls="knowledge-base-view" class="sidebar-kb hidden" id="btn-knowledge-base" type="button">
+<svg aria-hidden="true" fill="none" viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5v-15Z"/><path d="M4 20.5A2.5 2.5 0 0 1 6.5 18H20M8 7h8M8 10.5h6"/></svg>
+<span>知识库</span><span class="sidebar-kb-badge">管理</span>
+</button>
 
-      <!-- 主导航：对话 / 知识库 / 审计；KB 入口需登录（admin 可写，普通用户只读）；审计 admin-only -->
-      <nav class="side-nav" aria-label="主导航">
-        <button class="side-nav-item active" data-view="chat" id="nav-chat">
-          <span class="ico">💬</span><span>对话</span>
-        </button>
-        <button class="side-nav-item hidden" data-view="cases" id="nav-cases" hidden>
-          <span class="ico">🗂️</span><span>案件工作台</span>
-          <span class="side-nav-tag">V3</span>
-        </button>
-        <button class="side-nav-item hidden" data-view="kb" id="nav-kb" hidden>
-          <span class="ico">📚</span><span>知识库</span>
-          <span class="side-nav-tag" id="nav-kb-tag" hidden>admin</span>
-        </button>
-        <button class="side-nav-item hidden" data-view="audit" id="nav-audit" hidden>
-          <span class="ico">📜</span><span>审计日志</span>
-          <span class="side-nav-tag">admin</span>
-        </button>
-      </nav>
 
-      <div class="task-list-header">
-        <span>历史任务</span>
-        <span class="task-count" id="task-count">0</span>
+<div class="task-list-header">
+<span>历史对话</span>
+<span class="task-count" id="task-count">0</span>
+</div>
+<ol class="task-list" id="task-list"></ol>
+<div class="sidebar-footer">
+<div class="user-card" id="user-card">
+<div class="user-avatar" id="user-avatar">?</div>
+<div class="user-info">
+<div class="user-name" id="user-name">未登录</div>
+<div class="user-provider" id="user-provider">—</div>
+</div>
+<button class="btn btn-ghost btn-icon" id="btn-user-menu" title="账户菜单">⋯</button>
+</div>
+<div class="user-menu hidden" id="user-menu">
+<button class="menu-item" id="btn-account-memory" hidden>我的记忆</button>
+
+
+<a class="menu-item" href="/api/v2/auth/github/redirect" id="btn-github-login">使用 GitHub 登录</a>
+<button class="menu-item" id="btn-logout">退出登录</button>
+</div>
+</div>
+</aside>
+<button aria-label="关闭导航" class="sidebar-backdrop" id="sidebar-backdrop" type="button"></button>
+
+<main class="chat-pane" id="chat-pane">
+<header class="chat-header">
+
+
+<div class="chat-toolbar">
+<div class="chat-title-wrap">
+<button aria-expanded="false" aria-label="打开导航" class="btn btn-ghost btn-icon sidebar-toggle" id="btn-sidebar-toggle" type="button">
+<svg fill="none" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+</button>
+<div class="chat-heading">
+<span class="chat-eyebrow">合规研判会话</span>
+<span class="chat-title" id="chat-title">新对话</span>
+</div>
+</div>
+<div class="chat-actions">
+<button aria-label="切换深色 / 浅色" class="btn btn-ghost btn-icon" id="btn-theme-toggle" title="切换深色 / 浅色"></button>
+<span class="status-pill">
+<span class="status-dot" data-state="unknown" id="status-dot"></span>
+<span class="status-text" id="status-text">检查中…</span>
+</span>
+</div>
+</div>
+</header>
+<section aria-labelledby="knowledge-base-title" class="knowledge-base-view hidden" id="knowledge-base-view">
+  <div class="kb-page-shell">
+    <div class="kb-page-header">
+      <div>
+        <div class="kb-kicker">ADMIN CONSOLE</div>
+        <h1 id="knowledge-base-title">知识库</h1>
+        <p>管理 RiskPilot 当前使用的公共法规与合规资料。</p>
       </div>
-      <ol class="task-list" id="task-list"></ol>
-
-      <div class="sidebar-footer">
-        <div class="user-card" id="user-card">
-          <div class="user-avatar" id="user-avatar">?</div>
-          <div class="user-info">
-            <div class="user-name" id="user-name">未登录</div>
-            <div class="user-provider" id="user-provider">—</div>
-          </div>
-          <button class="btn btn-ghost btn-icon" id="btn-user-menu" title="账户菜单">⋯</button>
-        </div>
-        <div class="user-menu hidden" id="user-menu">
-          <button class="menu-item hidden" id="btn-memory-settings" hidden>⚙ 记忆与隐私</button>
-          <button class="menu-item hidden" id="btn-demo-login" hidden>进入固定 Demo</button>
-          <button class="menu-item" id="btn-github-login">使用 GitHub 登录</button>
-          <button class="menu-item" id="btn-logout">退出登录</button>
-        </div>
-      </div>
-    </aside>
-
-    <!-- ─────────── 右侧主区：聊天 ─────────── -->
-    <main class="chat-pane" id="chat-pane">
-      <header class="chat-header">
-        <!-- 模式切换：新建对话时决定走哪条业务路径 -->
-        <nav class="mode-tabs" id="mode-tabs" role="tablist" aria-label="业务模式">
-          <button class="mode-tab active" role="tab" data-mode="qa" aria-selected="true">
-            <span class="mode-ico">💬</span>
-            <span class="mode-name">知识问答</span>
-            <span class="mode-desc">日常合规查询</span>
-          </button>
-          <button class="mode-tab" role="tab" data-mode="research" aria-selected="false">
-            <span class="mode-ico">🔬</span>
-            <span class="mode-name">深度研究</span>
-            <span class="mode-desc">长报告 · 多轮检索</span>
-          </button>
-          <button class="mode-tab" role="tab" data-mode="profile" aria-selected="false">
-            <span class="mode-ico">📊</span>
-            <span class="mode-name">风险画像</span>
-            <span class="mode-desc">命题输入 · 接口预留</span>
-          </button>
-        </nav>
-        <div class="chat-toolbar">
-          <div class="chat-title-wrap">
-            <span class="chat-title" id="chat-title">新对话</span>
-            <span class="mode-badge" id="chat-mode-badge" hidden></span>
-          </div>
-          <div class="chat-actions">
-            <button class="btn btn-ghost btn-icon" id="btn-theme-toggle" title="切换深色 / 浅色" aria-label="切换深色 / 浅色">🌙</button>
-            <span class="status-dot" id="status-dot" data-state="unknown"></span>
-            <span class="status-text" id="status-text">检查中…</span>
-          </div>
-        </div>
-      </header>
-
-      <section class="messages" id="messages">
-        <!-- 空状态：欢迎卡 -->
-        <div class="welcome" id="welcome">
-          <h1>欢迎使用数智合规</h1>
-          <p>面向数据出境法规的对话式合规助手。Agent 会自主调用工具检索法条、研判证据并给出可追溯的回答。</p>
-          <div class="suggest-grid">
-            <button class="suggest-card" data-q="个人信息出境的三种合规路径分别是什么？">
-              <div class="suggest-icon">📜</div>
-              <div class="suggest-text">个人信息出境的三种合规路径分别是什么？</div>
-            </button>
-            <button class="suggest-card" data-q="什么情况下必须申报数据出境安全评估？">
-              <div class="suggest-icon">🔍</div>
-              <div class="suggest-text">什么情况下必须申报数据出境安全评估？</div>
-            </button>
-            <button class="suggest-card" data-q="标准合同备案需要准备哪些材料？">
-              <div class="suggest-icon">📝</div>
-              <div class="suggest-text">标准合同备案需要准备哪些材料？</div>
-            </button>
-            <button class="suggest-card" data-q="重要数据如何识别？依据是什么？">
-              <div class="suggest-icon">⚖️</div>
-              <div class="suggest-text">重要数据如何识别？依据是什么？</div>
-            </button>
-          </div>
-        </div>
-      </section>
-
-      <footer class="composer">
-        <form id="composer-form" autocomplete="off">
-          <textarea
-            id="composer-input"
-            rows="1"
-            placeholder="问点合规问题…  (Enter 发送，Shift+Enter 换行)"
-          ></textarea>
-          <button type="submit" class="btn btn-primary btn-send" id="btn-send">
-            发送
-          </button>
-        </form>
-        <div class="composer-hint">
-          答案基于法规检索 + 工具调用，可能仍有误，请以官方文本为准。
-        </div>
-      </footer>
-    </main>
-
-    <!-- ─────────── 右侧主区：V3 案件工作台 ─────────── -->
-    <main class="case-pane hidden" id="case-pane" aria-labelledby="case-pane-title">
-      <header class="case-header">
-        <div>
-          <h1 class="case-heading" id="case-pane-title">🗂️ V3 案件工作台</h1>
-          <p class="case-subtitle">处理 Assessment Run 的 Fact Confirmation 中断：生成候选、人工确认、继续运行。</p>
-        </div>
-        <button class="btn btn-ghost" id="case-btn-refresh" type="button">↻ 刷新</button>
-      </header>
-
-      <section class="case-manager">
-        <div class="case-manager-column">
-          <div class="case-manager-head">
-            <div>
-              <h2>Workspace</h2>
-              <p class="case-muted">当前账号加入的工作空间</p>
-            </div>
-            <button class="btn btn-ghost" id="case-btn-new-workspace" type="button">＋ 创建</button>
-          </div>
-          <select class="case-input" id="case-workspace-select" aria-label="选择 Workspace">
-            <option value="">请选择 Workspace</option>
-          </select>
-        </div>
-
-        <div class="case-manager-column">
-          <div class="case-manager-head">
-            <div>
-              <h2>Cases</h2>
-              <p class="case-muted">选择案件进入工作台</p>
-            </div>
-            <button class="btn btn-ghost" id="case-btn-new-case" type="button">＋ 创建</button>
-          </div>
-          <div class="case-selector-list" id="case-selector-list"></div>
-        </div>
-      </section>
-
-      <section class="case-demo-bar" aria-label="固定演示案件">
-        <div>
-          <strong>固定 Demo</strong>
-          <span class="case-muted">Seed 后可一键定位，不会修改数据库。</span>
-        </div>
-        <div class="case-demo-actions">
-          <button class="btn btn-ghost" type="button"
-                  data-demo-case-id="case_demo_happy_path">A · Happy Path</button>
-          <button class="btn btn-ghost" type="button"
-                  data-demo-case-id="case_demo_human_loop">B · HITL</button>
-          <button class="btn btn-ghost" type="button"
-                  data-demo-case-id="case_demo_failure_recovery">C · Recovery</button>
-        </div>
-      </section>
-
-      <details class="case-direct">
-        <summary>按 Case ID 直达</summary>
-        <form class="case-load" id="case-load-form" autocomplete="off">
-          <input class="case-input" id="case-id-input" required
-                 placeholder="输入 Case ID，例如 case_..." maxlength="100" />
-          <button class="btn btn-primary" id="case-load-submit" type="submit">加载案件</button>
-        </form>
-      </details>
-
-      <div class="case-status" id="case-status" data-state="idle">请输入 Case ID</div>
-
-      <section class="case-empty" id="case-empty">
-        <h2>从一个 Case 开始</h2>
-        <p>Case ID 可从 V3 Case API 或 Assessment Run 演示流程中获得。</p>
-      </section>
-
-      <div class="case-content hidden" id="case-content">
-        <section class="case-summary">
-          <div>
-            <div class="case-title-line">
-              <h2 id="case-title"></h2>
-              <span class="case-badge" id="case-status-badge"></span>
-            </div>
-            <p class="case-muted">Workspace：<span id="case-workspace"></span></p>
-            <p class="case-muted">Reviewer：<span id="case-reviewer"></span></p>
-          </div>
-        </section>
-
-        <div class="case-grid">
-          <section class="case-card">
-            <header class="case-card-header">
-              <h3>Assessment Run</h3>
-              <div class="case-run-actions">
-                <button class="btn btn-primary" id="case-btn-continue" type="button">继续</button>
-                <button class="btn btn-ghost" id="case-btn-retry-run" type="button">重试</button>
-                <button class="btn btn-ghost" id="case-btn-cancel-run" type="button">取消</button>
-                <button class="btn btn-primary" id="case-btn-review-run" type="button">
-                  Reviewer 通过
-                </button>
-                <button class="btn btn-ghost" id="case-btn-reject-run" type="button">
-                  Reviewer 拒绝
-                </button>
-              </div>
-            </header>
-            <div id="case-run"></div>
-          </section>
-
-          <section class="case-card">
-            <header class="case-card-header">
-              <div>
-                <h3>案件材料</h3>
-                <p class="case-muted">上传后自动解析并建立 Case 级证据索引；失败可重试。</p>
-              </div>
-            </header>
-            <form class="case-upload-form" id="case-upload-form">
-              <input class="case-input" id="case-upload-file" name="file" type="file"
-                     accept=".pdf,.docx,.txt,.md,.markdown" required />
-              <input class="case-input" id="case-upload-purpose" name="purpose"
-                     placeholder="材料用途（可选），如：证明境外接收方责任" maxlength="500" />
-              <button class="btn btn-primary" id="case-upload-submit" type="submit">
-                上传并处理
-              </button>
-            </form>
-            <p class="case-muted case-upload-hint">支持 PDF、DOCX、UTF-8 TXT/Markdown。</p>
-            <div class="case-list" id="case-documents"></div>
-          </section>
-        </div>
-
-        <section class="case-card case-run-detail-card">
-          <header class="case-card-header">
-            <div>
-              <h3>Agent Run Detail</h3>
-              <p class="case-muted">
-                展示结构化节点与工具轨迹，不展示模型思维链、原始 Prompt 或案件正文。
-              </p>
-            </div>
-          </header>
-          <div class="case-detail-layout">
-            <div class="case-detail-column">
-              <section class="case-detail-section">
-                <h4>Evidence Plan</h4>
-                <div id="case-run-plan"></div>
-              </section>
-              <section class="case-detail-section">
-                <h4>节点时间线</h4>
-                <ol class="case-timeline" id="case-run-timeline"></ol>
-              </section>
-            </div>
-            <div class="case-detail-column">
-              <section class="case-detail-section case-interrupt-section" id="case-run-interrupt-wrap">
-                <h4>Human-in-the-loop</h4>
-                <div id="case-run-interrupt"></div>
-              </section>
-              <section class="case-detail-section">
-                <h4>工具调用</h4>
-                <div class="case-tool-list" id="case-run-tools"></div>
-              </section>
-              <section class="case-detail-section">
-                <h4>规则与 Citation</h4>
-                <div id="case-run-verification"></div>
-              </section>
-              <section class="case-detail-section">
-                <h4>最终 Assessment</h4>
-                <div id="case-run-assessment"></div>
-              </section>
-            </div>
-          </div>
-        </section>
-
-        <section class="case-card">
-          <header class="case-card-header">
-            <div>
-              <h3>缺失事实</h3>
-              <p class="case-muted">字段来自最新 fact_confirmation_required 事件。</p>
-            </div>
-            <button class="btn btn-primary" id="case-btn-propose" type="button">从文档生成候选</button>
-          </header>
-          <div class="case-check-list" id="case-missing-fields"></div>
-        </section>
-
-        <section class="case-card">
-          <header class="case-card-header">
-            <div>
-              <h3>图片证据召回</h3>
-              <p class="case-muted">Chinese-CLIP 图文共享向量：上传单图后可用自然语言在当前 Case 内搜图。</p>
-            </div>
-          </header>
-          <form class="case-visual-upload" id="case-visual-upload-form">
-            <input class="case-input" id="case-visual-file" type="file"
-                   accept="image/png,image/jpeg,image/webp" required />
-            <input class="case-input" id="case-visual-caption"
-                   placeholder="图片说明（可选），如：机房红色告警灯" maxlength="1000" />
-            <button class="btn btn-primary" type="submit">上传图片</button>
-          </form>
-          <form class="case-visual-search" id="case-visual-search-form">
-            <input class="case-input" id="case-visual-query"
-                   placeholder="例如：查找包含服务器机柜和红色告警灯的图片" maxlength="1000" required />
-            <button class="btn btn-ghost" type="submit">文本搜图</button>
-          </form>
-          <div class="case-visual-results" id="case-visual-results"></div>
-        </section>
-
-        <section class="case-card">
-          <header class="case-card-header">
-            <div>
-              <h3>Fact 候选与确认状态</h3>
-              <p class="case-muted">模型候选统一为 critical；确认操作需要 Reviewer/Admin。</p>
-            </div>
-          </header>
-          <div class="case-facts" id="case-facts"></div>
-        </section>
-      </div>
-    </main>
-
-    <!-- ─────────── 右侧主区：知识库（所有登录用户可读，admin 可写） ─────────── -->
-    <main class="kb-pane hidden" id="kb-pane" aria-labelledby="kb-title">
-      <header class="kb-header">
-        <div class="kb-title-wrap">
-          <h1 class="kb-title" id="kb-title">📚 知识库</h1>
-          <p class="kb-subtitle">Agent 在检索时会引用这里的语料。任何用户都可上传/删除自己的私人文档；管理员可维护公共库与他人文档。</p>
-        </div>
-        <div class="kb-stats">
-          <div class="kb-stat">
-            <span class="kb-stat-num" id="kb-stat-docs">—</span>
-            <span class="kb-stat-label">文档</span>
-          </div>
-          <div class="kb-stat">
-            <span class="kb-stat-num" id="kb-stat-chunks">—</span>
-            <span class="kb-stat-label">chunk</span>
-          </div>
-          <button class="btn btn-ghost" id="kb-btn-refresh" title="刷新">↻</button>
-        </div>
-      </header>
-
-      <div class="kb-scope-toggle" role="tablist" aria-label="可见范围">
-        <button class="kb-scope-btn is-active" data-scope="all" role="tab"
-                title="公共 ∪ 我的（管理员视角=全库）">全部</button>
-        <button class="kb-scope-btn" data-scope="public" role="tab"
-                title="仅公共库（管理员入库）">公共</button>
-        <button class="kb-scope-btn" data-scope="mine" role="tab"
-                title="仅我自己上传的私人文档">我的</button>
-      </div>
-
-      <div class="kb-readonly-banner hidden" id="kb-readonly-banner">
-        🔒 当前以只读模式查看知识库；上传 / 删除需管理员权限。
-      </div>
-
-      <section class="kb-actions" id="kb-actions">
-        <div class="kb-action-card">
-          <div class="kb-action-title"><span>📄</span> 上传文件</div>
-          <div class="kb-action-hint">支持 PDF / TXT / DOCX；最大 50 MB。默认上传到「我的」私人库。</div>
-          <div class="kb-action-row">
-            <input type="text" id="kb-file-category" class="kb-input"
-                   placeholder="分类可选：法规 / 政策 / 指南" maxlength="100" />
-            <label class="kb-aspublic-wrap" id="kb-file-aspublic-wrap" style="display:none;"
-                   title="管理员可选：勾选后上传到公共库；否则与普通用户一致入私人库">
-              <input type="checkbox" id="kb-file-aspublic" />
-              <span>入公共库</span>
-            </label>
-            <button class="btn btn-primary" id="kb-btn-upload">选择文件上传</button>
-            <input type="file" id="kb-file-input" hidden accept=".pdf,.txt,.docx" />
-          </div>
-        </div>
-
-        <div class="kb-action-card">
-          <div class="kb-action-title"><span>🌐</span> 采集网页</div>
-          <div class="kb-action-hint">仅支持 http / https 协议的公开页面。默认采集到「我的」私人库。</div>
-          <form class="kb-action-row" id="kb-form-web">
-            <input type="url" id="kb-web-url" class="kb-input kb-input-url"
-                   placeholder="https://example.com/article" required />
-            <input type="text" id="kb-web-category" class="kb-input"
-                   placeholder="分类可选" maxlength="100" />
-            <label class="kb-aspublic-wrap" id="kb-web-aspublic-wrap" style="display:none;"
-                   title="管理员可选：勾选后采集到公共库；否则与普通用户一致入私人库">
-              <input type="checkbox" id="kb-web-aspublic" />
-              <span>入公共库</span>
-            </label>
-            <button type="submit" class="btn btn-primary">采集</button>
-          </form>
-        </div>
-      </section>
-
-      <div class="kb-status" id="kb-status" data-state="idle">准备就绪</div>
-
-      <section class="kb-table-wrap">
-        <table class="kb-table" id="kb-table">
-          <thead>
-            <tr>
-              <th class="kb-col-type">类型</th>
-              <th class="kb-col-owner">归属</th>
-              <th class="kb-col-source">source_name</th>
-              <th class="kb-col-title">标题</th>
-              <th class="kb-col-cat">分类</th>
-              <th class="kb-col-chunks">chunk 数</th>
-              <th class="kb-col-action">操作</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </section>
-    </main>
-
-    <!-- ─────────── 右侧主区：审计日志（admin-only） ─────────── -->
-    <main class="audit-pane hidden" id="audit-pane" aria-labelledby="audit-title">
-      <header class="audit-header">
-        <div class="audit-title-wrap">
-          <h1 class="audit-title" id="audit-title">📜 审计日志</h1>
-          <p class="audit-subtitle">记录管理员在知识库上的写操作（上传 / 采集 / 删除）。只读、不可篡改。</p>
-        </div>
-        <div class="audit-toolbar">
-          <select id="audit-action-filter" class="audit-input" title="按动作过滤">
-            <option value="">全部动作</option>
-            <option value="kb.delete">kb.delete</option>
-            <option value="kb.ingest_file">kb.ingest_file</option>
-            <option value="kb.ingest_web">kb.ingest_web</option>
-          </select>
-          <input type="text" id="audit-actor-filter" class="audit-input"
-                 placeholder="actor_id 精确过滤" maxlength="100" />
-          <button class="btn btn-ghost" id="audit-btn-refresh" title="刷新">↻</button>
-          <button class="btn btn-ghost" id="audit-btn-export"
-                  title="按当前过滤条件导出 CSV（最多 10000 行）">⬇ CSV</button>
-        </div>
-      </header>
-
-      <div class="audit-status" id="audit-status" data-state="idle">准备就绪</div>
-
-      <section class="audit-table-wrap">
-        <table class="audit-table" id="audit-table">
-          <thead>
-            <tr>
-              <th class="audit-col-time">时间</th>
-              <th class="audit-col-actor">actor</th>
-              <th class="audit-col-action">action</th>
-              <th class="audit-col-resource">resource</th>
-              <th class="audit-col-success">状态</th>
-              <th class="audit-col-extra">详情</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </section>
-
-      <footer class="audit-pager">
-        <button class="btn btn-ghost" id="audit-prev" disabled>← 上一页</button>
-        <span class="audit-page-label" id="audit-page-label">第 1 页</span>
-        <button class="btn btn-ghost" id="audit-next" disabled>下一页 →</button>
-        <span class="audit-pager-hint">每页 50 条；同场过滤下翻页</span>
-      </footer>
-    </main>
-  </div>
-
-  <!-- Workspace / Case 创建模态 -->
-  <div class="modal-overlay hidden" id="case-create-modal" aria-hidden="true">
-    <div class="modal case-create-modal" role="dialog" aria-modal="true" aria-labelledby="case-create-title">
-      <header class="modal-header">
-        <h2 class="modal-title" id="case-create-title">创建</h2>
-        <button class="btn btn-ghost btn-icon" id="case-create-close" type="button" aria-label="关闭">✕</button>
-      </header>
-      <form class="modal-body case-create-form" id="case-create-form" autocomplete="off">
-        <input type="hidden" id="case-create-kind" />
-        <label class="case-field">
-          <span id="case-create-name-label">名称</span>
-          <input class="case-input" id="case-create-name" required maxlength="200" />
-        </label>
-        <label class="case-field case-only">
-          <span>描述</span>
-          <textarea class="case-input" id="case-create-description" rows="3" maxlength="4000"></textarea>
-        </label>
-        <div class="case-form-grid case-only">
-          <label class="case-field">
-            <span>法域</span>
-            <input class="case-input" id="case-create-jurisdiction" value="CN" maxlength="32" />
-          </label>
-          <label class="case-field">
-            <span>场景类型</span>
-            <input class="case-input" id="case-create-scenario" placeholder="personal_information" maxlength="100" />
-          </label>
-        </div>
-        <div class="case-form-grid case-only">
-          <label class="case-field">
-            <span>评估日期</span>
-            <input class="case-input" id="case-create-date" type="date" />
-          </label>
-          <label class="case-field">
-            <span>Reviewer ID（可选）</span>
-            <input class="case-input" id="case-create-reviewer" maxlength="200" />
-          </label>
-        </div>
-        <div class="case-create-actions">
-          <button class="btn btn-ghost" id="case-create-cancel" type="button">取消</button>
-          <button class="btn btn-primary" id="case-create-submit" type="submit">创建</button>
-        </div>
-      </form>
+      <button class="btn btn-ghost kb-back-button" id="knowledge-base-close" type="button">
+        <svg aria-hidden="true" fill="none" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg> 返回对话
+      </button>
     </div>
-  </div>
-
-  <!-- ─────────── 记忆与隐私设置（模态，Step 031b） ─────────── -->
-  <div class="modal-overlay hidden" id="memory-modal" aria-hidden="true">
-    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="memory-modal-title">
-      <header class="modal-header">
-        <h2 class="modal-title" id="memory-modal-title">⚙ 记忆与隐私</h2>
-        <button class="btn btn-ghost btn-icon" id="memory-modal-close" title="关闭" aria-label="关闭">✕</button>
-      </header>
-
-      <div class="modal-body" id="memory-modal-body">
-        <!-- 记忆开关 -->
-        <section class="settings-section">
-          <div class="switch-row">
-            <div class="switch-text">
-              <div class="switch-label">参考保存的记忆</div>
-              <div class="switch-desc">允许助手参考你的长期偏好画像与跨会话事实，回答更贴合你的情况。当前对话内的上下文不受此开关影响，始终保持连贯。</div>
-            </div>
-            <label class="switch" title="参考保存的记忆">
-              <input type="checkbox" id="toggle-use-saved-memory" />
-              <span class="switch-track"><span class="switch-thumb"></span></span>
-            </label>
-          </div>
-
-          <div class="settings-hint" id="memory-settings-hint" hidden></div>
-        </section>
-
-        <!-- 管理：用户画像 + 长期事实 -->
-        <section class="settings-section">
-          <div class="settings-section-head">
-            <h3 class="settings-section-title">已保存的记忆</h3>
-            <button class="btn btn-ghost btn-icon" id="memory-refresh" title="刷新">↻</button>
-          </div>
-
-          <div class="memory-group">
-            <div class="memory-group-head">
-              <span>用户画像</span>
-              <span class="memory-group-count" id="profile-count">0</span>
-            </div>
-            <ul class="memory-list" id="profile-list"></ul>
-            <div class="memory-empty" id="profile-empty" hidden>暂无画像。多聊几句，助手会自动总结你的稳定偏好。</div>
-          </div>
-
-          <div class="memory-group">
-            <div class="memory-group-head">
-              <span>长期事实</span>
-              <span class="memory-group-count" id="facts-count">0 / 0</span>
-            </div>
-            <ul class="memory-list" id="facts-list"></ul>
-            <div class="memory-empty" id="facts-empty" hidden>暂无长期事实。</div>
-          </div>
-        </section>
-
-        <section class="settings-section">
-          <div class="settings-section-head">
-            <div>
-              <h3 class="settings-section-title">召回解释器</h3>
-              <p class="memory-recall-desc">输入一个问题，查看 hybrid_v1 为什么选择这些长期记忆。仅展示你的事实和安全分数，不暴露向量或内部 Prompt。</p>
-            </div>
-          </div>
-          <form class="memory-recall-form" id="memory-recall-form">
-            <input
-              class="memory-recall-input"
-              id="memory-recall-query"
-              maxlength="2000"
-              placeholder="例如：我从事什么行业？"
-              required
-            />
-            <button class="btn btn-primary" type="submit">解释召回</button>
-          </form>
-          <div class="memory-recall-meta" id="memory-recall-meta" hidden></div>
-          <ol class="memory-recall-list" id="memory-recall-list"></ol>
-          <div class="memory-empty" id="memory-recall-empty" hidden>没有事实达到召回阈值，本轮不会注入长期记忆。</div>
-        </section>
-
-        <!-- 危险操作：清除 -->
-        <section class="settings-section settings-danger">
-          <div class="settings-section-head">
-            <h3 class="settings-section-title">清除记忆</h3>
-          </div>
-          <p class="settings-danger-hint">
-            行使「被遗忘权」：删除后不可恢复。「清空记忆」保留历史对话，仅清除派生的画像/摘要/事实；
-            「清空全部」连同历史对话一并删除。
-          </p>
-          <div class="settings-danger-actions">
-            <button class="btn btn-danger-soft" id="btn-forget-memory">清空记忆</button>
-            <button class="btn btn-danger" id="btn-forget-all">清空全部（含对话）</button>
-          </div>
-        </section>
-      </div>
-
-      <div class="modal-status" id="memory-modal-status" data-state="idle" hidden></div>
+    <div class="kb-scope-note"><span class="kb-note-dot"></span><span>当前查看：公共知识库</span><small>这里只展示已发布到公共库的材料；聊天中的企业文件不会自动入库。</small></div>
+    <div class="kb-summary" id="knowledge-base-summary">
+      <div class="kb-stat"><span>公共文档</span><strong data-kb-stat="documents">—</strong></div>
+      <div class="kb-stat"><span>文本片段</span><strong data-kb-stat="chunks">—</strong></div>
+      <div class="kb-stat kb-stat-wide"><span>检索范围</span><strong>法规 + 合规资料</strong></div>
     </div>
+    <div class="kb-toolbar">
+      <div><strong>已收录材料</strong><small>入库后会参与公共法规检索</small></div>
+      <div class="kb-toolbar-actions">
+        <button class="btn btn-primary" id="knowledge-base-add" type="button"><svg aria-hidden="true" fill="none" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>添加材料</button>
+        <button class="btn btn-ghost" id="knowledge-base-refresh" type="button"><svg aria-hidden="true" fill="none" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.9-3.9L4 9M4 5v4h4M4 13a8 8 0 0 0 14.9 3.9L20 15M20 19v-4h-4"/></svg>刷新</button>
+      </div>
+    </div>
+    <div class="kb-ingest-panel hidden" id="knowledge-base-ingest-panel">
+      <div class="kb-ingest-header"><div><strong>添加公共材料</strong><small>选择来源、标签后入库；材料会参与公共法规检索。</small></div><button class="btn btn-ghost" id="knowledge-base-add-close" type="button">收起</button></div>
+      <div class="kb-ingest-tabs" role="tablist" aria-label="材料来源">
+        <button class="kb-ingest-tab active" data-source="file" role="tab" type="button">本地文件</button>
+        <button class="kb-ingest-tab" data-source="web" role="tab" type="button">网页 URL</button>
+      </div>
+      <div class="kb-ingest-fields">
+        <label class="kb-field"><span>材料标签</span><select id="knowledge-base-category"><option value="法律">法律</option><option value="行政法规">行政法规</option><option value="部门规章/办法">部门规章 / 办法</option><option value="政策/通知">政策 / 通知</option><option value="指南/解读">指南 / 解读</option><option value="标准/规范">标准 / 规范</option><option value="案例">案例</option><option value="其他">其他</option></select><small>标题含“令”“办法”通常选“部门规章 / 办法”；判例、执法处罚材料选“案例”。</small></label>
+        <div class="kb-source-field" data-source-panel="file"><input accept=".pdf,.docx,.txt" class="kb-upload-input" id="knowledge-base-file" type="file"/><label class="btn btn-primary" for="knowledge-base-file"><svg aria-hidden="true" fill="none" viewBox="0 0 24 24"><path d="M12 16V4M8 8l4-4 4 4M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"/></svg>选择 PDF / DOCX / TXT</label><small>支持本地法规、案例材料和审核后的合规文档。</small></div>
+        <div class="kb-source-field hidden" data-source-panel="web"><input class="kb-url-input" id="knowledge-base-url" maxlength="2000" placeholder="https://example.com/regulation" type="url"/><button class="btn btn-primary" id="knowledge-base-web-submit" type="button">采集网页</button><small>网页会在服务端抓取、清洗并切分后入库。</small></div>
+      </div>
+    </div>
+    <div class="kb-status" id="knowledge-base-status" role="status"></div>
+    <div class="kb-document-list" id="knowledge-base-list"></div>
   </div>
+</section>
+<section class="messages" id="messages">
 
-  <!-- 主题切换：深色 / 浅色，持久化到 localStorage；尽早执行避免首屏闪烁 -->
-  <script>
+<div class="welcome" id="welcome">
+<div class="welcome-kicker"><span></span> EVIDENCE-GROUNDED COMPLIANCE</div>
+<h1>让合规判断，<br/><em>回到证据本身</em></h1>
+<p class="welcome-lead">提出数据出境问题，或添加企业材料。RiskPilot 会检索法规与所选文件，并在回答前核验引用。</p>
+<div aria-label="回答生成过程" class="evidence-chain">
+<div class="evidence-step"><span>01</span><div><strong>业务问题</strong><small>直接提问或附加企业材料</small></div></div>
+<i aria-hidden="true"></i>
+<div class="evidence-step"><span>02</span><div><strong>证据检索</strong><small>匹配法规与授权文件</small></div></div>
+<i aria-hidden="true"></i>
+<div class="evidence-step"><span>03</span><div><strong>引用核验</strong><small>只保留有来源支持的结论</small></div></div>
+</div>
+<div class="starter-label"><span>常见问题</span><small>选择一个开始，也可以直接在下方输入</small></div>
+<div class="suggest-grid">
+<button class="suggest-card" data-q="个人信息出境的三种合规路径分别是什么？">
+<span class="suggest-tag">路径判断</span>
+<span class="suggest-text">个人信息出境的三种合规路径分别是什么？</span>
+<svg aria-hidden="true" fill="none" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>
+</button>
+<button class="suggest-card" data-q="什么情况下必须申报数据出境安全评估？">
+<span class="suggest-tag">安全评估</span>
+<span class="suggest-text">什么情况下必须申报数据出境安全评估？</span>
+<svg aria-hidden="true" fill="none" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>
+</button>
+<button class="suggest-card" data-q="标准合同备案需要准备哪些材料？">
+<span class="suggest-tag">备案材料</span>
+<span class="suggest-text">标准合同备案需要准备哪些材料？</span>
+<svg aria-hidden="true" fill="none" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>
+</button>
+<button class="suggest-card" data-q="重要数据如何识别？依据是什么？">
+<span class="suggest-tag">重要数据</span>
+<span class="suggest-text">重要数据如何识别？依据是什么？</span>
+<svg aria-hidden="true" fill="none" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>
+</button>
+</div>
+</div>
+</section>
+<footer class="composer"><div class="attachments">
+<div class="attachment-row">
+<input accept=".pdf,.docx,.txt,.md,.markdown" class="attachment-input" id="attachment-input" type="file"/>
+<label class="btn btn-ghost attachment-picker" for="attachment-input"><svg aria-hidden="true" fill="none" viewBox="0 0 24 24"><path d="m12.5 6.5-5.8 5.8a3.3 3.3 0 0 0 4.7 4.7l7.1-7.1a4.7 4.7 0 0 0-6.6-6.6L4.7 10.5a6.2 6.2 0 0 0 8.8 8.8l5-5"/></svg> 添加企业材料</label>
+<span id="attachment-status" role="status"></span>
+<button class="btn btn-ghost" hidden id="attachment-clear" type="button">移除</button>
+</div>
+<span class="attachment-help">作为当前对话的补充信息；仅当前账号可访问，不会更新公共法规库。</span>
+</div>
+<form autocomplete="off" id="composer-form">
+<button aria-pressed="false" id="btn-risk-analysis" type="button" class="btn btn-ghost"><svg aria-hidden="true" fill="none" viewBox="0 0 24 24"><path d="M12 3.5 19 6v5.2c0 4.3-2.8 7.6-7 9.3-4.2-1.7-7-5-7-9.3V6l7-2.5Z"/><path d="m9.3 12 1.8 1.8 3.8-4"/></svg>风险分析</button>
+<textarea id="composer-input" placeholder="描述你的合规问题，或针对已添加的材料提问…" rows="1"></textarea>
+<button class="btn btn-primary btn-send" id="btn-send" type="submit">
+            发送 <svg aria-hidden="true" fill="none" viewBox="0 0 24 24"><path d="m5 12 14-7-4.5 14-3-5.5L5 12Z"/><path d="m11.5 13.5 3-3"/></svg>
+          </button>
+<button class="btn btn-ghost btn-stop hidden" id="btn-stop" type="button">停止生成</button>
+</form>
+<div class="composer-hint">
+          <span id="run-status" role="status">就绪</span> · 答案基于法规检索 + 工具调用，可能仍有误，请以官方文本为准。
+        </div>
+</footer>
+</main>
+
+
+
+
+
+
+</div>
+
+
+
+
+
+<script>
     (function () {
       var KEY = "dc-theme";
       var root = document.documentElement;
+      var ICONS = {
+        light: '<svg fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.5"></circle><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4"></path></svg>',
+        dark: '<svg fill="none" viewBox="0 0 24 24"><path d="M20 15.2A8.5 8.5 0 0 1 8.8 4a8 8 0 1 0 11.2 11.2Z"></path></svg>'
+      };
       function apply(theme) {
         root.setAttribute("data-theme", theme);
         var btn = document.getElementById("btn-theme-toggle");
-        if (btn) btn.textContent = theme === "light" ? "☀" : "🌙";
+        if (btn) btn.innerHTML = theme === "light" ? ICONS.light : ICONS.dark;
       }
       var saved = localStorage.getItem(KEY) || "dark";
       apply(saved);
@@ -644,9 +218,85 @@
     })();
   </script>
 
-  <!-- 第三方：Markdown 渲染器（已在仓库中，无构建依赖） -->
-  <script src="/static/marked.min.js"></script>
-  <!-- 应用入口（ES module，自动按 import 链路加载其他模块） -->
-  <script type="module" src="/static/app.js"></script>
+<script src="/static/marked.min.js"></script>
+<script src="/static/vendor/dompurify.min.js"></script>
+
+<dialog id="memory-dialog" class="memory-dialog" aria-labelledby="memory-title" aria-describedby="memory-description">
+  <header class="memory-header">
+    <div class="memory-header-icon" aria-hidden="true">
+      <svg fill="none" viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="3"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>
+    </div>
+    <div class="memory-heading">
+      <h2 id="memory-title">我的记忆</h2>
+      <p id="memory-description">管理你的偏好与背景，让新对话更贴合你。</p>
+    </div>
+    <button id="memory-dismiss" class="memory-icon-button" type="button" aria-label="关闭我的记忆">
+      <svg fill="none" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+    </button>
+  </header>
+  <div class="memory-body">
+    <div class="memory-setting">
+      <div>
+        <p id="memory-enabled-label" class="memory-setting-title">在新对话中使用记忆</p>
+        <p class="memory-setting-help">仅对当前账号生效，关闭后仍保留已保存的内容。</p>
+      </div>
+      <label class="memory-switch">
+        <input id="memory-enabled" type="checkbox" role="switch" aria-labelledby="memory-enabled-label"/>
+        <span class="memory-switch-track" aria-hidden="true"></span>
+      </label>
+    </div>
+    <form id="memory-form" class="memory-create">
+      <h3>添加记忆</h3>
+      <div class="memory-type-row">
+        <div class="memory-field">
+          <label for="memory-kind">记忆类型</label>
+          <select id="memory-kind"><option value="auto">自动识别</option><option value="profile">用户档案</option><option value="preference">表达偏好</option><option value="business_context">业务背景</option></select>
+        </div>
+        <p id="memory-kind-help" class="memory-field-help">例如回答的语言、详略或组织方式，持续保留。</p>
+      </div>
+      <div class="memory-type-row">
+        <div id="memory-profile-field-wrap" class="memory-field" hidden>
+          <label for="memory-profile-field">档案字段</label>
+          <select id="memory-profile-field"><option value="name">姓名 / 称呼</option><option value="role">当前身份 / 职业</option><option value="organization">所属组织</option></select>
+        </div>
+        <div class="memory-field">
+          <label for="memory-retention">有效期</label>
+          <select id="memory-retention"><option value="default">按类型默认</option><option value="30">30 天</option><option value="90">90 天</option><option value="180">180 天</option><option value="365">1 年</option><option value="none">长期保留</option></select>
+        </div>
+      </div>
+      <div class="memory-field">
+        <label for="memory-content">记忆内容</label>
+        <textarea id="memory-content" required maxlength="800" placeholder="例如：回答时先列法规依据，再给出建议" aria-describedby="memory-kind-help memory-character-count"></textarea>
+      </div>
+      <div class="memory-form-footer">
+        <span id="memory-character-count" class="memory-character-count">0 / 800</span>
+        <button id="memory-save" class="btn btn-primary" type="submit" disabled>
+          <svg fill="none" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          保存记忆
+        </button>
+      </div>
+    </form>
+    <p id="memory-status" class="memory-status" role="status" aria-live="polite" hidden></p>
+    <section class="memory-saved" aria-labelledby="memory-list-title">
+      <div class="memory-list-heading">
+        <h3 id="memory-list-title">已保存的记忆 <span id="memory-count" class="memory-count">0</span></h3>
+        <div class="memory-search">
+          <svg fill="none" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg>
+          <input id="memory-search" type="search" placeholder="搜索记忆" aria-label="搜索已保存的记忆"/>
+        </div>
+      </div>
+      <div id="memory-list" class="memory-list"></div>
+    </section>
+    <p class="memory-boundary-note">记忆用于偏好和背景参考。风险判断的重要条件，仍需在当前对话中确认。</p>
+  </div>
+  <footer class="memory-footer">
+    <div class="memory-clear-actions">
+      <button id="memory-clear" class="btn memory-danger-button" type="button" disabled>清空全部</button>
+      <button id="memory-clear-cancel" class="btn btn-ghost" type="button" hidden>取消</button>
+    </div>
+    <button id="memory-close" class="btn btn-primary" type="button">完成</button>
+  </footer>
+</dialog>
+<script src="/static/app.js?v=20261023-ui17&memory=20261026-v2" type="module"></script>
 </body>
 </html>

@@ -1,7 +1,7 @@
 [project]
 name = "ragdataout"
 version = "0.1.0"
-description = "PIPL compliance Copilot: Tool-Use Agent + LoRA evidence model + hybrid retrieval"
+description = "Conversational cross-border compliance Copilot with retrieval and evidence verification"
 requires-python = ">=3.12"
 
 # pytest config moved to pytest.ini
@@ -55,7 +55,7 @@ warn_return_any = true
 
 [tool.coverage.run]
 branch = true
-source = ["risk", "domain", "app", "infra", "api"]
+source = ["domain", "app", "infra", "api"]
 omit = ["*/tests/*", "*/__init__.py"]
 
 [tool.coverage.report]

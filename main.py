@@ -1,11 +1,9 @@
 """
-基于 RAG 的数据出境知识库问答系统 - 主入口
+Python Agent runtime。
 
-启动方式:
-    uvicorn main:app --host 127.0.0.1 --port 8765 --reload
-
-端口 8765 与 config.settings.github_redirect_uri 默认值保持一致，
-OAuth 回调才能落到本地服务。
+默认通过 make serve 启动 Go 入口 8765 与内部 Python 服务 8766。
+INTERNAL_SERVICE_REQUIRED=true 时只接受 Go 签发的服务身份，认证由 Go 负责。
+独立 Python 模式保留用于迁移阶段的回归与调试。
 """
 
 import asyncio
@@ -23,7 +21,6 @@ from fastapi.staticfiles import StaticFiles
 from api.v2 import build_v2_router
 from api.v2.errors import install_exception_handlers
 from api.v2.ratelimit import build_limiter
-from api.v3 import build_v3_router
 from app.container import AppContainer
 from app.logging_setup import configure_logging
 from app.observability_middleware import install_observability_middleware
@@ -34,11 +31,11 @@ from app.request_context import (
     set_user_id,
 )
 from config import settings
+from infra.auth.gateway_identity import GatewayIdentityMiddleware
 
 # ===================== 日志配置 =====================
 
-# Step 025f：用 ``configure_logging`` 替代裸 basicConfig，让所有 LogRecord
-# 自动带 ``[request_id]`` 字段（contextvar 缺省时显示 ``[-]``）
+# 所有 LogRecord 自动带 request_id；contextvar 缺省时显示 ``-``。
 configure_logging(
     level=getattr(logging, settings.log_level.upper(), logging.INFO),
     log_file="logs/app.log",
@@ -82,58 +79,10 @@ async def lifespan(app: FastAPI):
     """应用生命周期管理：启动时初始化服务，关闭时释放资源。"""
     settings.validate_runtime_configuration()
     logger.info("数据出境知识库问答系统正在启动...")
+    yield
     container_ref = getattr(app.state, "container", None)
     if container_ref is not None:
-        workflow_runtime = getattr(container_ref, "workflow_runtime", None)
-        initialize_workflow = getattr(workflow_runtime, "initialize", None)
-        if initialize_workflow is not None:
-            await asyncio.to_thread(initialize_workflow)
-    # Deep Research 图预热，失败不影响服务启动。
-    if container_ref is not None and settings.warmup_research_on_startup:
-        app.state.warmup_task = asyncio.create_task(_warmup_research(container_ref))
-    yield
-    logger.info("数据出境知识库问答系统正在关闭...")
-    # 优雅关闭 L2 记忆调度线程池（best-effort，不等待挂起作业）
-    if container_ref is not None:
-        scheduler = getattr(container_ref, "memory_scheduler", None)
-        if scheduler is not None:
-            try:
-                scheduler.shutdown(wait=False)
-            except Exception:  # noqa: BLE001 — 关闭期异常仅记录
-                logger.warning("记忆调度器关闭异常（已吞掉）", exc_info=True)
-        workflow_runtime = getattr(container_ref, "workflow_runtime", None)
-        close_workflow = getattr(workflow_runtime, "close", None)
-        if close_workflow is not None:
-            try:
-                close_workflow()
-            except Exception:  # noqa: BLE001 — 关闭期异常仅记录
-                logger.warning("LangGraph checkpoint 连接关闭异常（已吞掉）", exc_info=True)
-        shutdown_trace = getattr(container_ref.trace, "shutdown", None)
-        if callable(shutdown_trace):
-            try:
-                shutdown_trace()
-            except Exception:  # noqa: BLE001
-                logger.warning("Trace Provider 关闭异常（已吞掉）", exc_info=True)
-        storage_database = getattr(container_ref, "storage_database", None)
-        if storage_database is not None:
-            try:
-                storage_database.dispose()
-            except Exception:  # noqa: BLE001 — 关闭期异常仅记录
-                logger.warning("数据库 Engine 关闭异常（已吞掉）", exc_info=True)
-
-
-async def _warmup_research(container_ref) -> None:
-    """后台预热深度研究引擎（best-effort）。失败只记日志，不影响服务可用性。"""
-    warmup = getattr(getattr(container_ref, "research", None), "warmup", None)
-    if warmup is None:
-        return
-    started = time.time()
-    logger.info("深度研究引擎预热开始（后台加载 CrossEncoder 等模型）...")
-    try:
-        await asyncio.to_thread(warmup)
-        logger.info("深度研究引擎预热完成，耗时 %.1fs", time.time() - started)
-    except Exception:  # noqa: BLE001 — 预热失败首个 research 仍可懒加载
-        logger.warning("深度研究引擎预热失败（已吞掉，将在首次请求时懒加载）", exc_info=True)
+        await asyncio.to_thread(container_ref.close)
 
 
 # ===================== FastAPI 应用 =====================
@@ -153,11 +102,11 @@ app = FastAPI(
 async def request_context_middleware(request: Request, call_next):
     """为每个请求注入 request_id + user_id，记录请求耗时。
 
-    Step 025d：把 request_id 写入 ``app.request_context.request_id_var``
+    把 request_id 写入 ``app.request_context.request_id_var``，
     contextvar，让 use case（如 ``_record_audit``）不需要 API 层逐层透传
     就能拿到当前请求 id，落到 ``AuditEntry.request_id`` 字段。
 
-    Step 025g：在解析 request_id 之后再尝试从 cookie 解出 user_id 一并写到
+    在解析 request_id 之后再尝试从 cookie 解出 user_id 一并写到
     ``user_id_var``。这样 access log 行（行末 logger.info）和后续路由内的
     任何 logger 调用都会自动带 ``[uid:xxx]`` 段。注意：
     - identify 失败 / 无 cookie / 路径非 ``/api/`` 都会让 user_id 保持 ``None``
@@ -169,10 +118,12 @@ async def request_context_middleware(request: Request, call_next):
     request.state.request_id = request_id
     rid_token = set_request_id(request_id)
 
-    # Step 025g：尝试从 cookie 解析 user_id；只对 /api/ 路径解（静态文件、
+    # 尝试从 cookie 解析 user_id；只对 /api/ 路径解（静态文件、
     # /docs 等无认证语义的请求不必每次解 JWT）
     user_id: str | None = None
-    if request.url.path.startswith("/api/"):
+    if settings.internal_service_required:
+        user_id = getattr(request.state, "gateway_owner", None)
+    elif request.url.path.startswith("/api/"):
         container_ref = getattr(request.app.state, "container", None)
         if container_ref is not None:
             cookie_name = container_ref.settings.cookie_name
@@ -191,13 +142,13 @@ async def request_context_middleware(request: Request, call_next):
     try:
         response = await call_next(request)
 
-        # Step 025g bug fix：access log + header 必须在 reset 之前调用，
+        # access log + header 必须在 reset 之前调用，
         # 否则 RequestIdLogFilter 取 contextvar 时拿到的是 None（reset 后
         # 回到 default），log 行就只会出 [-] [uid:-] 而非真实值
         elapsed_ms = (time.perf_counter() - start) * 1000
         response.headers["X-Request-ID"] = request_id
         if request.url.path.startswith("/api/"):
-            # Step 025f / 025g：request_id 与 user_id 由 RequestIdLogFilter 自动
+            # request_id 与 user_id 由 RequestIdLogFilter 自动
             # 拼到 [%(request_id)s] [uid:%(user_id)s] 段，不再手工拼接
             logger.info(
                 "%s %s → %s (%.0fms)",
@@ -220,7 +171,7 @@ async def request_context_middleware(request: Request, call_next):
 async def global_exception_handler(request: Request, exc: Exception):
     """全局异常兜底：防止未捕获异常泄露堆栈信息到客户端。"""
     request_id = getattr(request.state, "request_id", "unknown")
-    # Step 025f：request_id 仍作为 JSON body 返回以供客户端反馈；log 行由
+    # request_id 仍作为 JSON body 返回以供客户端反馈；log 行由
     # formatter 自动拼上，不再手工 f"[{request_id}]"
     logger.exception("未捕获异常: %s", exc)
     return JSONResponse(
@@ -229,7 +180,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 
-# ── Step 011：装配 api/v2（六边形架构层）——v1 已于 Step 029 退役────────────────
+# 装配当前对话 API。
 # 容器在模块级构造（构造本身只装组件、不连外部服务），存到 app.state 方便测试取用。
 # 不要放进 lifespan：include_router 在 app 创建时就要拿到 router。
 container = AppContainer(settings)
@@ -242,10 +193,9 @@ install_observability_middleware(app)
 limiter = build_limiter(settings)
 
 app.include_router(build_v2_router(container, limiter=limiter), prefix="/api/v2")
-app.include_router(build_v3_router(container), prefix="/api/v3")
 install_exception_handlers(app)
 logger.info(
-    "api/v2 + api/v3 routes mounted (tools=%s, rate_limit=%s)",
+    "api/v2 conversation routes mounted (tools=%s, rate_limit=%s)",
     container.copilot_agent.tool_names,
     "on" if limiter is not None else "off",
 )
@@ -261,6 +211,13 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["X-Request-ID"],
 )
+
+if settings.internal_service_required:
+    app.add_middleware(
+        GatewayIdentityMiddleware,
+        key_file=settings.internal_service_key_file,
+        users=container.user_repo,
+    )
 
 # 静态文件服务：前端页面 & 资源（CSS/JS）
 FRONTEND_DIR = Path(__file__).parent / "frontend"

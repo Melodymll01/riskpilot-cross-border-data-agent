@@ -138,6 +138,7 @@ class TestLoadWeb:
             source_name="https://example.com/a",
             title="示例页面",
             source_url="https://example.com/a",
+            extra_metadata={"extraction_method": "selector:article"},
         )
         adapter = UnifiedLoaderAdapter(
             loader=_StubLoader(web_doc=raw),  # type: ignore[arg-type]
@@ -147,6 +148,7 @@ class TestLoadWeb:
         assert chunks[0].source_type == "web"
         assert chunks[0].source_url == "https://example.com/a"
         assert chunks[0].title == "示例页面"
+        assert chunks[0].source_metadata["extraction_method"] == "selector:article"
 
     def test_empty_source_url_normalized_to_none(self) -> None:
         raw = _StubRawDoc(

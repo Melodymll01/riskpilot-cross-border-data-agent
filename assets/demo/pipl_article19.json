@@ -1,0 +1,9 @@
+{
+  "title": "中华人民共和国个人信息保护法 第十九条",
+  "source_url": "https://www.cac.gov.cn/2021-08/20/c_1631050028355286.htm",
+  "corroborating_url": "https://www.spp.gov.cn/spp/fl/202108/t20210820_527244.shtml",
+  "retrieved_date": "2026-10-08",
+  "capture_method": "HTTP 200 from both official publication pages; article text checked in parsed HTML",
+  "text": "第十九条 除法律、行政法规另有规定外，个人信息的保存期限应当为实现处理目的所必要的最短时间。",
+  "scope": "用于保存期限问题的接入验收摘录，不代表完整或持续更新的法规库。"
+}

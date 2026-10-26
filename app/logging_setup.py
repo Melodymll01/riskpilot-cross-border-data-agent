@@ -103,8 +103,7 @@ class JsonLogFormatter(logging.Formatter):
             payload["tool"] = context.tool
         for field_name, value in (
             ("user_id_hash", context.user_id),
-            ("workspace_id_hash", context.workspace_id),
-            ("case_id_hash", context.case_id),
+            ("task_id_hash", context.task_id),
         ):
             if value:
                 payload[field_name] = _hash_identifier(value, self._hash_salt)

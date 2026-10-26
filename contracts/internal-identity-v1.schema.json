@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "riskpilot/internal-identity/v1",
+  "title": "Go to Python request identity JWT claims",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["iss", "aud", "sub", "iat", "exp", "jti", "method", "target"],
+  "properties": {
+    "iss": {"const": "riskpilot-go"},
+    "aud": {"const": "riskpilot-agent"},
+    "sub": {"type": "string", "description": "Authenticated owner. Empty only for service-owned documentation requests."},
+    "iat": {"type": "integer"},
+    "exp": {"type": "integer", "description": "Greater than iat and no more than 30 seconds later."},
+    "jti": {"type": "string", "minLength": 16, "maxLength": 128},
+    "method": {"type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]},
+    "target": {"type": "string", "pattern": "^/", "description": "Exact escaped path and raw query as forwarded to the private runtime."}
+  }
+}

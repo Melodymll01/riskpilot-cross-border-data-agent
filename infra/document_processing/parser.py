@@ -12,9 +12,10 @@ from docx import Document as DocxDocument
 from domain.document_content import DocumentParseSnapshot, ParsedPage, ParsedTable
 from domain.documents import DocumentVersion
 from domain.errors import InvalidDocumentContent, UnsupportedDocumentType
+from ingestion.pdf_extractor import PDFExtractor
 
 PARSER_NAME = "riskpilot-document-parser"
-PARSER_VERSION = "1.0.0"
+PARSER_VERSION = "1.1.0"
 
 
 class RiskPilotDocumentParser:
@@ -25,9 +26,12 @@ class RiskPilotDocumentParser:
         *,
         clock: Callable[[], float],
         id_factory: Callable[[], str] | None = None,
+        pdf_extractor: PDFExtractor | None = None,
     ) -> None:
         self._clock = clock
         self._id_factory = id_factory or (lambda: f"parse_{uuid.uuid4().hex[:16]}")
+        # OCR 仍由后续独立 worker 承担；解析阶段只复用版面、表格和页眉页脚能力。
+        self._pdf_extractor = pdf_extractor or PDFExtractor(enable_ocr=False)
 
     def parse(
         self,
@@ -35,7 +39,7 @@ class RiskPilotDocumentParser:
         content: bytes,
     ) -> DocumentParseSnapshot:
         if version.mime_type == "application/pdf":
-            pages, warnings = self._parse_pdf(content)
+            pages, warnings = self._parse_pdf(content, version.version_id)
         elif version.mime_type == (
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         ):
@@ -55,8 +59,7 @@ class RiskPilotDocumentParser:
             parsed_at=self._clock(),
         )
 
-    @staticmethod
-    def _parse_pdf(content: bytes) -> tuple[list[ParsedPage], list[str]]:
+    def _parse_pdf(self, content: bytes, version_id: str) -> tuple[list[ParsedPage], list[str]]:
         try:
             document = fitz.open(stream=content, filetype="pdf")
         except Exception as exc:
@@ -64,38 +67,54 @@ class RiskPilotDocumentParser:
         if document.page_count < 1:
             document.close()
             raise InvalidDocumentContent("PDF 不包含页面")
+        document.close()
+
+        try:
+            extracted = self._pdf_extractor.extract_pages(content)
+        except Exception as exc:
+            raise InvalidDocumentContent("PDF 文件无法解析") from exc
 
         pages: list[ParsedPage] = []
         warnings: list[str] = []
-        try:
-            for page_index in range(document.page_count):
-                page_number = page_index + 1
-                page = document.load_page(page_index)
-                try:
-                    text = (page.get_text("text") or "").strip()
-                except Exception as exc:
-                    text = ""
-                    warnings.append(f"第 {page_number} 页文本层抽取失败: {type(exc).__name__}")
-                if text:
-                    pages.append(
-                        ParsedPage(
-                            page_number=page_number,
-                            text=text,
-                            extraction_method="native",
-                        )
+        for extracted_page in extracted.pages:
+            page_number = extracted_page.page_number
+            tables = [
+                ParsedTable(
+                    table_id=f"{version_id}:p{page_number}:t{table_index}",
+                    page_number=page_number,
+                    markdown=table.markdown,
+                    row_count=table.row_count,
+                    column_count=table.column_count,
+                )
+                for table_index, table in enumerate(extracted_page.tables, start=1)
+            ]
+            page_warnings: list[str] = []
+            if extracted_page.visual_content_detected:
+                warning = "检测到图形内容，当前仅保留可抽取文本，未解析图形关系"
+                page_warnings.append(warning)
+                warnings.append(f"第 {page_number} 页{warning}")
+            if extracted_page.text or tables:
+                pages.append(
+                    ParsedPage(
+                        page_number=page_number,
+                        text=extracted_page.text,
+                        extraction_method="native",
+                        tables=tables,
+                        warnings=page_warnings,
                     )
-                else:
-                    page_warning = "未检测到文本层，需要 OCR"
-                    warnings.append(f"第 {page_number} 页{page_warning}")
-                    pages.append(
-                        ParsedPage(
-                            page_number=page_number,
-                            extraction_method="empty",
-                            warnings=[page_warning],
-                        )
-                    )
-        finally:
-            document.close()
+                )
+                continue
+
+            page_warning = "未检测到文本层，需要 OCR"
+            page_warnings.append(page_warning)
+            warnings.append(f"第 {page_number} 页{page_warning}")
+            pages.append(
+                ParsedPage(
+                    page_number=page_number,
+                    extraction_method="empty",
+                    warnings=page_warnings,
+                )
+            )
         return pages, warnings
 
     @staticmethod

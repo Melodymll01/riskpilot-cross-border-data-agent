@@ -16,7 +16,6 @@ from api.v2.copilot import build_copilot_routes
 from api.v2.documents import build_documents_routes
 from api.v2.feedback import build_feedback_routes
 from api.v2.health import build_health_routes
-from api.v2.memory import build_memory_routes
 from api.v2.metrics import build_metrics_routes
 from api.v2.tasks import build_task_routes
 
@@ -26,18 +25,22 @@ if TYPE_CHECKING:
 
 
 def build_v2_router(container: AppContainer, *, limiter: RateLimiter | None = None) -> APIRouter:
-    """构造 v2 根 router；包含 auth/tasks/documents/audit/memory/copilot/health 全部子路由。
 
-    ``limiter`` 为 ``None`` 时（如测试）所有限流依赖退化为无操作。
-    """
     root = APIRouter()
-    root.include_router(build_auth_routes(container, limiter=limiter))
+    if not container.settings.internal_service_required:
+        root.include_router(build_auth_routes(container, limiter=limiter))
     root.include_router(build_task_routes(container))
     root.include_router(build_feedback_routes(container))
     root.include_router(build_documents_routes(container, limiter=limiter))
     root.include_router(build_audit_routes(container))
-    root.include_router(build_memory_routes(container))
     root.include_router(build_copilot_routes(container, limiter=limiter))
     root.include_router(build_health_routes(container))
     root.include_router(build_metrics_routes(container))
+    from api.v2.account_memory import build_account_memory_routes
+    from api.v2.files import build_file_routes
+    from api.v2.qa import build_qa_routes
+
+    root.include_router(build_file_routes(container))
+    root.include_router(build_qa_routes(container))
+    root.include_router(build_account_memory_routes(container))
     return root

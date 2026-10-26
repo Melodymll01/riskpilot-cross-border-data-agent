@@ -21,41 +21,25 @@ from langchain_core.messages import AIMessage
 
 from api.v2 import build_v2_router
 from api.v2.errors import install_exception_handlers
-from api.v3 import build_v3_router
 from app.container import AppContainer
 from app.observability_middleware import install_observability_middleware
 from app.request_context import install_request_id_middleware
 from config import Settings
-from infra.agents import DeterministicEvidencePlanner
 from tests.fakes.fake_agent_model import FakeToolCallingModel
 from tests.fakes.fake_audit_log import FakeAuditLogRepo
 from tests.fakes.fake_auth import FakeAuth
 from tests.fakes.fake_chat import FakeChat
+from tests.fakes.fake_conversation_run_repo import InMemoryConversationRunRepo
 from tests.fakes.fake_document_loader import FakeDocumentLoader
 from tests.fakes.fake_document_parser import FakeDocumentParser
 from tests.fakes.fake_embed import FakeEmbed
-from tests.fakes.fake_evidence_chunker import FakeEvidenceChunker
-from tests.fakes.fake_evidence_index import FakeEvidenceIndex
-from tests.fakes.fake_fact_proposals import FakeFactProposalGenerator
+from tests.fakes.fake_job_dispatcher import FakeJobDispatcher
 from tests.fakes.fake_kb_repo import FakeKbRepo
 from tests.fakes.fake_object_store import FakeObjectStore
 from tests.fakes.fake_qa import FakeClaimSupportVerifier, FakeEvidenceQAGenerator
 from tests.fakes.fake_readiness import FakeReadiness
-from tests.fakes.fake_repos import (
-    InMemoryAgentRunRepo,
-    InMemoryAssessmentRepo,
-    InMemoryCaseFactRepo,
-    InMemoryCaseRepo,
-    InMemoryDocumentRepo,
-    InMemoryPolicyRuleRepo,
-    InMemoryTaskRepo,
-    InMemoryUserRepo,
-    InMemoryWorkspaceRepo,
-)
-from tests.fakes.fake_research import FakeResearch
+from tests.fakes.fake_repos import InMemoryTaskRepo, InMemoryUserRepo
 from tests.fakes.fake_retrieve import FakeRetrieve
-from tests.fakes.fake_risk_profile import FakeRiskProfile
-from tests.fakes.fake_visual import FakeVisualEmbedder, FakeVisualIndex
 from tests.fakes.fake_websearch import FakeWebSearch
 
 
@@ -76,7 +60,8 @@ def test_settings(admin_user_ids: list[str], tmp_path: Path) -> Settings:
         chat_api_base="http://127.0.0.1:9/v1",
         enable_reranker=False,
         admin_user_ids=admin_user_ids,
-        langgraph_checkpoint_db_path=str(tmp_path / "langgraph-checkpoints.sqlite3"),
+        sqlite_db_path=str(tmp_path / "api.sqlite3"),
+        langgraph_checkpoint_db_path=str(tmp_path / "checkpoints.sqlite3"),
     )
 
 
@@ -95,41 +80,27 @@ def container(
     agent_script: list[AIMessage],
 ) -> AppContainer:
     """全 Fake 注入的 AppContainer。"""
-    document_repo = InMemoryDocumentRepo()
-    case_repo = InMemoryCaseRepo()
+    task_repo = InMemoryTaskRepo()
     return AppContainer(
         test_settings,
-        agent_run_repo=InMemoryAgentRunRepo(),
-        assessment_repo=InMemoryAssessmentRepo(case_repo),
         user_repo=InMemoryUserRepo(),
-        task_repo=InMemoryTaskRepo(),
-        workspace_repo=InMemoryWorkspaceRepo(),
-        case_repo=case_repo,
-        case_fact_repo=InMemoryCaseFactRepo(),
-        policy_rule_repo=InMemoryPolicyRuleRepo(),
-        document_repo=document_repo,
-        object_store=FakeObjectStore(),
-        document_parser=FakeDocumentParser(),
-        evidence_chunker=FakeEvidenceChunker(),
-        evidence_index=FakeEvidenceIndex(document_repo),
+        task_repo=task_repo,
+        conversation_run_repo=InMemoryConversationRunRepo(task_repo),
         audit_log=FakeAuditLogRepo(),
         embedder=FakeEmbed(),
         chat=FakeChat(responses=["done"]),
-        evidence_qa_generator=FakeEvidenceQAGenerator(),
-        claim_support_verifier=FakeClaimSupportVerifier(),
-        fact_proposal_generator=FakeFactProposalGenerator(),
         retriever=FakeRetrieve(),
         web_search=FakeWebSearch(),
-        risk_profile=FakeRiskProfile(),
-        readiness=FakeReadiness(),
-        research=FakeResearch(),
         kb_repo=FakeKbRepo(),
         document_loader=FakeDocumentLoader(),
         auth=FakeAuth(),
+        job_dispatcher=FakeJobDispatcher(),
+        readiness=FakeReadiness(),
+        object_store=FakeObjectStore(),
+        document_parser=FakeDocumentParser(),
+        evidence_qa_generator=FakeEvidenceQAGenerator(),
+        claim_support_verifier=FakeClaimSupportVerifier(),
         agent_model=FakeToolCallingModel(responses=agent_script),
-        visual_index=FakeVisualIndex(),
-        visual_embedder=FakeVisualEmbedder(),
-        evidence_planner=DeterministicEvidencePlanner(),
     )
 
 
@@ -139,7 +110,6 @@ def app(container: AppContainer) -> FastAPI:
     # Step 025d：挂 request_id middleware，确保端到端测试的 contextvar 与生产一致
     install_request_id_middleware(fastapi_app)
     fastapi_app.include_router(build_v2_router(container), prefix="/api/v2")
-    fastapi_app.include_router(build_v3_router(container), prefix="/api/v3")
     install_exception_handlers(fastapi_app)
     # 暴露 container，方便测试里直接读 repo / fakes 验证副作用
     fastapi_app.state.container = container

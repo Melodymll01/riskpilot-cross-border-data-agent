@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 from domain.models import KbChunk, KbSourceType
 from ingestion.unified_loader import UnifiedLoader
 from processing.metadata import build_chunks
+from processing.splitter import TextSplitter
 
 if TYPE_CHECKING:
     from ingestion.unified_loader import RawDocument
@@ -27,9 +28,12 @@ if TYPE_CHECKING:
 class UnifiedLoaderAdapter:
     """``DocumentLoaderPort`` ChromaDB+本地文件+网页一体生产实现。"""
 
-    def __init__(self, loader: UnifiedLoader | None = None) -> None:
+    def __init__(
+        self, loader: UnifiedLoader | None = None, *, splitter: TextSplitter | None = None
+    ) -> None:
         # 允许注入便于测试 / 复用单例；不传则按 v1 行为自建一个
         self._loader = loader or UnifiedLoader()
+        self._splitter = splitter
 
     # ─── 公开方法（Port 契约） ──────────────────────────────────────
 
@@ -78,7 +82,7 @@ class UnifiedLoaderAdapter:
         category: str | None,
         owner_id: str | None = None,
     ) -> list[KbChunk]:
-        cwm_list: list[ChunkWithMetadata] = build_chunks(raw)
+        cwm_list: list[ChunkWithMetadata] = build_chunks(raw, splitter=self._splitter)
         if not cwm_list:
             return []
         src_type = self._normalize_source_type(raw.source_type)
@@ -89,6 +93,7 @@ class UnifiedLoaderAdapter:
             KbChunk(
                 chunk_id=cwm.chunk_id,
                 text=cwm.text,
+                embedding_text=cwm.embedding_text,
                 source_name=cwm.source_name,
                 source_type=src_type,
                 title=cwm.title or "",
@@ -96,6 +101,7 @@ class UnifiedLoaderAdapter:
                 chunk_index=cwm.chunk_index,
                 category=resolved_category or (cwm.category or ""),
                 owner_id=owner_id,
+                source_metadata=dict(cwm.source_metadata),
             )
             for cwm in cwm_list
         ]

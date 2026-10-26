@@ -220,8 +220,7 @@ class TestJsonLogFormatter:
             request_context("request-001", user_id="github:sensitive"),
             observability_context(
                 run_id="run_001",
-                workspace_id="workspace_sensitive",
-                case_id="case_sensitive",
+                task_id="case_sensitive",
                 node="extract_fact_candidates",
                 tool="extract_fact_candidates",
             ),
@@ -236,15 +235,13 @@ class TestJsonLogFormatter:
         assert payload["token_usage"] == 80
         assert payload["cost"] == 0.001
         assert payload["user_id_hash"] != "github:sensitive"
-        assert payload["workspace_id_hash"] != "workspace_sensitive"
-        assert payload["case_id_hash"] != "case_sensitive"
+        assert payload["task_id_hash"] != "case_sensitive"
         assert "super-secret" not in payload["message"]
         assert "session-secret" not in payload["message"]
         assert "malicious-instruction" not in payload["message"]
         assert payload["message"].count("[redacted]") == 3
         assert "user_id" not in payload
-        assert "workspace_id" not in payload
-        assert "case_id" not in payload
+        assert "task_id" not in payload
 
     def test_log_arguments_are_not_interpolated_into_json_message(self) -> None:
         formatter = JsonLogFormatter(hash_salt="test-json-log-hash-salt")

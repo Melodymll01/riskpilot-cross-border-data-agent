@@ -1,9 +1,9 @@
-"""V3 Evidence QA 普通应用服务。"""
+"""Evidence QA 普通应用服务。"""
 
 from __future__ import annotations
 
-from concurrent.futures import Future, ThreadPoolExecutor
-from typing import TYPE_CHECKING, cast
+from contextlib import nullcontext
+from typing import TYPE_CHECKING
 
 from domain.qa import (
     ClaimCitationVerifier,
@@ -16,24 +16,25 @@ from domain.qa import (
     EvidenceQACitation,
     EvidenceQAClaim,
     EvidenceQADraft,
+    EvidenceQAPresentation,
     EvidenceQAScope,
     QACorpus,
+    UserContextMessage,
 )
 
 if TYPE_CHECKING:
-    from app.use_cases.assessment_management import AssessmentManagementUseCase
-    from app.use_cases.case_management import CaseManagementUseCase
-    from app.use_cases.workspace_management import WorkspaceManagementUseCase
-    from domain.assessments import AssessmentBundle
-    from domain.evidence import EvidenceSearchHit
-    from domain.models import Chunk
+    from collections.abc import Callable
+
     from domain.ports import (
         ClaimSupportVerifierPort,
         DocumentRepoPort,
         EmbedPort,
         EvidenceIndexPort,
         EvidenceQAGeneratorPort,
+        MetricsPort,
         RetrievePort,
+        RunControlPort,
+        TracePort,
     )
 
 _REFUSAL_NO_EVIDENCE = "根据当前检索范围未找到足够证据，暂时无法回答该问题。"
@@ -53,9 +54,8 @@ class EvidenceQAUseCase:
         embedder: EmbedPort,
         generator: EvidenceQAGeneratorPort,
         support_verifier: ClaimSupportVerifierPort,
-        workspace_management: WorkspaceManagementUseCase,
-        case_management: CaseManagementUseCase,
-        assessment_management: AssessmentManagementUseCase,
+        trace: TracePort | None = None,
+        metrics: MetricsPort | None = None,
     ) -> None:
         self._retriever = retriever
         self._evidence_index = evidence_index
@@ -63,9 +63,39 @@ class EvidenceQAUseCase:
         self._embedder = embedder
         self._generator = generator
         self._support_verifier = support_verifier
-        self._workspace_management = workspace_management
-        self._case_management = case_management
-        self._assessment_management = assessment_management
+        self._trace = trace
+        self._metrics = metrics
+
+    def verify_sources(
+        self,
+        citations: list[EvidenceQACitation],
+        scope: EvidenceQAScope,
+    ) -> list[EvidenceQACitation]:
+        return self._verify_source_citations(citations, scope=scope)
+
+    def verify_draft(
+        self,
+        *,
+        question: str,
+        scope: EvidenceQAScope,
+        citations: list[EvidenceQACitation],
+        draft: EvidenceQADraft,
+        user_context: list[UserContextMessage],
+        runtime_control: RunControlPort,
+    ) -> EvidenceQAAnswer:
+        runtime_control.check()
+        sources = self.verify_sources(citations, scope)
+        if not sources or not draft.claims:
+            return _refusal(question, scope, _REFUSAL_NO_EVIDENCE)
+        return self._validate_and_repair(
+            question=question,
+            scope=scope,
+            citations=sources,
+            draft=draft,
+            user_context=user_context,
+            runtime_control=runtime_control,
+            on_stage=None,
+        )
 
     def answer(
         self,
@@ -73,10 +103,8 @@ class EvidenceQAUseCase:
         *,
         question: str,
         corpora: list[QACorpus],
-        workspace_id: str | None = None,
-        case_id: str | None = None,
-        assessment_id: str | None = None,
         top_k: int = 5,
+        document_ids: list[str] | None = None,
     ) -> EvidenceQAAnswer:
         if not question.strip():
             raise ValueError("question 不能为空")
@@ -84,41 +112,149 @@ class EvidenceQAUseCase:
             raise ValueError("question 不能超过 2000 个字符")
         if top_k < 1 or top_k > 20:
             raise ValueError("top_k 必须在 1 到 20 之间")
-        scope = self._authorize_scope(
-            actor_id,
-            corpora=corpora,
-            workspace_id=workspace_id,
-            case_id=case_id,
-            assessment_id=assessment_id,
-        )
+        if not actor_id:
+            raise ValueError("actor_id 必填")
+        scope = EvidenceQAScope(corpora=corpora, owner_id=actor_id, document_ids=document_ids)
+        if document_ids is not None:
+            for document_id in document_ids:
+                document = self._documents.get(document_id)
+                if document is None or document.owner_id != actor_id or document.status != "ready":
+                    raise ValueError("附件不可用或不属于当前用户")
         citations = self._retrieve(
             actor_id,
             question=question,
             scope=scope,
             top_k=top_k,
         )
+        return self.answer_from_citations(
+            question=question,
+            scope=scope,
+            citations=citations,
+            user_context=[],
+        )
+
+    def answer_from_citations(
+        self,
+        *,
+        question: str,
+        scope: EvidenceQAScope,
+        citations: list[EvidenceQACitation],
+        run_id: str | None = None,
+        user_context: list[UserContextMessage] | None = None,
+        preferences: list[str] | None = None,
+        runtime_control: RunControlPort | None = None,
+        on_stage: Callable[[str], None] | None = None,
+    ) -> EvidenceQAAnswer:
+        """Generate and verify an answer from server-collected evidence only."""
+
+        trace_context = (
+            self._trace.span(
+                "riskpilot.citation.verify",
+                metadata={
+                    "run_id": run_id or "",
+                    "owner_id": scope.owner_id,
+                    "evidence_count": len(citations),
+                    "stage": "verification",
+                },
+            )
+            if self._trace is not None
+            else nullcontext(None)
+        )
+        with trace_context as span:
+            error_type: str | None = None
+            try:
+                answer = self._answer_from_citations(
+                    question=question,
+                    scope=scope,
+                    citations=citations,
+                    user_context=user_context or [],
+                    preferences=preferences or [],
+                    runtime_control=runtime_control,
+                    on_stage=on_stage,
+                )
+            except (RuntimeError, ValueError) as exc:
+                error_type = type(exc).__name__
+                answer = _refusal(question, scope, _REFUSAL_GENERATION)
+            if span is not None:
+                metadata: dict[str, object] = {
+                    "status": "failed" if error_type else "completed",
+                    "decision": answer.status,
+                    "evidence_count": len(answer.citations),
+                    "refused": answer.status == "refused",
+                }
+                if error_type:
+                    metadata["error_type"] = error_type
+                span.add_metadata(metadata)
+            if answer.status == "refused" and self._metrics is not None:
+                self._metrics.record_citation_failure(workflow="conversation")
+            return answer
+
+    def _answer_from_citations(
+        self,
+        *,
+        question: str,
+        scope: EvidenceQAScope,
+        citations: list[EvidenceQACitation],
+        user_context: list[UserContextMessage],
+        preferences: list[str],
+        runtime_control: RunControlPort | None,
+        on_stage: Callable[[str], None] | None,
+    ) -> EvidenceQAAnswer:
+        if runtime_control is not None:
+            runtime_control.check(stage="verification")
         citations = self._verify_source_citations(citations, scope=scope)
+        if runtime_control is not None:
+            runtime_control.check(stage="verification")
         if not citations:
             return _refusal(question, scope, _REFUSAL_NO_EVIDENCE)
-        try:
-            draft = self._generator.generate(
-                question=question,
-                citations=citations,
+        if on_stage is not None:
+            on_stage("generation")
+        generation_trace = (
+            self._trace.span(
+                "riskpilot.claim.generate",
+                run_type="llm",
+                metadata={
+                    "run_id": runtime_control.run_id if runtime_control is not None else "",
+                    "stage": "generation",
+                    "evidence_count": len(citations),
+                },
             )
-            if draft.status == "refused":
-                return _refusal(
-                    question,
-                    scope,
-                    draft.refusal_reason,
+            if self._trace is not None
+            else nullcontext(None)
+        )
+        with generation_trace as generation_span:
+            try:
+                draft = self._generator.generate(
+                    question=question,
+                    citations=citations,
+                    user_context=user_context,
+                    preferences=preferences,
+                    runtime_control=runtime_control,
                 )
-            return self._validate_and_repair(
-                question=question,
-                scope=scope,
-                draft=draft,
-                citations=citations,
+            except Exception as exc:
+                if generation_span is not None:
+                    generation_span.add_metadata(
+                        {"status": "failed", "error_type": type(exc).__name__}
+                    )
+                raise
+            else:
+                if generation_span is not None:
+                    generation_span.add_metadata({"status": "completed", "decision": draft.status})
+        if draft.status == "refused":
+            return _refusal(
+                question,
+                scope,
+                draft.refusal_reason,
             )
-        except (RuntimeError, ValueError):
-            return _refusal(question, scope, _REFUSAL_GENERATION)
+        return self._validate_and_repair(
+            question=question,
+            scope=scope,
+            draft=draft,
+            citations=citations,
+            user_context=user_context,
+            runtime_control=runtime_control,
+            on_stage=on_stage,
+        )
 
     def _validate_and_repair(
         self,
@@ -127,8 +263,12 @@ class EvidenceQAUseCase:
         scope: EvidenceQAScope,
         draft: EvidenceQADraft,
         citations: list[EvidenceQACitation],
+        user_context: list[UserContextMessage],
+        runtime_control: RunControlPort | None,
+        on_stage: Callable[[str], None] | None,
     ) -> EvidenceQAAnswer:
         known_citation_ids = {citation.citation_id for citation in citations}
+        known_context_ids = {item.message_id for item in user_context}
         removal_reasons: dict[str, list[ClaimRemovalReason]] = {}
         structurally_valid_claims: list[EvidenceQAClaim] = []
         for claim in draft.claims:
@@ -137,6 +277,8 @@ class EvidenceQAUseCase:
                 reasons.append("uncited")
             if set(claim.citation_ids) - known_citation_ids:
                 reasons.append("unknown_citation")
+            if set(claim.condition_message_ids) - known_context_ids:
+                reasons.append("unknown_context")
             if reasons:
                 removal_reasons[claim.claim_id] = reasons
             else:
@@ -154,20 +296,43 @@ class EvidenceQAUseCase:
             structurally_valid_claims,
             citations,
         )
-        try:
-            support = self._support_verifier.verify(
-                structurally_valid_claims,
-                candidate_citations,
+        if on_stage is not None:
+            on_stage("verification")
+        verification_trace = (
+            self._trace.span(
+                "riskpilot.claim.verify",
+                run_type="llm",
+                metadata={
+                    "run_id": runtime_control.run_id if runtime_control is not None else "",
+                    "stage": "verification",
+                    "evidence_count": len(candidate_citations),
+                },
             )
-        except (RuntimeError, ValueError):
-            for claim in structurally_valid_claims:
-                removal_reasons[claim.claim_id] = ["verification_error"]
-            return _refusal(
-                question,
-                scope,
-                _REFUSAL_GENERATION,
-                repair_report=_repair_report(draft.claims, [], removal_reasons),
-            )
+            if self._trace is not None
+            else nullcontext(None)
+        )
+        with verification_trace as verification_span:
+            try:
+                support = self._support_verifier.verify(
+                    structurally_valid_claims,
+                    candidate_citations,
+                    user_context=user_context,
+                    runtime_control=runtime_control,
+                )
+            except Exception as exc:
+                if verification_span is not None:
+                    verification_span.add_metadata(
+                        {"status": "failed", "error_type": type(exc).__name__}
+                    )
+                raise
+            else:
+                if verification_span is not None:
+                    verification_span.add_metadata(
+                        {
+                            "status": "completed",
+                            "decision": "supported" if support.valid else "filtered",
+                        }
+                    )
         if not _support_contract_valid(
             structurally_valid_claims,
             candidate_citations,
@@ -226,6 +391,10 @@ class EvidenceQAUseCase:
             claims=kept_claims,
             citations=final_citations,
             unanswered_aspects=unanswered_aspects,
+            presentation=_repair_presentation(
+                draft.presentation,
+                kept_claims,
+            ),
             verification=ClaimCitationVerifier.verify(
                 kept_claims,
                 final_citations,
@@ -234,322 +403,106 @@ class EvidenceQAUseCase:
             repair_report=repair_report,
         )
 
-    def _authorize_scope(
-        self,
-        actor_id: str,
-        *,
-        corpora: list[QACorpus],
-        workspace_id: str | None,
-        case_id: str | None,
-        assessment_id: str | None,
-    ) -> EvidenceQAScope:
-        requested = list(corpora)
-        if len(requested) != len(set(requested)):
-            raise ValueError("corpora 不能重复")
-        resolved_workspace_id = workspace_id
-        resolved_case_id = case_id
-        resolved_assessment_id = assessment_id
-
-        case = None
-        if any(corpus in {"case", "assessment"} for corpus in requested):
-            if not case_id:
-                raise ValueError("Case 或 Assessment 范围必须提供 case_id")
-            case = self._case_management.get_case(case_id, actor_id)
-            resolved_case_id = case.case_id
-            resolved_workspace_id = case.workspace_id
-            if workspace_id is not None and workspace_id != case.workspace_id:
-                raise ValueError("workspace_id 与 Case 归属不一致")
-        elif "workspace" in requested:
-            if not workspace_id:
-                raise ValueError("Workspace 范围必须提供 workspace_id")
-            workspace = self._workspace_management.get_workspace(workspace_id, actor_id)
-            resolved_workspace_id = workspace.workspace_id
-
-        if "assessment" in requested:
-            if not assessment_id:
-                raise ValueError("Assessment 范围必须提供 assessment_id")
-            bundle = self._assessment_management.get(assessment_id, actor_id)
-            if case is None or bundle.assessment.case_id != case.case_id:
-                raise ValueError("Assessment 不属于当前 Case")
-            resolved_assessment_id = bundle.assessment.assessment_id
-
-        return EvidenceQAScope(
-            corpora=requested,
-            workspace_id=resolved_workspace_id,
-            case_id=resolved_case_id,
-            assessment_id=resolved_assessment_id,
-        )
-
     def _retrieve(
-        self,
-        actor_id: str,
-        *,
-        question: str,
-        scope: EvidenceQAScope,
-        top_k: int,
+        self, actor_id: str, *, question: str, scope: EvidenceQAScope, top_k: int
     ) -> list[EvidenceQACitation]:
-        futures: list[tuple[QACorpus, Future[object]]] = []
-        immediate_results: list[tuple[QACorpus, object]] = []
-        query_embedding: list[float] | None = None
-        if any(corpus in {"workspace", "case"} for corpus in scope.corpora):
-            query_embedding = self._embedder.embed([question])[0]
-        with ThreadPoolExecutor(max_workers=min(len(scope.corpora), 4)) as executor:
-            for corpus in scope.corpora:
-                if corpus == "regulatory":
-                    futures.append(
-                        (
-                            corpus,
-                            executor.submit(
-                                self._retriever.retrieve,
-                                question,
-                                top_k,
-                                "law",
-                                None,
-                                None,
-                            ),
-                        )
+        citations: list[EvidenceQACitation] = []
+        if "regulatory" in scope.corpora:
+            for chunk in self._retriever.retrieve(
+                question, top_k=top_k, corpus="law", owner_id=None
+            ):
+                citations.append(
+                    EvidenceQACitation(
+                        citation_id=f"E{len(citations) + 1}",
+                        corpus="regulatory",
+                        source_id=chunk.chunk_id,
+                        source_name=chunk.source_name,
+                        title=chunk.title,
+                        quote=chunk.text[:4000],
+                        source_url=chunk.source_url,
+                        score=max(0.0, chunk.score),
                     )
-                elif corpus == "workspace":
-                    assert scope.workspace_id is not None
-                    assert query_embedding is not None
-                    futures.append(
-                        (
-                            corpus,
-                            executor.submit(
-                                self._evidence_index.search_workspace,
-                                workspace_id=scope.workspace_id,
-                                query=question,
-                                query_embedding=query_embedding,
-                                top_k=top_k,
-                            ),
-                        )
+                )
+        if "user_docs" in scope.corpora:
+            hits = self._evidence_index.search(
+                owner_id=actor_id,
+                query=question,
+                query_embedding=self._embedder.embed([question])[0],
+                top_k=top_k,
+                document_ids=scope.document_ids,
+            )
+            for hit in hits:
+                c = hit.chunk
+                if c.owner_id != actor_id:
+                    continue
+                citations.append(
+                    EvidenceQACitation(
+                        citation_id=f"E{len(citations) + 1}",
+                        corpus="user_docs",
+                        source_id=c.chunk_id,
+                        source_name=c.document_id,
+                        quote=c.text[:4000],
+                        document_id=c.document_id,
+                        document_version_id=c.document_version_id,
+                        page_number=c.page_number,
+                        source_sha256=c.source_sha256,
+                        score=hit.score,
                     )
-                elif corpus == "case":
-                    assert scope.workspace_id is not None
-                    assert scope.case_id is not None
-                    assert query_embedding is not None
-                    futures.append(
-                        (
-                            corpus,
-                            executor.submit(
-                                self._evidence_index.search,
-                                workspace_id=scope.workspace_id,
-                                case_id=scope.case_id,
-                                query=question,
-                                query_embedding=query_embedding,
-                                top_k=top_k,
-                            ),
-                        )
-                    )
-                else:
-                    assert scope.assessment_id is not None
-                    immediate_results.append(
-                        (
-                            corpus,
-                            self._assessment_management.get(
-                                scope.assessment_id,
-                                actor_id,
-                            ),
-                        )
-                    )
-            raw_results = [(corpus, future.result()) for corpus, future in futures]
-        raw_results.extend(immediate_results)
-        return _normalize_citations(raw_results, scope=scope, per_corpus_limit=top_k)
+                )
+        return citations
 
     def _verify_source_citations(
-        self,
-        citations: list[EvidenceQACitation],
-        *,
-        scope: EvidenceQAScope,
+        self, citations: list[EvidenceQACitation], *, scope: EvidenceQAScope
     ) -> list[EvidenceQACitation]:
         verified: list[EvidenceQACitation] = []
         for citation in citations:
-            if citation.corpus not in {"workspace", "case"}:
+            if citation.corpus in {"regulatory", "web"}:
                 verified.append(citation)
                 continue
-            if citation.workspace_id != scope.workspace_id:
+            if citation.corpus == "knowledge":
+                if citation.owner_id == scope.owner_id:
+                    verified.append(citation)
                 continue
-            if citation.corpus == "case" and citation.case_id != scope.case_id:
-                continue
-            if citation.document_version_id is None or citation.page_number is None:
+            if (
+                citation.document_version_id is None
+                or citation.document_id is None
+                or citation.page_number is None
+            ):
                 continue
             version = self._documents.get_version(citation.document_version_id)
-            document = (
-                None if citation.document_id is None else self._documents.get(citation.document_id)
-            )
+            document = self._documents.get(citation.document_id)
             snapshot = self._documents.get_parse_snapshot(citation.document_version_id)
             if (
                 version is None
                 or document is None
                 or snapshot is None
-                or version.document_id != document.document_id
-                or document.workspace_id != citation.workspace_id
+                or document.owner_id != scope.owner_id
                 or document.status != "ready"
+                or version.document_id != document.document_id
                 or document.current_version_id != version.version_id
                 or version.sha256 != citation.source_sha256
+                or snapshot.source_sha256 != version.sha256
+                or snapshot.document_version_id != version.version_id
                 or citation.page_number > snapshot.page_count
+                or (
+                    scope.document_ids is not None
+                    and document.document_id not in scope.document_ids
+                )
             ):
                 continue
-            if citation.corpus == "workspace" and document.document_type != "workspace_knowledge":
-                continue
-            if citation.corpus == "case":
-                if citation.case_id is None:
-                    continue
-                binding = self._documents.get_binding(
-                    citation.case_id,
-                    document.document_id,
-                )
-                if binding is None:
-                    continue
             page = snapshot.pages[citation.page_number - 1]
-            page_parts = [page.text]
-            page_parts.extend(table.markdown for table in page.tables)
-            page_text = "\n\n".join(part for part in page_parts if part)
+            page_text = "\n\n".join([page.text, *(t.markdown for t in page.tables)])
             if citation.quote not in page_text:
                 continue
-            verified.append(citation.model_copy(update={"source_name": document.logical_name}))
+            verified.append(
+                citation.model_copy(
+                    update={
+                        "source_name": document.logical_name,
+                        "source_version": str(version.version_number),
+                    }
+                )
+            )
         return verified
-
-
-def _normalize_citations(
-    raw_results: list[tuple[QACorpus, object]],
-    *,
-    scope: EvidenceQAScope,
-    per_corpus_limit: int,
-) -> list[EvidenceQACitation]:
-    candidates: list[tuple[float, str, dict[str, object]]] = []
-    for corpus, result in raw_results:
-        if corpus == "regulatory":
-            for regulatory_chunk in cast("list[Chunk]", result)[:per_corpus_limit]:
-                candidates.append(
-                    (
-                        regulatory_chunk.score,
-                        f"regulatory:{regulatory_chunk.chunk_id}",
-                        {
-                            "corpus": "regulatory",
-                            "source_id": regulatory_chunk.chunk_id,
-                            "source_name": regulatory_chunk.source_name,
-                            "title": regulatory_chunk.title,
-                            "quote": regulatory_chunk.text[:4000],
-                            "source_url": regulatory_chunk.source_url,
-                            "clause_id": (
-                                str(regulatory_chunk.metadata.get("clause_id") or "") or None
-                            ),
-                            "score": max(0.0, regulatory_chunk.score),
-                        },
-                    )
-                )
-        elif corpus in {"workspace", "case"}:
-            for hit in cast("list[EvidenceSearchHit]", result)[:per_corpus_limit]:
-                evidence_chunk = hit.chunk
-                candidates.append(
-                    (
-                        hit.score,
-                        (
-                            f"{corpus}:{evidence_chunk.document_version_id}:"
-                            f"{evidence_chunk.page_number}:{evidence_chunk.chunk_index}"
-                        ),
-                        {
-                            "corpus": corpus,
-                            "source_id": evidence_chunk.chunk_id,
-                            "source_name": evidence_chunk.document_id,
-                            "title": f"第 {evidence_chunk.page_number} 页",
-                            "quote": evidence_chunk.text[:4000],
-                            "workspace_id": evidence_chunk.workspace_id,
-                            "case_id": (evidence_chunk.case_id if corpus == "case" else None),
-                            "document_id": evidence_chunk.document_id,
-                            "document_version_id": evidence_chunk.document_version_id,
-                            "page_number": evidence_chunk.page_number,
-                            "source_sha256": evidence_chunk.source_sha256,
-                            "score": hit.score,
-                        },
-                    )
-                )
-        else:
-            bundle = cast("AssessmentBundle", result)
-            candidates.extend(_assessment_candidates(bundle, scope))
-
-    deduplicated: dict[str, tuple[float, dict[str, object]]] = {}
-    for score, key, values in candidates:
-        current = deduplicated.get(key)
-        if current is None or score > current[0]:
-            deduplicated[key] = (score, values)
-    ordered = sorted(
-        deduplicated.values(),
-        key=lambda item: item[0],
-        reverse=True,
-    )
-    citations: list[EvidenceQACitation] = []
-    for index, (_, values) in enumerate(ordered, start=1):
-        citations.append(
-            EvidenceQACitation.model_validate(
-                {
-                    "citation_id": f"E{index}",
-                    **values,
-                }
-            )
-        )
-    return citations
-
-
-def _assessment_candidates(
-    bundle: AssessmentBundle,
-    scope: EvidenceQAScope,
-) -> list[tuple[float, str, dict[str, object]]]:
-    assessment = bundle.assessment
-    source_name = f"Assessment v{assessment.version}"
-    candidates: list[tuple[float, str, dict[str, object]]] = []
-    for finding in bundle.findings:
-        quote = finding.title
-        if finding.description:
-            quote += f"：{finding.description}"
-        candidates.append(
-            (
-                float(_severity_score(finding.severity)),
-                f"assessment:finding:{finding.finding_id}",
-                {
-                    "corpus": "assessment",
-                    "source_id": finding.finding_id,
-                    "source_name": source_name,
-                    "title": finding.title,
-                    "quote": quote[:4000],
-                    "workspace_id": scope.workspace_id,
-                    "case_id": assessment.case_id,
-                    "assessment_id": assessment.assessment_id,
-                    "clause_id": finding.clause_ids[0] if finding.clause_ids else None,
-                    "score": float(_severity_score(finding.severity)),
-                },
-            )
-        )
-    for action in bundle.action_items:
-        candidates.append(
-            (
-                0.5,
-                f"assessment:action:{action.action_id}",
-                {
-                    "corpus": "assessment",
-                    "source_id": action.action_id,
-                    "source_name": source_name,
-                    "title": action.title,
-                    "quote": (action.description or action.title)[:4000],
-                    "workspace_id": scope.workspace_id,
-                    "case_id": assessment.case_id,
-                    "assessment_id": assessment.assessment_id,
-                    "score": 0.5,
-                },
-            )
-        )
-    return candidates
-
-
-def _severity_score(severity: str) -> float:
-    return {
-        "info": 0.2,
-        "low": 0.3,
-        "medium": 0.5,
-        "high": 0.8,
-        "critical": 1.0,
-    }.get(severity, 0.0)
 
 
 def _citations_for_claims(
@@ -558,6 +511,45 @@ def _citations_for_claims(
 ) -> list[EvidenceQACitation]:
     used_ids = {citation_id for claim in claims for citation_id in claim.citation_ids}
     return [citation for citation in citations if citation.citation_id in used_ids]
+
+
+def _repair_presentation(
+    presentation: EvidenceQAPresentation | None,
+    kept_claims: list[EvidenceQAClaim],
+) -> EvidenceQAPresentation | None:
+    """只删除依赖坏 Claim 的展示元素；图表不再完整时安全降级为文本。"""
+    if presentation is None or presentation.kind == "text":
+        return presentation
+    kept_claim_ids = {claim.claim_id for claim in kept_claims}
+    payload = presentation.model_dump()
+    if presentation.kind == "table":
+        table = payload.get("table") or {}
+        rows = table.get("rows") or []
+        table["rows"] = [
+            row for row in rows if set(row.get("claim_ids") or []).issubset(kept_claim_ids)
+        ]
+    else:
+        flowchart = payload.get("flowchart") or {}
+        nodes = flowchart.get("nodes") or []
+        kept_nodes = [
+            node for node in nodes if set(node.get("claim_ids") or []).issubset(kept_claim_ids)
+        ]
+        kept_node_ids = {node.get("node_id") for node in kept_nodes}
+        edges = flowchart.get("edges") or []
+        flowchart["nodes"] = kept_nodes
+        flowchart["edges"] = [
+            edge
+            for edge in edges
+            if edge.get("source_node_id") in kept_node_ids
+            and edge.get("target_node_id") in kept_node_ids
+            and set(edge.get("claim_ids") or []).issubset(kept_claim_ids)
+        ]
+    try:
+        repaired = EvidenceQAPresentation.model_validate(payload)
+        EvidenceQADraft(status="answered", claims=kept_claims, presentation=repaired)
+        return repaired
+    except ValueError:
+        return EvidenceQAPresentation(kind="text")
 
 
 def _support_contract_valid(

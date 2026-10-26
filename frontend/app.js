@@ -1,434 +1,178 @@
-/**
- * app.js — 应用入口：组装 auth + chat + tasks + UI 事件。
- *
- * ES module；由 index.html `<script type="module">` 拉起。
- */
-
-import {
-  displayLabels,
-  ensureSession,
-  getUser,
-  isDemoLoginEnabled,
-  loginDemo,
-  logout,
-  onUserChange,
-  startGithubLogin,
-} from "./auth.js";
-import {
-  sendMessage,
-  newConversation,
-  loadTask,
-  onTaskCreated,
-  onTaskUpdated,
-  onModeChanged,
-  onConversationReset,
-  getCurrentTaskId,
-  getCurrentMode,
-  setCurrentMode,
-} from "./chat.js";
+/** Conversation entry point: identity, history, composer and attachments. */
+import "./memory.js?v=20261026-v2";
+import { closeKnowledgeBase } from "./knowledge_base.js?v=20261019-kb4";
+import { displayLabels, ensureSession, logout, onUserChange } from "./auth.js";
+import { sendMessage, stopGeneration, newConversation, loadTask, onTaskCreated, onTaskUpdated, onConversationReset, onAttachmentSelectionChanged, getCurrentTaskId } from "./chat.js?v=20261023-flow7";
 import { refresh as refreshTasks, onSelect as onTaskSelect, setActive as setActiveTask } from "./tasks.js";
-import * as kb from "./kb.js";
-import * as adminAudit from "./admin-audit.js";
-import * as cases from "./cases.js";
-import * as settings from "./settings.js";
 import { health } from "./api.js";
-
-const $ = (sel) => document.querySelector(sel);
-
-// 当前主视图：chat | cases | kb | audit
-let _currentView = "chat";
-
-function switchView(view) {
-  if (!["chat", "cases", "kb", "audit"].includes(view)) return;
-  const user = getUser();
-  if (view === "cases" && (!user || user.provider === "anonymous")) return;
-  if (view === "kb" && !getUser()) return;  // 未登录不许进 KB
-  if (view === "audit" && !getUser()?.is_admin) return;  // 只 admin 进 audit
-  _currentView = view;
-
-  $("#chat-pane").classList.toggle("hidden", view !== "chat");
-  $("#case-pane").classList.toggle("hidden", view !== "cases");
-  $("#kb-pane").classList.toggle("hidden", view !== "kb");
-  $("#audit-pane").classList.toggle("hidden", view !== "audit");
-
-  document.querySelectorAll(".side-nav-item").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.view === view);
-  });
-
-  if (view === "cases") {
-    cases.mount();
-  } else if (view === "kb") {
-    kb.mount();
-    kb.refresh();
-  } else if (view === "audit") {
-    adminAudit.mount();
-    adminAudit.refresh();
-  }
+const $ = (selector) => document.querySelector(selector);
+const welcome = $("#welcome").innerHTML;
+let selectedAttachmentIds = [];
+let attachmentSelectionDirty = false;
+let uploadGeneration = 0;
+let uploading = false;
+let riskMode = false;
+function taskIdFromUrl() {
+  return new URL(window.location.href).searchParams.get("task_id");
 }
-
-// ─────────── 启动 ───────────
-(async function bootstrap() {
-  try {
-    await ensureSession();
-  } catch (err) {
-    console.error("session bootstrap failed", err);
-  }
-  await healthCheck();
-  await refreshTasks();
-
-  bindUI();
-  // 初始 UI 同步： Tab 高亮 + placeholder + welcome 卡
-  applyMode(getCurrentMode());
-  // chat 重置时由 app 重画 welcome
-  onConversationReset((m) => renderWelcome(m));
-})();
-
-// ─────────── 健康检查（顶部状态点） ───────────
-async function healthCheck() {
-  const dot = $("#status-dot");
-  const text = $("#status-text");
-  try {
-    const r = await health.ready();
-    if (r.status === "ok") {
-      dot.dataset.state = "ok";
-      text.textContent = `就绪 · ${r.tools?.length || 0} 工具`;
-    } else {
-      dot.dataset.state = "err";
-      text.textContent = "未就绪";
-    }
-  } catch {
-    dot.dataset.state = "err";
-    text.textContent = "服务异常";
-  }
+function setTaskUrl(taskId) {
+  const url = new URL(window.location.href);
+  if (taskId) url.searchParams.set("task_id", taskId);
+  else url.searchParams.delete("task_id");
+  window.history.replaceState({}, "", url);
 }
-
-// ─────────── 用户信息渲染 ───────────
+function setSidebarOpen(open) {
+  document.body.classList.toggle("sidebar-open", open);
+  $("#btn-sidebar-toggle").setAttribute("aria-expanded", String(open));
+}
+function clearAttachment({ dirty = true } = {}) {
+  uploadGeneration += 1;
+  selectedAttachmentIds = [];
+  attachmentSelectionDirty = dirty;
+  uploading = false;
+  $("#attachment-input").value = "";
+  $("#attachment-status").textContent = "";
+  $("#attachment-clear").hidden = true;
+}
+function setRiskMode(enabled) {
+  riskMode = enabled;
+  const button = $("#btn-risk-analysis");
+  button.classList.toggle("active", enabled);
+  button.setAttribute("aria-pressed", String(enabled));
+  $("#composer-input").placeholder = enabled
+    ? "输入要评估的合规问题，或描述需要分析的企业材料…"
+    : "描述你的合规问题，或针对已添加的材料提问…";
+}
 onUserChange((user) => {
-  const { initial, name, provider, avatarUrl } = displayLabels(user);
-  const avatar = $("#user-avatar");
-  if (avatarUrl) {
-    // 有真实头像（如 GitHub），用 <img> 填充；加 referrerpolicy 避免部分 CDN 防盗链 403
-    avatar.innerHTML = "";
-    const img = document.createElement("img");
-    img.src = avatarUrl;
-    img.alt = name;
-    img.referrerPolicy = "no-referrer";
-    img.onerror = () => { avatar.textContent = initial; };  // 加载失败回退首字母
-    avatar.appendChild(img);
-  } else {
-    avatar.textContent = initial;
-  }
-  $("#user-name").textContent = name;
-  $("#user-provider").textContent = provider;
-
-  // KB 入口：任意登录用户可见（只读）；admin 额外看到 admin 标签 + 上传/删除 UI
-  applyKbGate(!!user, !!user?.is_admin);
-  applyCaseGate(!!user && user.provider !== "anonymous");
-  // 记忆与隐私：仅「真实登录」用户可用（匿名访客不显示）
-  applyMemoryGate(!!user && user.provider !== "anonymous");
-  const demoLogin = $("#btn-demo-login");
-  if (demoLogin) {
-    demoLogin.classList.toggle("hidden", !isDemoLoginEnabled());
-    demoLogin.hidden = !isDemoLoginEnabled();
-  }
+  const labels = displayLabels(user);
+  $("#user-avatar").textContent = labels.initial;
+  $("#user-name").textContent = labels.name;
+  $("#user-provider").textContent = labels.provider;
+  const githubLogin = $("#btn-github-login");
+  githubLogin.hidden = user?.provider === "github";
+  githubLogin.disabled = false;
+  githubLogin.textContent = "使用 GitHub 登录";
 });
-
-function applyCaseGate(isLoggedIn) {
-  const navCases = $("#nav-cases");
-  if (navCases) {
-    navCases.classList.toggle("hidden", !isLoggedIn);
-    navCases.hidden = !isLoggedIn;
-  }
-  if (!isLoggedIn && _currentView === "cases") {
-    switchView("chat");
-  }
-}
-
-// 控制「记忆与隐私」入口的可见性：匿名访客隐藏，真实登录用户显示
-function applyMemoryGate(isRealUser) {
-  const item = $("#btn-memory-settings");
-  if (item) {
-    item.classList.toggle("hidden", !isRealUser);
-    item.hidden = !isRealUser;
-  }
-  // 退出登录 / 掉到匿名时若模态还开着，关掉它
-  if (!isRealUser) settings.close();
-}
-
-// 控制 KB 入口与写入 UI 的可见性
-function applyKbGate(isLoggedIn, isAdmin) {
-  const navKb = $("#nav-kb");
-  if (navKb) {
-    navKb.classList.toggle("hidden", !isLoggedIn);
-    navKb.hidden = !isLoggedIn;
-  }
-  const tag = $("#nav-kb-tag");
-  if (tag) {
-    tag.classList.toggle("hidden", !isAdmin);
-    tag.hidden = !isAdmin;
-  }
-  // Step 025a：写入 UI 对所有登录用户开放（普通用户入私人，admin 可选公共）
-  const actions = $("#kb-actions");
-  if (actions) {
-    actions.classList.toggle("hidden", !isLoggedIn);
-  }
-  // 「只读」banner 不再使用：所有登录用户都可写入
-  const banner = $("#kb-readonly-banner");
-  if (banner) {
-    banner.classList.add("hidden");
-  }
-  // 未登录却停在 KB 视图：踢回对话
-  if (!isLoggedIn && _currentView === "kb") {
-    switchView("chat");
-  }
-  // 审计入口：admin-only
-  const navAudit = $("#nav-audit");
-  if (navAudit) {
-    navAudit.classList.toggle("hidden", !isAdmin);
-    navAudit.hidden = !isAdmin;
-  }
-  if (!isAdmin && _currentView === "audit") {
-    switchView("chat");
-  }
-}
-
-// ─────────── 任务列表 ↔ 聊天联动 ───────────
-onTaskSelect(async (taskId) => {
-  setActiveTask(taskId);
-  await loadTask(taskId);
+onTaskSelect(async (id) => {
+  closeKnowledgeBase();
+  setRiskMode(false);
+  setSidebarOpen(false);
+  clearAttachment({ dirty: false });
+  setTaskUrl(id);
+  setActiveTask(id);
+  await loadTask(id);
 });
-
-onTaskCreated(async (taskId, title) => {
-  await refreshTasks();
-  setActiveTask(taskId);
-  $("#chat-title").textContent = title || "新对话";
-});
-
-onTaskUpdated(async () => {
-  await refreshTasks();
-  const cid = getCurrentTaskId();
-  if (cid) setActiveTask(cid);
-});
-
-// ─────────── UI 事件绑定 ───────────
-function bindUI() {
-  // 侧边栏主导航：对话 / 知识库
-  document.querySelectorAll(".side-nav-item").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const v = btn.dataset.view;
-      if (v) switchView(v);
-    });
-  });
-
-  // 新建任务
-  $("#btn-new-task").addEventListener("click", () => {
-    if (_currentView !== "chat") switchView("chat");
-    setActiveTask(null);
-    newConversation();
-    $("#composer-input").focus();
-  });
-
-  // 模式 Tab 切换
-  document.querySelectorAll(".mode-tab").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const m = btn.dataset.mode;
-      if (!m) return;
-      // 已有进行中的对话：切模式 = 自动开新对话（三种业务形态不共享上下文）
-      if (getCurrentTaskId()) {
-        setActiveTask(null);
-        newConversation();
-      }
-      if (setCurrentMode(m)) {
-        applyMode(m);
-      } else {
-        // mode 未变（点了已激活的 Tab）：仅刷新 UI
-        applyMode(m);
-      }
-      $("#composer-input")?.focus();
-    });
-  });
-
-  // 监听 chat.js 内部的 mode 变更（例如 loadTask 拉到历史 task 的 mode）
-  onModeChanged((m) => applyMode(m));
-
-  // 用户菜单
-  $("#btn-user-menu").addEventListener("click", () => {
-    $("#user-menu").classList.toggle("hidden");
-  });
-  $("#btn-github-login").addEventListener("click", async () => {
-    $("#user-menu").classList.add("hidden");
-    try { await startGithubLogin(); }
-    catch (err) { alert(`GitHub 登录失败：${err.message}`); }
-  });
-  $("#btn-demo-login")?.addEventListener("click", async () => {
-    $("#user-menu").classList.add("hidden");
-    try {
-      await loginDemo();
-      switchView("cases");
-    } catch (err) {
-      alert(`Demo 登录失败：${err.message}`);
-    }
-  });
-  $("#btn-logout").addEventListener("click", async () => {
-    $("#user-menu").classList.add("hidden");
-    await logout();
-    newConversation();
-    await refreshTasks();
-  });
-
-  // 记忆与隐私设置（Step 031b）：仅真实登录用户可用
-  $("#btn-memory-settings")?.addEventListener("click", () => {
-    $("#user-menu").classList.add("hidden");
-    const user = getUser();
-    if (!user || user.provider === "anonymous") return;
-    settings.open();
-  });
-  // 清空全部（含对话）后：刷新任务列表并重置当前对话
-  settings.onMemoryCleared((scope) => {
-    if (scope === "all") {
-      setActiveTask(null);
-      newConversation();
-      refreshTasks();
-    }
-  });
-
-  // 欢迎卡里的建议问题
-  document.addEventListener("click", (ev) => {
-    const card = ev.target.closest(".suggest-card");
-    if (!card) return;
-    const q = card.dataset.q;
-    if (q) submit(q);
-  });
-
-  // 输入框
-  const input = $("#composer-input");
-  const form = $("#composer-form");
-
-  // 自动增高
-  input.addEventListener("input", () => {
-    input.style.height = "auto";
-    input.style.height = Math.min(input.scrollHeight, 200) + "px";
-  });
-
-  // Enter 发送，Shift+Enter 换行
-  input.addEventListener("keydown", (ev) => {
-    if (ev.key === "Enter" && !ev.shiftKey) {
-      ev.preventDefault();
-      form.requestSubmit();
-    }
-  });
-
-  form.addEventListener("submit", (ev) => {
-    ev.preventDefault();
-    submit(input.value);
-  });
-
-  function submit(text) {
-    const t = (text || "").trim();
-    if (!t) return;
-    sendMessage(t);
-    input.value = "";
-    input.style.height = "auto";
-    input.focus();
-  }
-}
-
-// ─────────── 模式 UI 同步 ───────────
-const MODE_LABELS = { qa: "知识问答", research: "深度研究", profile: "风险画像" };
-
-const MODE_PRESETS = {
-  qa: {
-    placeholder: "问点合规问题…  (Enter 发送，Shift+Enter 换行)",
-    title: "欢迎使用数智合规",
-    desc: "面向数据出境法规的对话式合规助手。Agent 会自主调用工具检索法条、研判证据并给出可追溯的回答。",
-    suggestions: [
-      { icon: "📜", q: "个人信息出境的三种合规路径分别是什么？" },
-      { icon: "🔍", q: "什么情况下必须申报数据出境安全评估？" },
-      { icon: "📝", q: "标准合同备案需要准备哪些材料？" },
-      { icon: "⚖️", q: "重要数据如何识别？依据是什么？" },
-    ],
-  },
-  research: {
-    placeholder: "描述你要研究的议题，Agent 会做多轮检索 + 长报告… (Enter 发送)",
-    title: "深度研究模式",
-    desc: "Agent 会做多轮检索、跨文档归纳，输出长篇结构化报告。耗时较长但更全面，适合综述、对比、方案设计类问题。",
-    suggestions: [
-      { icon: "🔬", q: "综述近三年个人信息出境监管框架的演进与关键节点" },
-      { icon: "⚖️", q: "对比安全评估、标准合同、个保认证三条路径的适用场景与差异" },
-      { icon: "🌐", q: "我公司将客户数据传输至 AWS 新加坡区，请给出完整合规方案与材料清单" },
-      { icon: "📊", q: "盘点国内重要数据识别相关的部委文件与行业指引" },
-    ],
-  },
-  profile: {
-    placeholder: "输入一句话的场景描述或目标命题，例如“某公司向香港传输客户订单数据是否需安全评估”… (Enter 发送)",
-    title: "风险画像（接口预留 · evidence-state 模型训练中）",
-    desc: "描述你的出境场景或提出一句话的目标命题，未来会返回 evidence-state（supported / contradicted / not_disclosed）+ 证据 span + 解释。schema-evidence-risk-profiling 模型部署前，本 Tab 仍以普通对话形式回答。",
-    suggestions: [
-      { icon: "🛍️", q: "跨境电商日均向香港传输 5 万条订单数据，是否需要申报数据出境安全评估？" },
-      { icon: "💊", q: "跨国药企将临床试验数据传至德国总部，这是否属于重要数据？需走哪条路径？" },
-      { icon: "🚗", q: "智能汽车将行驶轨迹传至海外算法平台进行训练，该场景需要备案标准合同吗？" },
-      { icon: "🏦", q: "金融机构应境外母公司风控查询请求向其提供客户交易记录，是否需个人信息保护认证？" },
-    ],
-  },
-};
-
-function applyMode(mode) {
-  syncModeUI(mode);
-  setPlaceholder(mode);
-  renderWelcome(mode);
-}
-
-function syncModeUI(mode) {
-  // Tab 高亮
-  document.querySelectorAll(".mode-tab").forEach((btn) => {
-    const on = btn.dataset.mode === mode;
-    btn.classList.toggle("active", on);
-    btn.setAttribute("aria-selected", on ? "true" : "false");
-  });
-  // chat-title 旁的 mode badge（qa 不显示）
-  const badge = $("#chat-mode-badge");
-  if (!badge) return;
-  if (mode === "qa") {
-    badge.hidden = true;
-    badge.textContent = "";
+onTaskCreated(async (id) => { setTaskUrl(id); await refreshTasks(); setActiveTask(id); });
+onTaskUpdated(async () => { await refreshTasks(); setActiveTask(getCurrentTaskId()); });
+onConversationReset(() => { $("#welcome").innerHTML = welcome; });
+onAttachmentSelectionChanged(async (documentIds) => {
+  selectedAttachmentIds = [...documentIds];
+  attachmentSelectionDirty = false;
+  if (!documentIds.length) {
+    $("#attachment-status").textContent = "";
+    $("#attachment-clear").hidden = true;
     return;
   }
-  badge.hidden = false;
-  badge.dataset.mode = mode;
-  badge.textContent = MODE_LABELS[mode] || mode;
+  try {
+    const responses = await Promise.all(documentIds.map(id => fetch(`/api/v2/files/${encodeURIComponent(id)}`, {credentials: "include"})));
+    const details = await Promise.all(responses.map(response => response.json()));
+    $("#attachment-status").textContent = details.map(detail => `${detail.document.logical_name} · ${detail.document.status === "ready" ? "可用" : detail.document.status}`).join("；");
+    $("#attachment-clear").hidden = false;
+  } catch {
+    $("#attachment-status").textContent = "附件状态恢复失败";
+  }
+});
+$("#btn-new-task").addEventListener("click", () => {
+  closeKnowledgeBase();
+  setRiskMode(false);
+  setSidebarOpen(false);
+  clearAttachment({ dirty: false });
+  setTaskUrl(null);
+  newConversation();
+  setActiveTask(null);
+});
+$("#btn-sidebar-toggle").addEventListener("click", () => setSidebarOpen(true));
+$("#btn-sidebar-close").addEventListener("click", () => setSidebarOpen(false));
+$("#sidebar-backdrop").addEventListener("click", () => setSidebarOpen(false));
+$("#btn-user-menu").addEventListener("click", () => $("#user-menu").classList.toggle("hidden"));
+$("#btn-github-login").addEventListener("click", async () => {
+  $("#btn-github-login").textContent = "正在跳转 GitHub…";
+});
+$("#btn-logout").addEventListener("click", async () => {
+  clearAttachment({ dirty: false }); setTaskUrl(null); await logout(); newConversation(); await refreshTasks();
+});
+$("#attachment-clear").addEventListener("click", clearAttachment);
+$("#attachment-input").addEventListener("change", async (event) => {
+  const file = event.target.files[0];
+  if (!file) return;
+  const generation = ++uploadGeneration;
+  uploading = true;
+  const status = $("#attachment-status");
+  $("#attachment-clear").hidden = true;
+  status.textContent = `${file.name} · 正在准备为问题材料…`;
+  try {
+    const form = new FormData(); form.append("file", file);
+    let response = await fetch("/api/v2/files", {method: "POST", credentials: "include", body: form});
+    let result = await response.json();
+    if (!response.ok) throw new Error(result.message || "上传失败");
+    const id = result.document.document_id;
+    for (let poll = 0; poll < 300; poll++) {
+      if (generation !== uploadGeneration) return;
+      if (result.document.status === "ready") {
+        selectedAttachmentIds = [id];
+        attachmentSelectionDirty = true;
+        status.textContent = `${file.name} · 已作为当前对话材料`;
+        $("#attachment-clear").hidden = false;
+        return;
+      }
+      if (["failed", "cancelled"].includes(result.document.status)) throw new Error(result.job?.error_message || "处理失败");
+      status.textContent = `${file.name} · 处理中 ${Math.round((result.job?.progress || 0) * 100)}%`;
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      response = await fetch(`/api/v2/files/${encodeURIComponent(id)}`, {credentials: "include"});
+      result = await response.json();
+      if (!response.ok) throw new Error(result.message || "状态查询失败");
+    }
+    throw new Error("处理状态等待超时，请稍后查询附件");
+  } catch (error) {
+    if (generation === uploadGeneration) status.textContent = error.message;
+  } finally {
+    if (generation === uploadGeneration) uploading = false;
+  }
+});
+function submit(text) {
+  if (uploading || (!text.trim() && !riskMode)) return;
+  const attachmentOverride = attachmentSelectionDirty ? [...selectedAttachmentIds] : undefined;
+  const question = text.trim();
+  const message = riskMode
+    ? question || "请评估所选材料的数据出境风险，列出风险项、依据和需要补充的信息。"
+    : question;
+  sendMessage(riskMode ? `请进行风险评估：${message}` : message, attachmentOverride);
+  setRiskMode(false);
+  attachmentSelectionDirty = false;
+  $("#composer-input").value = "";
+  $("#composer-input").style.height = "auto";
 }
-
-function setPlaceholder(mode) {
-  const input = $("#composer-input");
-  if (!input) return;
-  const preset = MODE_PRESETS[mode] || MODE_PRESETS.qa;
-  input.placeholder = preset.placeholder;
-}
-
-function renderWelcome(mode) {
-  const welcome = $("#welcome");
-  if (!welcome) return;  // 无欢迎卡（已进入历史 task 或对话中），跳过
-  const preset = MODE_PRESETS[mode] || MODE_PRESETS.qa;
-  const cards = preset.suggestions
-    .map(
-      (s) => `
-        <button class="suggest-card" data-q="${escapeAttr(s.q)}">
-          <div class="suggest-icon">${s.icon}</div>
-          <div class="suggest-text">${escapeHtml(s.q)}</div>
-        </button>`
-    )
-    .join("");
-  welcome.innerHTML = `
-    <h1>${escapeHtml(preset.title)}</h1>
-    <p>${escapeHtml(preset.desc)}</p>
-    <div class="suggest-grid">${cards}</div>
-  `;
-}
-
-function escapeHtml(s) {
-  return String(s ?? "")
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-function escapeAttr(s) {
-  return escapeHtml(s).replace(/"/g, "&quot;");
-}
+$("#composer-form").addEventListener("submit", (event) => { event.preventDefault(); submit($("#composer-input").value); });
+$("#btn-stop").addEventListener("click", () => { void stopGeneration(); });
+$("#btn-risk-analysis").addEventListener("click", () => setRiskMode(!riskMode));
+$("#composer-input").addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); $("#composer-form").requestSubmit(); }
+});
+$("#composer-input").addEventListener("input", (event) => {
+  event.target.style.height = "auto"; event.target.style.height = `${Math.min(event.target.scrollHeight, 200)}px`;
+});
+document.addEventListener("click", (event) => { const card = event.target.closest(".suggest-card"); if (card?.dataset.q) submit(card.dataset.q); });
+(async () => {
+  try {
+    await ensureSession(); await refreshTasks();
+    const result = await health.ready();
+    $("#status-dot").dataset.state = result.status === "ok" ? "ok" : "err";
+    $("#status-text").textContent = result.status === "ok" ? "就绪" : "未就绪";
+    const restoredTaskId = taskIdFromUrl();
+    if (restoredTaskId) {
+      setActiveTask(restoredTaskId);
+      await loadTask(restoredTaskId);
+    }
+    document.documentElement.dataset.appReady = "true";
+  } catch (error) { $("#status-text").textContent = error.message; }
+})();

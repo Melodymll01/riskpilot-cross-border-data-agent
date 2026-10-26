@@ -68,8 +68,13 @@ class TestSseSimple:
         events = [f["event"] for f in frames]
         assert "task_created" in events
         assert events[-1] == "answer"
+        run_id = next(f for f in frames if f["event"] == "run_started")["data"]["run_id"]
         answer = next(f for f in frames if f["event"] == "answer")
-        assert answer["data"]["text"] == "done"
+        assert "没有经过检索和校验" in answer["data"]["text"]
+        run = client.get(f"/api/v2/copilot/runs/{run_id}")
+        assert run.status_code == 200
+        assert run.json()["status"] == "completed"
+        assert run.json()["end_reason"] == "unverified_claim_blocked"
 
 
 class TestSseToolLoop:

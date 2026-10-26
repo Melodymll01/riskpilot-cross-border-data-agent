@@ -7,14 +7,7 @@ import hashlib
 import pytest
 
 from app.workers import EvidenceIndexWorker
-from domain import (
-    CaseDocument,
-    Document,
-    DocumentParseSnapshot,
-    DocumentVersion,
-    ParsedPage,
-    ProcessingJob,
-)
+from domain import Document, DocumentParseSnapshot, DocumentVersion, ParsedPage, ProcessingJob
 from tests.fakes import (
     FakeEmbed,
     FakeEvidenceChunker,
@@ -40,7 +33,7 @@ def _setup():
     )
     document = Document(
         document_id="doc_001",
-        workspace_id="ws_001",
+        owner_id="ws_001",
         logical_name="source.txt",
         document_type="case_material",
         status="chunking",
@@ -48,12 +41,6 @@ def _setup():
         current_version_id=version.version_id,
         created_at=100.0,
         updated_at=102.0,
-    )
-    binding = CaseDocument(
-        case_id="case_001",
-        document_id=document.document_id,
-        added_by="github:alice",
-        added_at=100.0,
     )
     job = ProcessingJob(
         job_id="job_001",
@@ -65,7 +52,7 @@ def _setup():
         updated_at=102.0,
         started_at=101.0,
     )
-    repo.create_upload(document, version, binding, job)
+    repo.create_upload(document, version, job)
     snapshot = DocumentParseSnapshot(
         snapshot_id="parse_001",
         document_version_id=version.version_id,

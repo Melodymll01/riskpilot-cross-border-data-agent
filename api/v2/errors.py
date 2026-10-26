@@ -11,37 +11,22 @@ from fastapi.responses import JSONResponse
 
 from api.v2.schemas import ErrorResponse
 from domain.errors import (
-    AgentRunAlreadyActive,
-    AgentRunConflict,
-    AgentRunNotFound,
-    AssessmentNotActive,
-    AssessmentNotFound,
     AuthError,
-    CaseArchived,
-    CaseFactNotFound,
-    CaseNotFound,
+    ConversationRunConflict,
     DocumentNotFound,
     DocumentTooLarge,
     DomainError,
-    InvalidAgentRunTransition,
-    InvalidAssessmentTransition,
-    InvalidCaseTransition,
     InvalidDocumentContent,
     InvalidDocumentTransition,
     InvalidProcessingJobTransition,
     InvalidToken,
     OAuthFlowError,
     OwnerMismatch,
-    PolicyRuleNotFound,
     ProcessingJobConflict,
     ProcessingJobNotFound,
     TaskNotFound,
-    ToolExecutionError,
-    ToolNotFound,
     UnsupportedDocumentType,
     UserNotFound,
-    WorkspaceAccessDenied,
-    WorkspaceNotFound,
 )
 
 # DomainError 类型 → (http_status, error_code)
@@ -52,29 +37,7 @@ _DOMAIN_MAP: dict[type[DomainError], tuple[int, str]] = {
     UserNotFound: (status.HTTP_404_NOT_FOUND, "USER_NOT_FOUND"),
     TaskNotFound: (status.HTTP_404_NOT_FOUND, "TASK_NOT_FOUND"),
     OwnerMismatch: (status.HTTP_403_FORBIDDEN, "FORBIDDEN"),
-    WorkspaceNotFound: (status.HTTP_404_NOT_FOUND, "WORKSPACE_NOT_FOUND"),
-    WorkspaceAccessDenied: (status.HTTP_403_FORBIDDEN, "WORKSPACE_FORBIDDEN"),
-    CaseNotFound: (status.HTTP_404_NOT_FOUND, "CASE_NOT_FOUND"),
-    CaseArchived: (status.HTTP_409_CONFLICT, "CASE_ARCHIVED"),
-    CaseFactNotFound: (status.HTTP_404_NOT_FOUND, "CASE_FACT_NOT_FOUND"),
-    PolicyRuleNotFound: (status.HTTP_404_NOT_FOUND, "POLICY_RULE_NOT_FOUND"),
-    AssessmentNotFound: (status.HTTP_404_NOT_FOUND, "ASSESSMENT_NOT_FOUND"),
-    AssessmentNotActive: (status.HTTP_409_CONFLICT, "ASSESSMENT_NOT_ACTIVE"),
-    InvalidAssessmentTransition: (
-        status.HTTP_409_CONFLICT,
-        "INVALID_ASSESSMENT_TRANSITION",
-    ),
-    AgentRunNotFound: (status.HTTP_404_NOT_FOUND, "AGENT_RUN_NOT_FOUND"),
-    AgentRunAlreadyActive: (
-        status.HTTP_409_CONFLICT,
-        "AGENT_RUN_ALREADY_ACTIVE",
-    ),
-    AgentRunConflict: (status.HTTP_409_CONFLICT, "AGENT_RUN_CONFLICT"),
-    InvalidAgentRunTransition: (
-        status.HTTP_409_CONFLICT,
-        "INVALID_AGENT_RUN_TRANSITION",
-    ),
-    InvalidCaseTransition: (status.HTTP_409_CONFLICT, "INVALID_CASE_TRANSITION"),
+    ConversationRunConflict: (status.HTTP_409_CONFLICT, "CONVERSATION_RUN_CONFLICT"),
     DocumentNotFound: (status.HTTP_404_NOT_FOUND, "DOCUMENT_NOT_FOUND"),
     ProcessingJobNotFound: (status.HTTP_404_NOT_FOUND, "PROCESSING_JOB_NOT_FOUND"),
     ProcessingJobConflict: (status.HTTP_409_CONFLICT, "PROCESSING_JOB_CONFLICT"),
@@ -95,8 +58,6 @@ _DOMAIN_MAP: dict[type[DomainError], tuple[int, str]] = {
         status.HTTP_409_CONFLICT,
         "INVALID_PROCESSING_JOB_TRANSITION",
     ),
-    ToolNotFound: (status.HTTP_400_BAD_REQUEST, "TOOL_NOT_FOUND"),
-    ToolExecutionError: (status.HTTP_502_BAD_GATEWAY, "TOOL_FAILED"),
 }
 
 
@@ -111,7 +72,7 @@ def _map_domain_error(exc: DomainError) -> tuple[int, str]:
 def install_exception_handlers(
     app: object,
     *,
-    path_prefixes: tuple[str, ...] = ("/api/v2", "/api/v3"),
+    path_prefixes: tuple[str, ...] = ("/api/v2",),
 ) -> None:
     """把异常处理注册到 FastAPI app 上（不是 router，因为 exception handler 只在 app 层有效）。
 

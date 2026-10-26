@@ -6,10 +6,7 @@ import pytest
 
 from domain.models import Chunk, KbChunk, KbDocument, WebResult
 from domain.ports import (
-    AgentRunRepoPort,
-    AssessmentRepoPort,
     AuditLogPort,
-    CaseFactRepoPort,
     ChatPort,
     ClaimSupportVerifierPort,
     DocumentLoaderPort,
@@ -21,7 +18,6 @@ from domain.ports import (
     EvidenceQAGeneratorPort,
     KbDocumentRepoPort,
     ObjectStorePort,
-    PolicyRuleRepoPort,
     RetrievePort,
     TaskRepoPort,
     TracePort,
@@ -43,11 +39,7 @@ from tests.fakes import (
     FakeRetrieve,
     FakeTrace,
     FakeWebSearch,
-    InMemoryAgentRunRepo,
-    InMemoryAssessmentRepo,
-    InMemoryCaseFactRepo,
     InMemoryDocumentRepo,
-    InMemoryPolicyRuleRepo,
     InMemoryTaskRepo,
     InMemoryUserRepo,
 )
@@ -94,20 +86,8 @@ class TestFakeProtocolConformance:
     def test_in_memory_document_repo_is_document_repo_port(self) -> None:
         assert isinstance(InMemoryDocumentRepo(), DocumentRepoPort)
 
-    def test_in_memory_case_fact_repo_is_case_fact_repo_port(self) -> None:
-        assert isinstance(InMemoryCaseFactRepo(), CaseFactRepoPort)
-
-    def test_in_memory_assessment_repo_is_assessment_repo_port(self) -> None:
-        assert isinstance(InMemoryAssessmentRepo(), AssessmentRepoPort)
-
-    def test_in_memory_agent_run_repo_is_agent_run_repo_port(self) -> None:
-        assert isinstance(InMemoryAgentRunRepo(), AgentRunRepoPort)
-
     def test_fake_object_store_is_object_store_port(self) -> None:
         assert isinstance(FakeObjectStore(), ObjectStorePort)
-
-    def test_in_memory_policy_rule_repo_is_port(self) -> None:
-        assert isinstance(InMemoryPolicyRuleRepo(), PolicyRuleRepoPort)
 
 
 class TestFakeBehavior:

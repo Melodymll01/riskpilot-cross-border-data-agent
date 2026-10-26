@@ -28,11 +28,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from observability_context import (
-    case_id_var,
     node_var,
     run_id_var,
+    task_id_var,
     tool_var,
-    workspace_id_var,
 )
 from observability_context import (
     observability_context as observability_context,
@@ -51,8 +50,7 @@ class ObservabilityContext:
     request_id: str | None
     user_id: str | None
     run_id: str | None
-    workspace_id: str | None
-    case_id: str | None
+    task_id: str | None
     node: str | None
     tool: str | None
 
@@ -95,8 +93,7 @@ def get_observability_context() -> ObservabilityContext:
         request_id=request_id_var.get(),
         user_id=user_id_var.get(),
         run_id=run_id_var.get(),
-        workspace_id=workspace_id_var.get(),
-        case_id=case_id_var.get(),
+        task_id=task_id_var.get(),
         node=node_var.get(),
         tool=tool_var.get(),
     )

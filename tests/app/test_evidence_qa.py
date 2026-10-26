@@ -1,26 +1,13 @@
-"""V3 EvidenceQAUseCase 多范围检索、引用校验和安全拒答测试。"""
+"""EvidenceQAUseCase 多范围检索、引用校验和安全拒答测试。"""
 
 from __future__ import annotations
 
 import hashlib
-from datetime import date
 
 import pytest
 
-from app.use_cases import (
-    AssessmentManagementUseCase,
-    CaseManagementUseCase,
-    PolicyManagementUseCase,
-    WorkspaceManagementUseCase,
-)
 from app.use_cases.evidence_qa import EvidenceQAUseCase
 from domain import (
-    ActionItem,
-    Assessment,
-    AssessmentBundle,
-    Case,
-    CaseDocument,
-    CaseNotFound,
     ClaimSupportJudgement,
     ClaimSupportResult,
     Document,
@@ -29,10 +16,17 @@ from domain import (
     EvidenceChunk,
     EvidenceQAClaim,
     EvidenceQADraft,
+    EvidenceQAFlowchart,
+    EvidenceQAFlowEdge,
+    EvidenceQAFlowNode,
+    EvidenceQAPresentation,
+    EvidenceQAScope,
+    EvidenceQATable,
+    EvidenceQATableRow,
     EvidenceSearchHit,
-    Finding,
     ParsedPage,
     ProcessingJob,
+    UserContextMessage,
 )
 from domain.models import Chunk
 from tests.fakes import (
@@ -41,60 +35,14 @@ from tests.fakes import (
     FakeEvidenceIndex,
     FakeEvidenceQAGenerator,
     FakeRetrieve,
-    InMemoryAssessmentRepo,
-    InMemoryCaseFactRepo,
-    InMemoryCaseRepo,
     InMemoryDocumentRepo,
-    InMemoryPolicyRuleRepo,
-    InMemoryWorkspaceRepo,
 )
 
 
 class _Setup:
     def __init__(self) -> None:
-        self.workspace_repo = InMemoryWorkspaceRepo()
-        self.case_repo = InMemoryCaseRepo()
         self.document_repo = InMemoryDocumentRepo()
-        self.fact_repo = InMemoryCaseFactRepo()
-        self.rule_repo = InMemoryPolicyRuleRepo()
-        self.assessment_repo = InMemoryAssessmentRepo(self.case_repo)
-        self.workspace_uc = WorkspaceManagementUseCase(self.workspace_repo)
-        self.case_uc = CaseManagementUseCase(
-            case_repo=self.case_repo,
-            workspace_repo=self.workspace_repo,
-        )
-        self.policy_uc = PolicyManagementUseCase(
-            rule_repo=self.rule_repo,
-            fact_repo=self.fact_repo,
-            case_management=self.case_uc,
-            workspace_management=self.workspace_uc,
-        )
-        self.assessment_uc = AssessmentManagementUseCase(
-            assessment_repo=self.assessment_repo,
-            fact_repo=self.fact_repo,
-            document_repo=self.document_repo,
-            case_management=self.case_uc,
-            workspace_management=self.workspace_uc,
-            policy_management=self.policy_uc,
-        )
-        workspace = self.workspace_uc.create_workspace(
-            "github:alice",
-            name="跨境合规组",
-        )
-        self.workspace_id = workspace.workspace_id
-        self.workspace_uc.add_or_update_member(
-            workspace.workspace_id,
-            "github:alice",
-            user_id="github:editor",
-            role="editor",
-        )
-        case = self.case_uc.create_case(
-            "github:editor",
-            workspace_id=workspace.workspace_id,
-            title="海外客服项目",
-            assessment_date=date(2026, 8, 7),
-        )
-        self.case_id = case.case_id
+        self.owner_id = "github:editor"
         self.index = FakeEvidenceIndex(self.document_repo)
         self.embed = FakeEmbed(dim=4)
         self.retriever = FakeRetrieve()
@@ -116,26 +64,21 @@ class _Setup:
             embedder=self.embed,
             generator=generator or self.generator,
             support_verifier=support or self.support,
-            workspace_management=self.workspace_uc,
-            case_management=self.case_uc,
-            assessment_management=self.assessment_uc,
         )
 
     def seed_document(
         self,
         *,
         document_id: str,
-        case_id: str | None = None,
         document_type: str = "case_material",
         status: str = "ready",
         text: str = "境外接收方应承担安全保护责任",
     ) -> EvidenceChunk:
-        bound_case_id = case_id or self.case_id
         version_id = f"ver_{document_id}"
         sha256 = hashlib.sha256(text.encode()).hexdigest()
         document = Document(
             document_id=document_id,
-            workspace_id=self.workspace_id,
+            owner_id=self.owner_id,
             logical_name=f"{document_id}.txt",
             document_type=document_type,
             status=status,  # type: ignore[arg-type]
@@ -156,12 +99,6 @@ class _Setup:
             page_count=1,
             created_at=100.0,
         )
-        binding = CaseDocument(
-            case_id=bound_case_id,
-            document_id=document_id,
-            added_by="github:editor",
-            added_at=100.0,
-        )
         job = ProcessingJob(
             job_id=f"job_{document_id}",
             document_version_id=version_id,
@@ -173,7 +110,7 @@ class _Setup:
             started_at=100.0 if status == "ready" else None,
             completed_at=101.0 if status == "ready" else None,
         )
-        self.document_repo.create_upload(document, version, binding, job)
+        self.document_repo.create_upload(document, version, job)
         snapshot = DocumentParseSnapshot(
             snapshot_id=f"snapshot_{document_id}",
             document_version_id=version_id,
@@ -192,8 +129,7 @@ class _Setup:
         self.document_repo._snapshots[version_id] = snapshot
         chunk = EvidenceChunk(
             chunk_id=f"chunk_{document_id}",
-            workspace_id=self.workspace_id,
-            case_id=bound_case_id,
+            owner_id=self.owner_id,
             document_id=document_id,
             document_version_id=version_id,
             page_number=1,
@@ -205,51 +141,6 @@ class _Setup:
         self.index.replace_version_chunks(version_id, [chunk], [[1.0] * 4])
         return chunk
 
-    def seed_assessment(self) -> str:
-        assessment = Assessment(
-            assessment_id="assessment_001",
-            case_id=self.case_id,
-            version=1,
-            status="review_required",
-            assessment_date=date(2026, 8, 7),
-            jurisdiction="CN",
-            ruleset_version="synthetic-v1",
-            risk_level="high",
-            candidate_paths=["security_assessment"],
-            created_at=100.0,
-            updated_at=100.0,
-        )
-        finding = Finding(
-            finding_id="finding_001",
-            assessment_id=assessment.assessment_id,
-            finding_type="rule_trigger",
-            severity="high",
-            title="重要数据规则已触发",
-            description="需要申报数据出境安全评估",
-            clause_ids=["clause_001"],
-            rule_ids=["rule_001"],
-        )
-        action = ActionItem(
-            action_id="action_001",
-            assessment_id=assessment.assessment_id,
-            title="提交安全评估材料",
-            priority="high",
-            related_finding_ids=[finding.finding_id],
-        )
-        case = self.case_repo.get(self.case_id)
-        assert case is not None
-        updated_case = case.model_copy(update={"active_assessment_id": assessment.assessment_id})
-        self.assessment_repo.create_version(
-            AssessmentBundle(
-                assessment=assessment,
-                findings=[finding],
-                action_items=[action],
-            ),
-            None,
-            updated_case,
-        )
-        return assessment.assessment_id
-
 
 @pytest.fixture
 def setup() -> _Setup:
@@ -258,13 +149,12 @@ def setup() -> _Setup:
 
 class TestEvidenceQAAnswer:
     def test_case_scope_returns_versioned_verified_citation(self, setup: _Setup) -> None:
-        chunk = setup.seed_document(document_id="case")
+        chunk = setup.seed_document(document_id="user_docs")
 
         result = setup.qa.answer(
             "github:editor",
             question="境外接收方有什么义务？",
-            corpora=["case"],
-            case_id=setup.case_id,
+            corpora=["user_docs"],
         )
 
         assert result.status == "answered"
@@ -303,49 +193,8 @@ class TestEvidenceQAAnswer:
         assert call["owner_id"] is None
         assert result.citations[0].corpus == "regulatory"
 
-    def test_workspace_scope_only_uses_workspace_knowledge(self, setup: _Setup) -> None:
-        workspace_chunk = setup.seed_document(
-            document_id="workspace",
-            document_type="workspace_knowledge",
-            text="Workspace 制度要求完成审批",
-        )
-        setup.seed_document(
-            document_id="case",
-            document_type="case_material",
-            text="普通案件材料不能进入 Workspace 范围",
-        )
-
-        result = setup.qa.answer(
-            "github:editor",
-            question="内部制度要求什么？",
-            corpora=["workspace"],
-            workspace_id=setup.workspace_id,
-        )
-
-        assert result.status == "answered"
-        assert [citation.document_id for citation in result.citations] == [
-            workspace_chunk.document_id
-        ]
-        assert setup.index.workspace_search_calls[0]["workspace_id"] == setup.workspace_id
-
-    def test_assessment_scope_explains_finding(self, setup: _Setup) -> None:
-        assessment_id = setup.seed_assessment()
-
-        result = setup.qa.answer(
-            "github:editor",
-            question="为什么是高风险？",
-            corpora=["assessment"],
-            case_id=setup.case_id,
-            assessment_id=assessment_id,
-        )
-
-        assert result.status == "answered"
-        assert result.citations[0].corpus == "assessment"
-        assert result.citations[0].assessment_id == assessment_id
-        assert "重要数据规则已触发" in result.citations[0].quote
-
     def test_multi_scope_deduplicates_and_renumbers_citations(self, setup: _Setup) -> None:
-        setup.seed_document(document_id="case")
+        setup.seed_document(document_id="user_docs")
         retriever = FakeRetrieve(
             chunks=[
                 Chunk(
@@ -374,8 +223,7 @@ class TestEvidenceQAAnswer:
         result = qa.answer(
             "github:editor",
             question="综合说明",
-            corpora=["regulatory", "case"],
-            case_id=setup.case_id,
+            corpora=["regulatory", "user_docs"],
             top_k=2,
         )
 
@@ -393,15 +241,14 @@ class TestEvidenceQAFailClosed:
         result = setup.qa.answer(
             "github:editor",
             question="不存在的问题",
-            corpora=["case"],
-            case_id=setup.case_id,
+            corpora=["user_docs"],
         )
         assert result.status == "refused"
         assert setup.generator.calls == []
         assert setup.support.calls == []
 
     def test_tampered_index_quote_is_dropped_before_llm(self, setup: _Setup) -> None:
-        chunk = setup.seed_document(document_id="case")
+        chunk = setup.seed_document(document_id="user_docs")
         tampered = chunk.model_copy(update={"text": "索引中被篡改的原文"})
         setup.index.replace_version_chunks(
             chunk.document_version_id,
@@ -412,15 +259,14 @@ class TestEvidenceQAFailClosed:
         result = setup.qa.answer(
             "github:editor",
             question="境外接收方有什么义务？",
-            corpora=["case"],
-            case_id=setup.case_id,
+            corpora=["user_docs"],
         )
 
         assert result.status == "refused"
         assert setup.generator.calls == []
 
     def test_stale_document_version_is_dropped_before_llm(self, setup: _Setup) -> None:
-        chunk = setup.seed_document(document_id="case")
+        chunk = setup.seed_document(document_id="user_docs")
         document = setup.document_repo.get(chunk.document_id)
         assert document is not None
         setup.document_repo.update_document(
@@ -430,22 +276,22 @@ class TestEvidenceQAFailClosed:
         result = setup.qa.answer(
             "github:editor",
             question="境外接收方有什么义务？",
-            corpora=["case"],
-            case_id=setup.case_id,
+            corpora=["user_docs"],
         )
 
         assert result.status == "refused"
         assert setup.generator.calls == []
 
     def test_unbound_case_document_is_dropped_before_llm(self, setup: _Setup) -> None:
-        chunk = setup.seed_document(document_id="case")
-        setup.document_repo._bindings.pop((setup.case_id, chunk.document_id))
+        chunk = setup.seed_document(document_id="user_docs")
+        setup.document_repo._documents[chunk.document_id] = setup.document_repo.get(
+            chunk.document_id
+        ).model_copy(update={"owner_id": "github:outsider"})
 
         result = setup.qa.answer(
             "github:editor",
             question="境外接收方有什么义务？",
-            corpora=["case"],
-            case_id=setup.case_id,
+            corpora=["user_docs"],
         )
 
         assert result.status == "refused"
@@ -454,8 +300,8 @@ class TestEvidenceQAFailClosed:
     @pytest.mark.parametrize(
         ("field_name", "foreign_value"),
         [
-            ("workspace_id", "ws_foreign"),
-            ("case_id", "case_foreign"),
+            ("owner_id", "ws_foreign"),
+            ("document_id", "doc_foreign"),
         ],
     )
     def test_poisoned_index_cross_scope_chunk_is_dropped(
@@ -464,7 +310,7 @@ class TestEvidenceQAFailClosed:
         field_name: str,
         foreign_value: str,
     ) -> None:
-        chunk = setup.seed_document(document_id="case")
+        chunk = setup.seed_document(document_id="user_docs")
         poisoned = chunk.model_copy(update={field_name: foreign_value})
 
         def poisoned_search(**_: object) -> list[EvidenceSearchHit]:
@@ -482,15 +328,14 @@ class TestEvidenceQAFailClosed:
         result = setup.qa.answer(
             "github:editor",
             question="问题",
-            corpora=["case"],
-            case_id=setup.case_id,
+            corpora=["user_docs"],
         )
 
         assert result.status == "refused"
         assert setup.generator.calls == []
 
     def test_generator_unknown_or_missing_citation_refuses(self, setup: _Setup) -> None:
-        setup.seed_document(document_id="case")
+        setup.seed_document(document_id="user_docs")
         for citation_ids in ([], ["UNKNOWN"]):
             generator = FakeEvidenceQAGenerator(
                 EvidenceQADraft(
@@ -507,14 +352,54 @@ class TestEvidenceQAFailClosed:
             result = setup.build_qa(generator=generator).answer(
                 "github:editor",
                 question="问题",
-                corpora=["case"],
-                case_id=setup.case_id,
+                corpora=["user_docs"],
             )
             assert result.status == "refused"
             assert "Claim-Citation" in result.refusal_reason
 
+    def test_claim_with_unknown_user_condition_source_is_removed(self, setup: _Setup) -> None:
+        setup.seed_document(document_id="user_docs")
+        generator = FakeEvidenceQAGenerator(
+            EvidenceQADraft(
+                status="answered",
+                claims=[
+                    EvidenceQAClaim(
+                        claim_id="C1",
+                        text="用户人数满足该结论。",
+                        citation_ids=["E1"],
+                        condition_message_ids=["msg-invented"],
+                    )
+                ],
+            )
+        )
+        qa = setup.build_qa(generator=generator)
+
+        result = qa.answer_from_citations(
+            question="如果人数翻倍呢？",
+            scope=EvidenceQAScope(
+                corpora=["user_docs"],
+                owner_id=setup.owner_id,
+                document_ids=["user_docs"],
+            ),
+            citations=setup.qa._retrieve(
+                setup.owner_id,
+                question="如果人数翻倍呢？",
+                scope=EvidenceQAScope(
+                    corpora=["user_docs"],
+                    owner_id=setup.owner_id,
+                    document_ids=["user_docs"],
+                ),
+                top_k=1,
+            ),
+            user_context=[UserContextMessage(message_id="msg-real", text="人数是2000。")],
+        )
+
+        assert result.status == "refused"
+        assert result.repair_report.removal_reasons == {"C1": ["unknown_context"]}
+        assert setup.support.calls == []
+
     def test_support_verifier_rejection_refuses(self, setup: _Setup) -> None:
-        setup.seed_document(document_id="case")
+        setup.seed_document(document_id="user_docs")
         support = FakeClaimSupportVerifier(
             ClaimSupportResult(
                 judgements=[
@@ -532,8 +417,7 @@ class TestEvidenceQAFailClosed:
         result = setup.build_qa(support=support).answer(
             "github:editor",
             question="问题",
-            corpora=["case"],
-            case_id=setup.case_id,
+            corpora=["user_docs"],
         )
         assert result.status == "refused"
         assert "Claim-Citation" in result.refusal_reason
@@ -542,7 +426,7 @@ class TestEvidenceQAFailClosed:
         self,
         setup: _Setup,
     ) -> None:
-        setup.seed_document(document_id="case")
+        setup.seed_document(document_id="user_docs")
         generator = FakeEvidenceQAGenerator(
             EvidenceQADraft(
                 status="answered",
@@ -563,6 +447,16 @@ class TestEvidenceQAFailClosed:
                         citation_ids=["E1"],
                     ),
                 ],
+                presentation=EvidenceQAPresentation(
+                    kind="table",
+                    table=EvidenceQATable(
+                        rows=[
+                            EvidenceQATableRow(label="可信", claim_ids=["C1"]),
+                            EvidenceQATableRow(label="缺少引用", claim_ids=["C2"]),
+                            EvidenceQATableRow(label="不受支持", claim_ids=["C3"]),
+                        ]
+                    ),
+                ),
             )
         )
         support = FakeClaimSupportVerifier(
@@ -588,8 +482,7 @@ class TestEvidenceQAFailClosed:
         result = setup.build_qa(generator=generator, support=support).answer(
             "github:editor",
             question="综合判断",
-            corpora=["case"],
-            case_id=setup.case_id,
+            corpora=["user_docs"],
         )
 
         assert result.status == "partially_answered"
@@ -608,12 +501,105 @@ class TestEvidenceQAFailClosed:
             "C1",
             "C3",
         ]
+        assert result.presentation is not None
+        assert result.presentation.kind == "table"
+        assert [row.label for row in result.presentation.table.rows] == ["可信"]
+
+    def test_bad_claim_removal_revalidates_generic_flow_and_degrades_to_text(
+        self,
+        setup: _Setup,
+    ) -> None:
+        setup.seed_document(document_id="user_docs")
+        claims = [
+            EvidenceQAClaim(
+                claim_id="C1",
+                text="系统收到事件后进入分类步骤。",
+                citation_ids=["E1"],
+            ),
+            EvidenceQAClaim(
+                claim_id="C2",
+                text="系统根据事件级别选择上报路径。",
+                citation_ids=["E1"],
+            ),
+            EvidenceQAClaim(
+                claim_id="C3",
+                text="事件为高优先级时，立即上报值班负责人。",
+                citation_ids=["E1"],
+            ),
+            EvidenceQAClaim(
+                claim_id="C4",
+                text="事件为普通优先级时，进入常规处理队列。",
+                citation_ids=["E1"],
+            ),
+        ]
+        generator = FakeEvidenceQAGenerator(
+            EvidenceQADraft(
+                status="answered",
+                claims=claims,
+                presentation=EvidenceQAPresentation(
+                    kind="flowchart",
+                    flowchart=EvidenceQAFlowchart(
+                        nodes=[
+                            EvidenceQAFlowNode(node_id="N1", kind="start", claim_ids=["C1"]),
+                            EvidenceQAFlowNode(node_id="N2", kind="decision", claim_ids=["C2"]),
+                            EvidenceQAFlowNode(node_id="N3", kind="terminal", claim_ids=["C3"]),
+                            EvidenceQAFlowNode(node_id="N4", kind="terminal", claim_ids=["C4"]),
+                        ],
+                        edges=[
+                            EvidenceQAFlowEdge(
+                                source_node_id="N1",
+                                target_node_id="N2",
+                                claim_ids=["C2"],
+                            ),
+                            EvidenceQAFlowEdge(
+                                source_node_id="N2",
+                                target_node_id="N3",
+                                condition="高优先级",
+                                claim_ids=["C3"],
+                            ),
+                            EvidenceQAFlowEdge(
+                                source_node_id="N2",
+                                target_node_id="N4",
+                                condition="普通优先级",
+                                claim_ids=["C4"],
+                            ),
+                        ],
+                    ),
+                ),
+            )
+        )
+        support = FakeClaimSupportVerifier(
+            ClaimSupportResult(
+                judgements=[
+                    ClaimSupportJudgement(
+                        claim_id=claim.claim_id,
+                        supported=claim.claim_id != "C4",
+                        citation_ids=["E1"] if claim.claim_id != "C4" else [],
+                        reason="" if claim.claim_id != "C4" else "原文不支持普通优先级分支",
+                    )
+                    for claim in claims
+                ],
+                unsupported_claim_ids=["C4"],
+                valid=False,
+            )
+        )
+
+        result = setup.build_qa(generator=generator, support=support).answer(
+            "github:editor",
+            question="事件如何上报？",
+            corpora=["user_docs"],
+        )
+
+        assert result.status == "partially_answered"
+        assert [claim.claim_id for claim in result.claims] == ["C1", "C2", "C3"]
+        assert result.repair_report.removed_claim_ids == ["C4"]
+        assert result.presentation == EvidenceQAPresentation(kind="text")
 
     def test_unknown_citation_is_removed_when_another_claim_is_safe(
         self,
         setup: _Setup,
     ) -> None:
-        setup.seed_document(document_id="case")
+        setup.seed_document(document_id="user_docs")
         generator = FakeEvidenceQAGenerator(
             EvidenceQADraft(
                 status="answered",
@@ -636,8 +622,7 @@ class TestEvidenceQAFailClosed:
         result = setup.build_qa(generator=generator, support=support).answer(
             "github:editor",
             question="问题",
-            corpora=["case"],
-            case_id=setup.case_id,
+            corpora=["user_docs"],
         )
 
         assert result.status == "partially_answered"
@@ -647,7 +632,7 @@ class TestEvidenceQAFailClosed:
         assert [claim.claim_id for claim in support.calls[0]["claims"]] == ["C1"]
 
     def test_verifier_contract_error_refuses_all_claims(self, setup: _Setup) -> None:
-        setup.seed_document(document_id="case")
+        setup.seed_document(document_id="user_docs")
         support = FakeClaimSupportVerifier(
             ClaimSupportResult(
                 judgements=[],
@@ -659,8 +644,7 @@ class TestEvidenceQAFailClosed:
         result = setup.build_qa(support=support).answer(
             "github:editor",
             question="问题",
-            corpora=["case"],
-            case_id=setup.case_id,
+            corpora=["user_docs"],
         )
 
         assert result.status == "refused"
@@ -671,13 +655,12 @@ class TestEvidenceQAFailClosed:
         assert "生成或校验失败" in result.refusal_reason
 
     def test_unmodified_safe_answer_reports_no_repair(self, setup: _Setup) -> None:
-        setup.seed_document(document_id="case")
+        setup.seed_document(document_id="user_docs")
 
         result = setup.qa.answer(
             "github:editor",
             question="问题",
-            corpora=["case"],
-            case_id=setup.case_id,
+            corpora=["user_docs"],
         )
 
         assert result.status == "answered"
@@ -694,64 +677,36 @@ class TestEvidenceQAFailClosed:
         setup: _Setup,
         error: Exception,
     ) -> None:
-        setup.seed_document(document_id="case")
+        setup.seed_document(document_id="user_docs")
         generator = FakeEvidenceQAGenerator(error=error)
         result = setup.build_qa(generator=generator).answer(
             "github:editor",
             question="问题",
-            corpora=["case"],
-            case_id=setup.case_id,
+            corpora=["user_docs"],
         )
         assert result.status == "refused"
         assert "生成或校验失败" in result.refusal_reason
 
 
 class TestEvidenceQAScopeIsolation:
-    def test_outsider_cannot_discover_case(self, setup: _Setup) -> None:
-        with pytest.raises(CaseNotFound):
+    def test_outsider_cannot_discover_document(self, setup: _Setup) -> None:
+        setup.seed_document(document_id="private")
+        with pytest.raises(ValueError):
             setup.qa.answer(
-                "github:outsider",
-                question="问题",
-                corpora=["case"],
-                case_id=setup.case_id,
+                "github:outsider", question="问题", corpora=["user_docs"], document_ids=["private"]
             )
 
-    def test_workspace_id_cannot_override_case_parent(self, setup: _Setup) -> None:
-        with pytest.raises(ValueError, match="归属不一致"):
+    def test_owner_cannot_be_overridden(self, setup: _Setup) -> None:
+        with pytest.raises(TypeError):
             setup.qa.answer(
-                "github:editor",
-                question="问题",
-                corpora=["case"],
-                workspace_id="ws_other",
-                case_id=setup.case_id,
-            )
-
-    def test_assessment_must_belong_to_requested_case(self, setup: _Setup) -> None:
-        assessment_id = setup.seed_assessment()
-        other = Case(
-            case_id="case_other",
-            workspace_id=setup.workspace_id,
-            title="other",
-            owner_id="github:editor",
-            created_at=100.0,
-            updated_at=100.0,
-        )
-        setup.case_repo.create(other)
-        with pytest.raises(ValueError, match="不属于"):
-            setup.qa.answer(
-                "github:editor",
-                question="问题",
-                corpora=["assessment"],
-                case_id=other.case_id,
-                assessment_id=assessment_id,
+                "github:editor", question="问题", corpora=["user_docs"], owner_id="github:other"
             )
 
     def test_duplicate_or_empty_scope_rejected(self, setup: _Setup) -> None:
-        for corpora in ([], ["case", "case"]):
+        for corpora in ([], ["user_docs", "user_docs"]):
             with pytest.raises(ValueError):
                 setup.qa.answer(
                     "github:editor",
                     question="问题",
                     corpora=corpora,  # type: ignore[arg-type]
-                    case_id=setup.case_id,
                 )

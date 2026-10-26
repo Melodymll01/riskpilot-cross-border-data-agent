@@ -1,4 +1,4 @@
-"""V3 Evidence QA 离线评测器测试。"""
+"""Evidence QA 离线评测器测试。"""
 
 from __future__ import annotations
 
@@ -42,11 +42,10 @@ def test_dataset_covers_required_risk_categories(dataset) -> None:
         "uncited_claim",
         "forged_citation",
         "citation_drift",
-        "cross_workspace_isolation",
-        "cross_case_isolation",
+        "unauthorized_document_isolation",
         "no_evidence_refusal",
     }.issubset(categories)
-    assert len(dataset.cases) == 14
+    assert len(dataset.cases) == 13
 
 
 def test_oracle_self_check_passes_all_gates(dataset) -> None:
@@ -55,8 +54,8 @@ def test_oracle_self_check_passes_all_gates(dataset) -> None:
     assert report["passed"] is True
     assert report["candidate"]["production_evidence"] is False
     assert report["metrics"] == {
-        "case_count": 14,
-        "claim_count": 14,
+        "case_count": 13,
+        "claim_count": 13,
         "structural_accuracy": 1.0,
         "supported_claim_recall": 1.0,
         "unsupported_claim_false_accept_rate": 0.0,
@@ -107,7 +106,7 @@ def test_supported_claim_removed_by_candidate_fails_filter_gate(dataset) -> None
 
     report = evaluate(dataset, predictions)
 
-    assert report["metrics"]["claim_filter_accuracy"] == pytest.approx(13 / 14)
+    assert report["metrics"]["claim_filter_accuracy"] == pytest.approx(12 / 13)
     assert report["gates"]["claim_filter_accuracy"]["passed"] is False
 
 

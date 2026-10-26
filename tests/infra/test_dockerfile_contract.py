@@ -15,7 +15,7 @@ def test_runtime_image_is_non_root_and_signal_safe() -> None:
     assert "COPY --chown=app:app . ." in dockerfile
     assert "\nUSER app\n" in dockerfile
     assert "STOPSIGNAL SIGTERM" in dockerfile
-    assert "EXPOSE 8001 9101" in dockerfile
+    assert "EXPOSE 8001" in dockerfile
     assert "/api/v2/health/ready" in dockerfile
     runtime_stage = dockerfile.split("FROM python:3.12-slim-bookworm AS runtime", maxsplit=1)[1]
     assert "build-essential" not in runtime_stage

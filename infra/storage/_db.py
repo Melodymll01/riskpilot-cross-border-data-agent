@@ -23,70 +23,29 @@ CREATE TABLE IF NOT EXISTS users (
     last_active_at REAL NOT NULL
 );
 
+
 CREATE INDEX IF NOT EXISTS idx_users_provider
     ON users(provider, provider_id);
 
-CREATE TABLE IF NOT EXISTS workspaces (
-    workspace_id TEXT PRIMARY KEY,
-    name         TEXT NOT NULL,
-    status       TEXT NOT NULL DEFAULT 'active',
-    created_by   TEXT NOT NULL,
-    created_at   REAL NOT NULL,
-    updated_at   REAL NOT NULL
-);
 
-CREATE INDEX IF NOT EXISTS idx_workspaces_updated
-    ON workspaces(updated_at DESC);
-
-CREATE TABLE IF NOT EXISTS workspace_memberships (
-    workspace_id TEXT NOT NULL,
-    user_id      TEXT NOT NULL,
-    role         TEXT NOT NULL,
-    joined_at    REAL NOT NULL,
-    PRIMARY KEY (workspace_id, user_id),
-    FOREIGN KEY (workspace_id) REFERENCES workspaces(workspace_id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_workspace_memberships_user
-    ON workspace_memberships(user_id, joined_at DESC);
-
-CREATE TABLE IF NOT EXISTS compliance_cases (
-    case_id               TEXT PRIMARY KEY,
-    workspace_id          TEXT NOT NULL,
-    title                 TEXT NOT NULL,
-    description           TEXT NOT NULL DEFAULT '',
-    jurisdiction          TEXT NOT NULL DEFAULT 'CN',
-    scenario_type         TEXT NOT NULL DEFAULT '',
-    assessment_date       TEXT,
-    status                TEXT NOT NULL DEFAULT 'draft',
-    owner_id              TEXT NOT NULL,
-    reviewer_id           TEXT,
-    active_assessment_id  TEXT,
-    created_at            REAL NOT NULL,
-    updated_at            REAL NOT NULL,
-    FOREIGN KEY (workspace_id) REFERENCES workspaces(workspace_id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_compliance_cases_workspace
-    ON compliance_cases(workspace_id, updated_at DESC);
-
-CREATE TABLE IF NOT EXISTS documents (
+CREATE TABLE IF NOT EXISTS chat_documents (
     document_id        TEXT PRIMARY KEY,
-    workspace_id       TEXT NOT NULL,
+    owner_id       TEXT NOT NULL,
     logical_name       TEXT NOT NULL,
     document_type      TEXT NOT NULL,
     status             TEXT NOT NULL DEFAULT 'uploaded',
     created_by         TEXT NOT NULL,
     current_version_id TEXT,
     created_at         REAL NOT NULL,
-    updated_at         REAL NOT NULL,
-    FOREIGN KEY (workspace_id) REFERENCES workspaces(workspace_id) ON DELETE CASCADE
+    updated_at         REAL NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_documents_workspace
-    ON documents(workspace_id, updated_at DESC);
 
-CREATE TABLE IF NOT EXISTS document_versions (
+CREATE INDEX IF NOT EXISTS idx_chat_documents_owner
+    ON chat_documents(owner_id, updated_at DESC);
+
+
+CREATE TABLE IF NOT EXISTS chat_document_versions (
     version_id      TEXT PRIMARY KEY,
     document_id     TEXT NOT NULL,
     version_number  INTEGER NOT NULL,
@@ -98,27 +57,15 @@ CREATE TABLE IF NOT EXISTS document_versions (
     page_count      INTEGER,
     created_at      REAL NOT NULL,
     UNIQUE (document_id, version_number),
-    FOREIGN KEY (document_id) REFERENCES documents(document_id) ON DELETE CASCADE
+    FOREIGN KEY (document_id) REFERENCES chat_documents(document_id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_document_versions_document
-    ON document_versions(document_id, version_number DESC);
 
-CREATE TABLE IF NOT EXISTS case_documents (
-    case_id      TEXT NOT NULL,
-    document_id  TEXT NOT NULL,
-    purpose      TEXT NOT NULL DEFAULT '',
-    added_by     TEXT NOT NULL,
-    added_at     REAL NOT NULL,
-    PRIMARY KEY (case_id, document_id),
-    FOREIGN KEY (case_id) REFERENCES compliance_cases(case_id) ON DELETE CASCADE,
-    FOREIGN KEY (document_id) REFERENCES documents(document_id) ON DELETE CASCADE
-);
+CREATE INDEX IF NOT EXISTS idx_chat_document_versions_document
+    ON chat_document_versions(document_id, version_number DESC);
 
-CREATE INDEX IF NOT EXISTS idx_case_documents_document
-    ON case_documents(document_id);
 
-CREATE TABLE IF NOT EXISTS processing_jobs (
+CREATE TABLE IF NOT EXISTS chat_processing_jobs (
     job_id               TEXT PRIMARY KEY,
     document_version_id  TEXT NOT NULL,
     status               TEXT NOT NULL DEFAULT 'queued',
@@ -132,24 +79,26 @@ CREATE TABLE IF NOT EXISTS processing_jobs (
     updated_at           REAL NOT NULL,
     started_at           REAL,
     completed_at         REAL,
-    FOREIGN KEY (document_version_id) REFERENCES document_versions(version_id) ON DELETE CASCADE
+    FOREIGN KEY (document_version_id) REFERENCES chat_document_versions(version_id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_processing_jobs_version
-    ON processing_jobs(document_version_id, created_at DESC);
 
-CREATE TABLE IF NOT EXISTS document_parse_snapshots (
+CREATE INDEX IF NOT EXISTS idx_chat_processing_jobs_version
+    ON chat_processing_jobs(document_version_id, created_at DESC);
+
+
+CREATE TABLE IF NOT EXISTS chat_document_parse_snapshots (
     snapshot_id          TEXT PRIMARY KEY,
     document_version_id  TEXT NOT NULL UNIQUE,
     payload_json         TEXT NOT NULL,
     parsed_at            REAL NOT NULL,
-    FOREIGN KEY (document_version_id) REFERENCES document_versions(version_id) ON DELETE CASCADE
+    FOREIGN KEY (document_version_id) REFERENCES chat_document_versions(version_id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS evidence_chunks (
+
+CREATE TABLE IF NOT EXISTS chat_evidence_chunks (
     chunk_id              TEXT PRIMARY KEY,
-    workspace_id          TEXT NOT NULL,
-    case_id               TEXT NOT NULL,
+    owner_id          TEXT NOT NULL,
     document_id           TEXT NOT NULL,
     document_version_id   TEXT NOT NULL,
     page_number           INTEGER NOT NULL,
@@ -158,263 +107,86 @@ CREATE TABLE IF NOT EXISTS evidence_chunks (
     source_sha256         TEXT NOT NULL,
     embedding_json        TEXT NOT NULL,
     created_at            REAL NOT NULL,
-    UNIQUE (case_id, document_version_id, page_number, chunk_index),
-    FOREIGN KEY (case_id) REFERENCES compliance_cases(case_id) ON DELETE CASCADE,
-    FOREIGN KEY (document_id) REFERENCES documents(document_id) ON DELETE CASCADE,
-    FOREIGN KEY (document_version_id) REFERENCES document_versions(version_id) ON DELETE CASCADE
+    UNIQUE (document_version_id, page_number, chunk_index),
+    FOREIGN KEY (document_id) REFERENCES chat_documents(document_id) ON DELETE CASCADE,
+    FOREIGN KEY (document_version_id) REFERENCES chat_document_versions(version_id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_evidence_chunks_scope
-    ON evidence_chunks(workspace_id, case_id, document_version_id);
 
-CREATE TABLE IF NOT EXISTS visual_assets (
-    asset_id        TEXT PRIMARY KEY,
-    workspace_id    TEXT NOT NULL,
-    case_id         TEXT NOT NULL,
-    object_key      TEXT NOT NULL UNIQUE,
-    filename        TEXT NOT NULL,
-    mime_type       TEXT NOT NULL,
-    sha256          TEXT NOT NULL,
-    width           INTEGER NOT NULL,
-    height          INTEGER NOT NULL,
-    caption         TEXT NOT NULL DEFAULT '',
-    embedding_json  TEXT NOT NULL,
-    created_by      TEXT NOT NULL,
-    created_at      REAL NOT NULL,
-    FOREIGN KEY (case_id) REFERENCES compliance_cases(case_id) ON DELETE CASCADE
-);
+CREATE INDEX IF NOT EXISTS idx_chat_evidence_chunks_scope ON chat_evidence_chunks(owner_id, document_id);
 
-CREATE INDEX IF NOT EXISTS idx_visual_assets_scope
-    ON visual_assets(workspace_id, case_id, created_at DESC);
-
-CREATE TABLE IF NOT EXISTS case_facts (
-    fact_id        TEXT PRIMARY KEY,
-    case_id        TEXT NOT NULL,
-    field_name     TEXT NOT NULL,
-    value_json     TEXT,
-    status         TEXT NOT NULL,
-    source_type    TEXT NOT NULL,
-    confidence     REAL NOT NULL,
-    criticality    TEXT NOT NULL,
-    version        INTEGER NOT NULL,
-    created_by     TEXT NOT NULL,
-    confirmed_by   TEXT,
-    confirmed_at   REAL,
-    created_at     REAL NOT NULL,
-    updated_at     REAL NOT NULL,
-    FOREIGN KEY (case_id) REFERENCES compliance_cases(case_id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_case_facts_case
-    ON case_facts(case_id, updated_at DESC);
-
-CREATE TABLE IF NOT EXISTS case_fact_versions (
-    fact_id        TEXT NOT NULL,
-    version        INTEGER NOT NULL,
-    payload_json   TEXT NOT NULL,
-    created_at     REAL NOT NULL,
-    PRIMARY KEY (fact_id, version),
-    FOREIGN KEY (fact_id) REFERENCES case_facts(fact_id) ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS case_fact_evidence (
-    evidence_id         TEXT PRIMARY KEY,
-    case_id             TEXT NOT NULL,
-    fact_id             TEXT NOT NULL,
-    fact_version        INTEGER NOT NULL,
-    document_id         TEXT NOT NULL,
-    document_version_id TEXT NOT NULL,
-    page_number         INTEGER NOT NULL,
-    quote               TEXT NOT NULL,
-    start_offset        INTEGER,
-    end_offset          INTEGER,
-    confidence          REAL NOT NULL,
-    created_at          REAL NOT NULL,
-    FOREIGN KEY (case_id) REFERENCES compliance_cases(case_id) ON DELETE CASCADE,
-    FOREIGN KEY (fact_id, fact_version)
-        REFERENCES case_fact_versions(fact_id, version) ON DELETE CASCADE,
-    FOREIGN KEY (document_id) REFERENCES documents(document_id) ON DELETE CASCADE,
-    FOREIGN KEY (document_version_id) REFERENCES document_versions(version_id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_case_fact_evidence_fact
-    ON case_fact_evidence(fact_id, fact_version);
-
-CREATE TABLE IF NOT EXISTS policy_rules (
-    workspace_id         TEXT NOT NULL,
-    rule_id              TEXT NOT NULL,
-    ruleset_version      TEXT NOT NULL,
-    jurisdiction         TEXT NOT NULL,
-    effective_from       TEXT NOT NULL,
-    effective_to         TEXT,
-    status               TEXT NOT NULL,
-    required_fact_fields TEXT NOT NULL,
-    condition_json       TEXT NOT NULL,
-    result_json          TEXT NOT NULL,
-    source_clause_ids    TEXT NOT NULL,
-    PRIMARY KEY (workspace_id, rule_id, ruleset_version),
-    FOREIGN KEY (workspace_id) REFERENCES workspaces(workspace_id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_policy_rules_lookup
-    ON policy_rules(workspace_id, ruleset_version, jurisdiction, status, effective_from);
-
-CREATE TABLE IF NOT EXISTS assessments (
-    assessment_id        TEXT PRIMARY KEY,
-    case_id              TEXT NOT NULL,
-    version              INTEGER NOT NULL,
-    status               TEXT NOT NULL,
-    assessment_date      TEXT NOT NULL,
-    jurisdiction         TEXT NOT NULL,
-    ruleset_version      TEXT NOT NULL,
-    fact_versions_json   TEXT NOT NULL,
-    policy_evaluations_json TEXT NOT NULL,
-    risk_level           TEXT NOT NULL,
-    candidate_paths_json TEXT NOT NULL,
-    generated_by_run_id  TEXT,
-    approved_by          TEXT,
-    approved_at          REAL,
-    review_comment       TEXT NOT NULL DEFAULT '',
-    created_at           REAL NOT NULL,
-    updated_at           REAL NOT NULL,
-    UNIQUE (case_id, version),
-    FOREIGN KEY (case_id) REFERENCES compliance_cases(case_id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_assessments_case
-    ON assessments(case_id, version DESC);
-
-CREATE TABLE IF NOT EXISTS assessment_evidence_citations (
-    citation_id         TEXT PRIMARY KEY,
-    assessment_id       TEXT NOT NULL,
-    source_evidence_id  TEXT NOT NULL,
-    fact_id             TEXT NOT NULL,
-    fact_version        INTEGER NOT NULL,
-    document_id         TEXT NOT NULL,
-    document_version_id TEXT NOT NULL,
-    page_number         INTEGER NOT NULL,
-    quote               TEXT NOT NULL,
-    start_offset        INTEGER,
-    end_offset          INTEGER,
-    source_sha256       TEXT NOT NULL,
-    created_at          REAL NOT NULL,
-    UNIQUE (assessment_id, source_evidence_id),
-    FOREIGN KEY (assessment_id) REFERENCES assessments(assessment_id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_assessment_evidence_assessment
-    ON assessment_evidence_citations(assessment_id, fact_id);
-
-CREATE TABLE IF NOT EXISTS assessment_findings (
-    finding_id          TEXT PRIMARY KEY,
-    assessment_id       TEXT NOT NULL,
-    finding_type        TEXT NOT NULL,
-    severity            TEXT NOT NULL,
-    title               TEXT NOT NULL,
-    description         TEXT NOT NULL,
-    fact_ids_json       TEXT NOT NULL,
-    evidence_ids_json   TEXT NOT NULL,
-    clause_ids_json     TEXT NOT NULL,
-    rule_ids_json       TEXT NOT NULL,
-    status              TEXT NOT NULL,
-    FOREIGN KEY (assessment_id) REFERENCES assessments(assessment_id) ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS assessment_actions (
-    action_id                TEXT PRIMARY KEY,
-    assessment_id            TEXT NOT NULL,
-    title                    TEXT NOT NULL,
-    description              TEXT NOT NULL,
-    priority                 TEXT NOT NULL,
-    owner_id                 TEXT,
-    due_at                   REAL,
-    status                   TEXT NOT NULL,
-    related_finding_ids_json TEXT NOT NULL,
-    FOREIGN KEY (assessment_id) REFERENCES assessments(assessment_id) ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS agent_runs (
-    run_id                  TEXT PRIMARY KEY,
-    workspace_id            TEXT NOT NULL,
-    case_id                 TEXT NOT NULL,
-    workflow_type           TEXT NOT NULL,
-    status                  TEXT NOT NULL,
-    thread_id               TEXT NOT NULL UNIQUE,
-    checkpoint_id           TEXT,
-    current_stage           TEXT NOT NULL,
-    model_config_json       TEXT NOT NULL,
-    token_usage             INTEGER NOT NULL,
-    cost                    REAL NOT NULL,
-    retry_count             INTEGER NOT NULL,
-    revision                INTEGER NOT NULL,
-    created_by              TEXT NOT NULL,
-    error_code              TEXT,
-    error_message           TEXT,
-    created_at              REAL NOT NULL,
-    updated_at              REAL NOT NULL,
-    started_at              REAL,
-    completed_at            REAL,
-    FOREIGN KEY (workspace_id) REFERENCES workspaces(workspace_id) ON DELETE CASCADE,
-    FOREIGN KEY (case_id) REFERENCES compliance_cases(case_id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_agent_runs_case
-    ON agent_runs(workspace_id, case_id, created_at DESC);
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_active_case_workflow
-    ON agent_runs(case_id, workflow_type)
-    WHERE status IN (
-        'queued',
-        'running',
-        'waiting_for_user',
-        'waiting_for_review',
-        'retrying'
-    );
-
-CREATE TABLE IF NOT EXISTS run_checkpoints (
-    checkpoint_id  TEXT PRIMARY KEY,
-    run_id         TEXT NOT NULL,
-    thread_id      TEXT NOT NULL,
-    version        INTEGER NOT NULL,
-    stage          TEXT NOT NULL,
-    state_json     TEXT NOT NULL,
-    created_at     REAL NOT NULL,
-    UNIQUE (run_id, version),
-    FOREIGN KEY (run_id) REFERENCES agent_runs(run_id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_run_checkpoints_run
-    ON run_checkpoints(run_id, version DESC);
-
-CREATE TABLE IF NOT EXISTS run_events (
-    event_id       TEXT PRIMARY KEY,
-    run_id         TEXT NOT NULL,
-    sequence       INTEGER NOT NULL,
-    event_type     TEXT NOT NULL,
-    stage          TEXT,
-    payload_json   TEXT NOT NULL,
-    created_at     REAL NOT NULL,
-    UNIQUE (run_id, sequence),
-    FOREIGN KEY (run_id) REFERENCES agent_runs(run_id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_run_events_run
-    ON run_events(run_id, sequence);
 
 CREATE TABLE IF NOT EXISTS tasks (
     task_id          TEXT PRIMARY KEY,
     owner_id         TEXT NOT NULL,
     title            TEXT NOT NULL DEFAULT '',
     state            TEXT NOT NULL DEFAULT 'planning',
-    mode             TEXT NOT NULL DEFAULT 'qa',
     user_goal        TEXT NOT NULL DEFAULT '',
     collected_facts  TEXT NOT NULL DEFAULT '{}',
     created_at       REAL NOT NULL,
     updated_at       REAL NOT NULL
 );
 
+
 CREATE INDEX IF NOT EXISTS idx_tasks_owner
     ON tasks(owner_id, updated_at DESC);
+
+
+CREATE TABLE IF NOT EXISTS task_attachments (
+    task_id      TEXT NOT NULL,
+    document_id  TEXT NOT NULL,
+    selected_at  REAL NOT NULL,
+    selection_order INTEGER NOT NULL,
+    PRIMARY KEY (task_id, document_id),
+    FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE,
+    FOREIGN KEY (document_id) REFERENCES chat_documents(document_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_attachments_task
+    ON task_attachments(task_id, selected_at);
+
+
+CREATE TABLE IF NOT EXISTS conversation_runs (
+    run_id              TEXT PRIMARY KEY,
+    thread_id           TEXT NOT NULL UNIQUE,
+    owner_id            TEXT NOT NULL,
+    task_id             TEXT NOT NULL,
+    question            TEXT NOT NULL,
+    input_message_id    TEXT NOT NULL,
+    attachment_doc_ids  TEXT NOT NULL DEFAULT '[]',
+    status              TEXT NOT NULL,
+    stage               TEXT NOT NULL,
+    evidence_json       TEXT NOT NULL DEFAULT '[]',
+    verified_citation_ids TEXT NOT NULL DEFAULT '[]',
+    verified_context_message_ids TEXT NOT NULL DEFAULT '[]',
+    clarification_fields TEXT NOT NULL DEFAULT '[]',
+    max_duration_seconds REAL NOT NULL DEFAULT 120,
+    remaining_seconds REAL NOT NULL DEFAULT 120,
+    deadline_at REAL,
+    max_model_calls INTEGER NOT NULL DEFAULT 12,
+    max_tool_calls INTEGER NOT NULL DEFAULT 6,
+    model_call_count    INTEGER NOT NULL DEFAULT 0,
+    tool_call_count     INTEGER NOT NULL DEFAULT 0,
+    model_retry_count   INTEGER NOT NULL DEFAULT 0,
+    tool_retry_count    INTEGER NOT NULL DEFAULT 0,
+    input_tokens        INTEGER,
+    output_tokens       INTEGER,
+    usage_reported_model_calls INTEGER NOT NULL DEFAULT 0,
+    answer_message_id   TEXT,
+    error_type          TEXT,
+    end_reason          TEXT,
+    cancel_requested_at REAL,
+    finished_at         REAL,
+    created_at          REAL NOT NULL,
+    updated_at          REAL NOT NULL,
+    FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE,
+    FOREIGN KEY (input_message_id) REFERENCES messages(msg_id) ON DELETE CASCADE,
+    FOREIGN KEY (answer_message_id) REFERENCES messages(msg_id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_conversation_runs_task
+    ON conversation_runs(task_id, updated_at DESC);
+
 
 CREATE TABLE IF NOT EXISTS messages (
     msg_id        TEXT PRIMARY KEY,
@@ -427,12 +199,15 @@ CREATE TABLE IF NOT EXISTS messages (
     FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE
 );
 
+
 CREATE INDEX IF NOT EXISTS idx_messages_task
     ON messages(task_id, created_at);
+
 
 CREATE TABLE IF NOT EXISTS tool_calls (
     tool_call_id  TEXT PRIMARY KEY,
     task_id       TEXT NOT NULL,
+    run_id        TEXT,
     tool_name     TEXT NOT NULL,
     input_json    TEXT NOT NULL DEFAULT '{}',
     output_json   TEXT,
@@ -442,20 +217,9 @@ CREATE TABLE IF NOT EXISTS tool_calls (
     FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE
 );
 
+
 CREATE INDEX IF NOT EXISTS idx_tool_calls_task
     ON tool_calls(task_id, created_at);
-
-CREATE TABLE IF NOT EXISTS artifacts (
-    artifact_id    TEXT PRIMARY KEY,
-    task_id        TEXT NOT NULL,
-    artifact_type  TEXT NOT NULL,
-    payload_json   TEXT NOT NULL DEFAULT '{}',
-    created_at     REAL NOT NULL,
-    FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_artifacts_task
-    ON artifacts(task_id, created_at);
 
 CREATE TABLE IF NOT EXISTS task_summaries (
     task_id       TEXT PRIMARY KEY,
@@ -466,31 +230,10 @@ CREATE TABLE IF NOT EXISTS task_summaries (
     FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE
 );
 
+
 CREATE INDEX IF NOT EXISTS idx_task_summaries_owner
     ON task_summaries(owner_id, updated_at DESC);
 
-CREATE TABLE IF NOT EXISTS consolidation_state (
-    task_id       TEXT PRIMARY KEY,
-    owner_id      TEXT NOT NULL,
-    msg_watermark INTEGER NOT NULL DEFAULT 0,
-    updated_at    REAL NOT NULL,
-    FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_consolidation_state_owner
-    ON consolidation_state(owner_id, updated_at DESC);
-
-CREATE TABLE IF NOT EXISTS profiles (
-    owner_id   TEXT PRIMARY KEY,
-    facts      TEXT NOT NULL DEFAULT '{}',
-    updated_at REAL NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS memory_settings (
-    owner_id          TEXT PRIMARY KEY,
-    use_saved_memory  INTEGER NOT NULL DEFAULT 1,
-    updated_at        REAL NOT NULL
-);
 
 CREATE TABLE IF NOT EXISTS message_feedback (
     msg_id     TEXT PRIMARY KEY,
@@ -501,12 +244,13 @@ CREATE TABLE IF NOT EXISTS message_feedback (
     updated_at REAL NOT NULL
 );
 
+
 CREATE INDEX IF NOT EXISTS idx_feedback_owner
     ON message_feedback(owner_id);
 
+
 CREATE INDEX IF NOT EXISTS idx_feedback_rating
-    ON message_feedback(rating);
-"""
+    ON message_feedback(rating);"""
 
 
 class SqliteConnectionPool:
@@ -538,7 +282,7 @@ class SqliteConnectionPool:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA foreign_keys=ON")
             conn.executescript(_SCHEMA)
-            _apply_incremental_migrations(conn)
+            _apply_schema_upgrades(conn)
             conn.commit()
             self._local.conn = conn
         return conn
@@ -557,16 +301,55 @@ class SqliteConnectionPool:
         return row is not None and row[0] == 1
 
 
-# ── 轻量幂等 migration ──────────────────────────────────────────────────
-# `CREATE TABLE IF NOT EXISTS` 对存在的表不会补列，因此后续新增字段需要在这里
-# 显式 ALTER。每段都做 PRAGMA 检查，已存在则跳过。
+def _apply_schema_upgrades(conn: sqlite3.Connection) -> None:
+    """Only additive upgrades for tables retained from the phase-1 baseline."""
 
-
-def _apply_incremental_migrations(conn: sqlite3.Connection) -> None:
-    # tasks.mode（Step 012-tail：三业务模式）
-    cols = {row[1] for row in conn.execute("PRAGMA table_info(tasks)").fetchall()}
-    if "mode" not in cols:
-        conn.execute("ALTER TABLE tasks ADD COLUMN mode TEXT NOT NULL DEFAULT 'qa'")
-    job_cols = {row[1] for row in conn.execute("PRAGMA table_info(processing_jobs)").fetchall()}
-    if "revision" not in job_cols:
-        conn.execute("ALTER TABLE processing_jobs ADD COLUMN revision INTEGER NOT NULL DEFAULT 0")
+    tool_columns = {row[1] for row in conn.execute("PRAGMA table_info(tool_calls)")}
+    if "run_id" not in tool_columns:
+        conn.execute("ALTER TABLE tool_calls ADD COLUMN run_id TEXT")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_tool_calls_run ON tool_calls(run_id, created_at)")
+    run_columns = {row[1] for row in conn.execute("PRAGMA table_info(conversation_runs)")}
+    if run_columns and "verified_citation_ids" not in run_columns:
+        conn.execute(
+            "ALTER TABLE conversation_runs ADD COLUMN verified_citation_ids TEXT NOT NULL DEFAULT '[]'"
+        )
+    if run_columns and "verified_context_message_ids" not in run_columns:
+        conn.execute(
+            "ALTER TABLE conversation_runs ADD COLUMN verified_context_message_ids "
+            "TEXT NOT NULL DEFAULT '[]'"
+        )
+    if run_columns and "model_call_count" not in run_columns:
+        conn.execute(
+            "ALTER TABLE conversation_runs ADD COLUMN model_call_count INTEGER NOT NULL DEFAULT 0"
+        )
+    if run_columns and "clarification_fields" not in run_columns:
+        conn.execute(
+            "ALTER TABLE conversation_runs ADD COLUMN clarification_fields TEXT NOT NULL DEFAULT '[]'"
+        )
+    if run_columns and "tool_call_count" not in run_columns:
+        conn.execute(
+            "ALTER TABLE conversation_runs ADD COLUMN tool_call_count INTEGER NOT NULL DEFAULT 0"
+        )
+    run_column_upgrades = {
+        "max_duration_seconds": "REAL NOT NULL DEFAULT 120",
+        "remaining_seconds": "REAL NOT NULL DEFAULT 120",
+        "deadline_at": "REAL",
+        "max_model_calls": "INTEGER NOT NULL DEFAULT 12",
+        "max_tool_calls": "INTEGER NOT NULL DEFAULT 6",
+        "model_retry_count": "INTEGER NOT NULL DEFAULT 0",
+        "tool_retry_count": "INTEGER NOT NULL DEFAULT 0",
+        "input_tokens": "INTEGER",
+        "output_tokens": "INTEGER",
+        "usage_reported_model_calls": "INTEGER NOT NULL DEFAULT 0",
+        "end_reason": "TEXT",
+        "cancel_requested_at": "REAL",
+        "finished_at": "REAL",
+    }
+    for column, definition in run_column_upgrades.items():
+        if run_columns and column not in run_columns:
+            conn.execute(f"ALTER TABLE conversation_runs ADD COLUMN {column} {definition}")
+    attachment_columns = {row[1] for row in conn.execute("PRAGMA table_info(task_attachments)")}
+    if attachment_columns and "selection_order" not in attachment_columns:
+        conn.execute(
+            "ALTER TABLE task_attachments ADD COLUMN selection_order INTEGER NOT NULL DEFAULT 0"
+        )

@@ -1,4 +1,4 @@
-"""``SummaryStorePort`` 内存 Fake：用于 L2 摘要测试（S-030b）。"""
+"""In-memory conversation summary store."""
 
 from __future__ import annotations
 
@@ -19,9 +19,3 @@ class InMemorySummaryStore:
 
     def upsert(self, summary: TaskSummary) -> None:
         self._data[summary.task_id] = summary
-
-    def delete_owner(self, owner_id: str) -> int:
-        ids = [t for t, s in self._data.items() if s.owner_id == owner_id]
-        for t in ids:
-            del self._data[t]
-        return len(ids)

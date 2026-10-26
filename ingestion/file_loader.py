@@ -6,7 +6,7 @@ from pathlib import Path
 from docx import Document as DocxDocument
 
 from ingestion.pdf_extractor import PDFExtractor
-from ingestion.unified_loader import RawDocument
+from ingestion.unified_loader import RawDocument, RawSegment
 
 logger = logging.getLogger(__name__)
 
@@ -40,8 +40,28 @@ class FileLoader:
 
         logger.info(f"正在加载文件: {name} ({suffix})")
 
+        extra_metadata: dict = {}
+        segments: list[RawSegment] = []
         if suffix == ".pdf":
-            content = self._load_pdf(path)
+            extracted = self.pdf_extractor.extract_pages(path)
+            content = extracted.content
+            if not content:
+                raise ValueError("PDF 文件未能提取到任何文本（可能为扫描件或纯图片 PDF）")
+            extra_metadata = extracted.metadata
+            segments = [
+                RawSegment(
+                    content=page.content,
+                    extra_metadata={
+                        "page_number": str(page.page_number),
+                        "content_kind": page.content_kind,
+                        "page_table_count": str(len(page.tables)),
+                        "page_extraction_method": page.extraction_method,
+                        "visual_content_detected": str(page.visual_content_detected).lower(),
+                    },
+                )
+                for page in extracted.pages
+                if page.content
+            ]
         elif suffix == ".txt":
             content = self._load_txt(path)
         elif suffix == ".docx":
@@ -58,6 +78,8 @@ class FileLoader:
             source_name=name,
             title=title,
             source_url=None,
+            extra_metadata=extra_metadata,
+            segments=segments,
         )
 
     def _load_pdf(self, path: Path) -> str:

@@ -18,7 +18,6 @@ from api.v2.ratelimit import RateLimiter, build_limiter
 from app.container import AppContainer
 from app.request_context import install_request_id_middleware
 from config import Settings
-from infra.workflows import LangGraphWorkflowRuntime
 from tests.fakes.fake_agent_model import final_answer_model
 from tests.fakes.fake_audit_log import FakeAuditLogRepo
 from tests.fakes.fake_auth import FakeAuth
@@ -32,43 +31,23 @@ from tests.fakes.fake_kb_repo import FakeKbRepo
 from tests.fakes.fake_object_store import FakeObjectStore
 from tests.fakes.fake_qa import FakeClaimSupportVerifier, FakeEvidenceQAGenerator
 from tests.fakes.fake_readiness import FakeReadiness
-from tests.fakes.fake_repos import (
-    InMemoryAgentRunRepo,
-    InMemoryAssessmentRepo,
-    InMemoryCaseFactRepo,
-    InMemoryCaseRepo,
-    InMemoryDocumentRepo,
-    InMemoryPolicyRuleRepo,
-    InMemoryTaskRepo,
-    InMemoryUserRepo,
-    InMemoryWorkspaceRepo,
-)
+from tests.fakes.fake_repos import InMemoryDocumentRepo, InMemoryTaskRepo, InMemoryUserRepo
 from tests.fakes.fake_retrieve import FakeRetrieve
-from tests.fakes.fake_risk_profile import FakeRiskProfile
-from tests.fakes.fake_visual import FakeVisualEmbedder, FakeVisualIndex
 from tests.fakes.fake_websearch import FakeWebSearch
 
 
 def _make_container(**overrides: object) -> AppContainer:
     settings = Settings(_env_file=None, **overrides)  # type: ignore[arg-type]
     document_repo = InMemoryDocumentRepo()
-    case_repo = InMemoryCaseRepo()
     return AppContainer(
         settings,
-        agent_run_repo=InMemoryAgentRunRepo(),
-        assessment_repo=InMemoryAssessmentRepo(case_repo),
         user_repo=InMemoryUserRepo(),
         task_repo=InMemoryTaskRepo(),
-        workspace_repo=InMemoryWorkspaceRepo(),
-        case_repo=case_repo,
-        case_fact_repo=InMemoryCaseFactRepo(),
-        policy_rule_repo=InMemoryPolicyRuleRepo(),
         document_repo=document_repo,
         object_store=FakeObjectStore(),
         document_parser=FakeDocumentParser(),
         evidence_chunker=FakeEvidenceChunker(),
         evidence_index=FakeEvidenceIndex(document_repo),
-        workflow_runtime=LangGraphWorkflowRuntime(":memory:"),
         audit_log=FakeAuditLogRepo(),
         embedder=FakeEmbed(),
         chat=FakeChat(responses=["done"]),
@@ -76,14 +55,11 @@ def _make_container(**overrides: object) -> AppContainer:
         claim_support_verifier=FakeClaimSupportVerifier(),
         retriever=FakeRetrieve(),
         web_search=FakeWebSearch(),
-        risk_profile=FakeRiskProfile(),
         readiness=FakeReadiness(),
         kb_repo=FakeKbRepo(),
         document_loader=FakeDocumentLoader(),
         auth=FakeAuth(),
         agent_model=final_answer_model(),
-        visual_index=FakeVisualIndex(),
-        visual_embedder=FakeVisualEmbedder(),
     )
 
 

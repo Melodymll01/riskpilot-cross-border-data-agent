@@ -1,17 +1,5 @@
-"""V3 Evidence QA 生成与独立 Claim 支持校验适配器。"""
+"""Active adapters and application services."""
 
-from infra.qa.fact_proposals import (
-    SafeEmptyFactProposalGenerator,
-    StructuredFactProposalGenerator,
-)
-from infra.qa.structured import (
-    StructuredClaimSupportVerifier,
-    StructuredEvidenceQAGenerator,
-)
+from infra.qa.structured import StructuredClaimSupportVerifier, StructuredEvidenceQAGenerator
 
-__all__ = [
-    "SafeEmptyFactProposalGenerator",
-    "StructuredFactProposalGenerator",
-    "StructuredClaimSupportVerifier",
-    "StructuredEvidenceQAGenerator",
-]
+__all__ = ["StructuredClaimSupportVerifier", "StructuredEvidenceQAGenerator"]

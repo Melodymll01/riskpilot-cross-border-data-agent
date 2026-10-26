@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import pytest
 from langchain_core.messages import AIMessage
 
 from domain.models import WebResult
 from domain.ports import ChatPort, EmbedPort, WebSearchPort
-from infra.chat import OpenAIChatAdapter
+from infra.chat import LangChainChatAdapter
 from infra.search import EmbedderAdapter
 from infra.web import DuckDuckGoAdapter
 from tests.fakes.fake_agent_model import FakeToolCallingModel
@@ -43,19 +44,33 @@ class _StubSearcher:
         return self.results[:max_results]
 
 
+class _RecordingRunControl:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+        self.usage: list[tuple[int | None, int | None]] = []
+
+    def call_model(self, *, operation, stage, invoke, retry=False):
+        assert retry is False
+        self.calls.append((operation, stage))
+        return invoke()
+
+    def record_model_usage(self, *, input_tokens, output_tokens) -> None:
+        self.usage.append((input_tokens, output_tokens))
+
+
 # ── Chat ──────────────────────────────────────────────────────────────
 
 
-class TestOpenAIChatAdapter:
+class TestLangChainChatAdapter:
     def test_implements_chat_port(self) -> None:
-        adapter = OpenAIChatAdapter(
+        adapter = LangChainChatAdapter(
             FakeToolCallingModel(responses=[AIMessage(content="stub-answer")])
         )
         assert isinstance(adapter, ChatPort)
 
     def test_chat_delegates_with_kwargs(self) -> None:
         model = FakeToolCallingModel(responses=[AIMessage(content="hi")])
-        adapter = OpenAIChatAdapter(model)
+        adapter = LangChainChatAdapter(model)
         out = adapter.chat(
             [{"role": "user", "content": "你好"}],
             temperature=0.5,
@@ -69,9 +84,58 @@ class TestOpenAIChatAdapter:
 
     def test_chat_json_mode_forwards_response_format(self) -> None:
         model = FakeToolCallingModel(responses=[AIMessage(content="{}")])
-        adapter = OpenAIChatAdapter(model)
+        adapter = LangChainChatAdapter(
+            model,
+            json_extra_body={"enable_thinking": False},
+        )
         adapter.chat([{"role": "user", "content": "hi"}], json_mode=True)
         assert model.generation_kwargs[0]["response_format"] == {"type": "json_object"}
+        assert model.generation_kwargs[0]["extra_body"] == {"enable_thinking": False}
+
+    def test_length_finish_reason_is_translated_to_safe_runtime_error(self, monkeypatch) -> None:
+        from infra.chat import langchain_chat
+
+        class FakeLengthFinishReasonError(Exception):
+            pass
+
+        class TruncatedModel:
+            def invoke(self, *_args, **_kwargs):
+                raise FakeLengthFinishReasonError
+
+        monkeypatch.setattr(
+            langchain_chat,
+            "LengthFinishReasonError",
+            FakeLengthFinishReasonError,
+        )
+        adapter = LangChainChatAdapter(TruncatedModel())  # type: ignore[arg-type]
+        with pytest.raises(RuntimeError, match="长度上限"):
+            adapter.chat([{"role": "user", "content": "hi"}], json_mode=True)
+
+    def test_chat_records_only_provider_reported_usage_in_run_control(self) -> None:
+        model = FakeToolCallingModel(
+            responses=[
+                AIMessage(
+                    content="{}",
+                    usage_metadata={
+                        "input_tokens": 9,
+                        "output_tokens": 4,
+                        "total_tokens": 13,
+                    },
+                )
+            ]
+        )
+        control = _RecordingRunControl()
+
+        response = LangChainChatAdapter(model).chat_with_usage(
+            [{"role": "user", "content": "hi"}],
+            json_mode=True,
+            runtime_control=control,  # type: ignore[arg-type]
+            operation="verification",
+        )
+
+        assert response.usage_available is True
+        assert control.calls == [("verification", "verification")]
+        assert control.usage == [(9, 4)]
 
 
 # ── Embed ─────────────────────────────────────────────────────────────

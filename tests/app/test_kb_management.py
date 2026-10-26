@@ -120,6 +120,30 @@ class TestIngestFile:
         method_names = [c[0] for c in repo.calls]
         assert "add_chunks" in method_names
 
+    def test_embedding_uses_heading_augmented_text_but_stores_original(self) -> None:
+        chunk = KbChunk(
+            chunk_id="guide:0",
+            text="括：省级网信办开展完备性查验。",
+            embedding_text=(
+                "申报指南\n二、申报方式及流程\n"
+                "（二）完备性查验与项目受理\n括：省级网信办开展完备性查验。"
+            ),
+            source_name="guide.pdf",
+            source_type="file",
+            title="申报指南",
+            chunk_index=0,
+        )
+        embedder = FakeEmbed(dim=4)
+        uc, repo, _, _ = _make_uc(
+            loader=FakeDocumentLoader(chunks=[chunk]),
+            embedder=embedder,
+        )
+
+        uc.ingest_file("/tmp/guide.pdf")
+
+        assert embedder.calls == [[chunk.embedding_text]]
+        assert repo.written_chunks[0].text == chunk.text
+
     def test_empty_document_no_write(self) -> None:
         uc, repo, _, _ = _make_uc(loader=FakeDocumentLoader(empty=True))
         result = uc.ingest_file("/tmp/empty.txt", original_filename="empty.txt")

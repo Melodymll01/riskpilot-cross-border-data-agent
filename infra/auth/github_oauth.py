@@ -59,6 +59,11 @@ class GitHubOAuthProvider:
     # ── Step 1: 生成 authorize URL ────────────────────────────────────
 
     def begin(self) -> tuple[str, str]:
+        if any(
+            value.strip().lower().startswith("dev-placeholder-")
+            for value in (self._client_id, self._client_secret)
+        ):
+            raise OAuthFlowError("GitHub 登录尚未配置，暂时无法使用。你可以继续以访客身份使用。")
         state = secrets.token_urlsafe(24)
         params = {
             "client_id": self._client_id,
@@ -141,7 +146,7 @@ class GitHubOAuthProvider:
             raise OAuthFlowError("GitHub user payload missing `id`")
         now = self._clock()
         return User(
-            user_id=f"github:{login}",
+            user_id=f"github:id:{gh_id}",
             provider="github",
             provider_id=str(gh_id),
             email=gh_user.get("email") or None,

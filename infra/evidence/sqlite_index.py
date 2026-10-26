@@ -17,8 +17,36 @@ _RRF_K = 60
 class SqliteEvidenceIndex:
     """SQL 先过滤作用域，再在候选集上计算向量 + BM25 + RRF。"""
 
-    def __init__(self, pool: SqliteConnectionPool) -> None:
+    def __init__(
+        self, pool: SqliteConnectionPool, *, embedding_identity: str | None = None
+    ) -> None:
         self._pool = pool
+        self._embedding_identity = embedding_identity
+        pool.get().execute("""CREATE TABLE IF NOT EXISTS evidence_embedding_profile (
+            singleton INTEGER PRIMARY KEY CHECK(singleton=1), identity TEXT NOT NULL,
+            dimensions INTEGER NOT NULL)""")
+
+    def _validate_embedding_identity(
+        self, conn: Any, dimensions: int, *, writing: bool = False
+    ) -> None:
+        if self._embedding_identity is None:
+            return
+        row = conn.execute(
+            "SELECT identity, dimensions FROM evidence_embedding_profile WHERE singleton=1"
+        ).fetchone()
+        if row is None:
+            if conn.execute("SELECT 1 FROM chat_evidence_chunks LIMIT 1").fetchone():
+                raise ValueError("已有附件索引缺少 Embedding 模型信息，请在新数据库重建索引")
+            if writing:
+                conn.execute(
+                    "INSERT OR IGNORE INTO evidence_embedding_profile VALUES (1, ?, ?)",
+                    (self._embedding_identity, dimensions),
+                )
+                row = conn.execute(
+                    "SELECT identity, dimensions FROM evidence_embedding_profile WHERE singleton=1"
+                ).fetchone()
+        if row is not None and (row[0] != self._embedding_identity or row[1] != dimensions):
+            raise ValueError("Embedding 模型或维度与附件索引不一致，请使用原配置或重建索引")
 
     def replace_version_chunks(
         self,
@@ -30,6 +58,7 @@ class SqliteEvidenceIndex:
         conn = self._pool.get()
         with conn:
             _validate_persisted_scope(conn, chunks)
+            self._validate_embedding_identity(conn, len(embeddings[0]), writing=True)
             _replace_chunks(conn, document_version_id, chunks, embeddings)
 
     def complete_version_indexing(
@@ -46,6 +75,7 @@ class SqliteEvidenceIndex:
         conn = self._pool.get()
         with conn:
             _validate_persisted_scope(conn, chunks)
+            self._validate_embedding_identity(conn, len(embeddings[0]), writing=True)
             _replace_chunks(conn, document_version_id, chunks, embeddings)
             _update_document_status(conn, document)
             _update_job_status(
@@ -57,95 +87,35 @@ class SqliteEvidenceIndex:
     def search(
         self,
         *,
-        workspace_id: str,
-        case_id: str,
+        owner_id: str,
         query: str,
         query_embedding: list[float],
         top_k: int = 5,
+        document_ids: list[str] | None = None,
     ) -> list[EvidenceSearchHit]:
-        if not workspace_id or not case_id:
-            raise ValueError("workspace_id 和 case_id 必填")
-        if not query.strip():
-            raise ValueError("query 不能为空")
-        if top_k < 1:
-            raise ValueError("top_k 必须大于 0")
-
-        rows = (
-            self._pool.get()
-            .execute(
-                """
-                SELECT ec.*
-                FROM evidence_chunks AS ec
-                JOIN documents AS d
-                  ON d.document_id = ec.document_id
-                 AND d.workspace_id = ec.workspace_id
-                JOIN case_documents AS cd
-                  ON cd.case_id = ec.case_id
-                 AND cd.document_id = ec.document_id
-                WHERE ec.workspace_id = ?
-                  AND ec.case_id = ?
-                  AND d.current_version_id = ec.document_version_id
-                """,
-                (workspace_id, case_id),
-            )
-            .fetchall()
-        )
-        return _rank_rows(
-            rows,
-            query=query,
-            query_embedding=query_embedding,
-            top_k=top_k,
-        )
-
-    def search_workspace(
-        self,
-        *,
-        workspace_id: str,
-        query: str,
-        query_embedding: list[float],
-        top_k: int = 5,
-    ) -> list[EvidenceSearchHit]:
-        if not workspace_id:
-            raise ValueError("workspace_id 必填")
-        if not query.strip():
-            raise ValueError("query 不能为空")
-        if top_k < 1:
-            raise ValueError("top_k 必须大于 0")
-        rows = (
-            self._pool.get()
-            .execute(
-                """
-                SELECT ec.*
-                FROM evidence_chunks AS ec
-                JOIN documents AS d ON d.document_id = ec.document_id
-                WHERE ec.workspace_id = ?
-                  AND d.workspace_id = ?
-                  AND d.document_type = 'workspace_knowledge'
-                  AND d.status = 'ready'
-                  AND d.current_version_id = ec.document_version_id
-                GROUP BY
-                    ec.document_id,
-                    ec.document_version_id,
-                    ec.page_number,
-                    ec.chunk_index
-                """,
-                (workspace_id, workspace_id),
-            )
-            .fetchall()
-        )
-        return _rank_rows(
-            rows,
-            query=query,
-            query_embedding=query_embedding,
-            top_k=top_k,
-        )
+        if not owner_id or not query.strip() or top_k < 1:
+            raise ValueError("owner_id/query 必填且 top_k 必须大于 0")
+        sql = """SELECT ec.* FROM chat_evidence_chunks AS ec
+                 JOIN chat_documents AS d ON d.document_id = ec.document_id AND d.owner_id = ec.owner_id
+                 WHERE ec.owner_id = ? AND d.status = 'ready'
+                   AND d.current_version_id = ec.document_version_id"""
+        params: list[object] = [owner_id]
+        if document_ids is not None:
+            if not document_ids:
+                return []
+            sql += " AND d.document_id IN (" + ",".join("?" for _ in document_ids) + ")"
+            params.extend(document_ids)
+        rows = self._pool.get().execute(sql, params).fetchall()
+        if rows:
+            self._validate_embedding_identity(self._pool.get(), len(query_embedding))
+        return _rank_rows(rows, query=query, query_embedding=query_embedding, top_k=top_k)
 
     def count_version(self, document_version_id: str) -> int:
         row = (
             self._pool.get()
             .execute(
                 """
-            SELECT COUNT(*) AS n FROM evidence_chunks
+            SELECT COUNT(*) AS n FROM chat_evidence_chunks
             WHERE document_version_id = ?
             """,
                 (document_version_id,),
@@ -238,21 +208,20 @@ def _replace_chunks(
     embeddings: list[list[float]],
 ) -> None:
     conn.execute(
-        "DELETE FROM evidence_chunks WHERE document_version_id = ?",
+        "DELETE FROM chat_evidence_chunks WHERE document_version_id = ?",
         (document_version_id,),
     )
     conn.executemany(
         """
-        INSERT INTO evidence_chunks
-            (chunk_id, workspace_id, case_id, document_id, document_version_id,
+        INSERT INTO chat_evidence_chunks
+            (chunk_id, owner_id, document_id, document_version_id,
              page_number, chunk_index, text, source_sha256, embedding_json, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             (
                 chunk.chunk_id,
-                chunk.workspace_id,
-                chunk.case_id,
+                chunk.owner_id,
                 chunk.document_id,
                 chunk.document_version_id,
                 chunk.page_number,
@@ -270,37 +239,25 @@ def _replace_chunks(
 def _validate_persisted_scope(conn: Any, chunks: list[EvidenceChunk]) -> None:
     for chunk in chunks:
         row = conn.execute(
-            """
-            SELECT
-                d.workspace_id AS document_workspace_id,
-                c.workspace_id AS case_workspace_id,
-                dv.document_id AS version_document_id
-            FROM document_versions AS dv
-            JOIN documents AS d ON d.document_id = dv.document_id
-            JOIN compliance_cases AS c ON c.case_id = ?
-            JOIN case_documents AS cd
-              ON cd.case_id = c.case_id AND cd.document_id = d.document_id
-            WHERE dv.version_id = ?
-            """,
-            (chunk.case_id, chunk.document_version_id),
+            """SELECT d.owner_id, dv.document_id, dv.sha256
+            FROM chat_document_versions dv JOIN chat_documents d ON d.document_id = dv.document_id
+            WHERE dv.version_id = ?""",
+            (chunk.document_version_id,),
         ).fetchone()
-        if row is None:
-            raise ValueError("EvidenceChunk 关联的 Case 或 DocumentVersion 不存在")
-        if row["version_document_id"] != chunk.document_id:
-            raise ValueError("EvidenceChunk.document_id 与 DocumentVersion 不一致")
         if (
-            row["document_workspace_id"] != chunk.workspace_id
-            or row["case_workspace_id"] != chunk.workspace_id
+            row is None
+            or row["document_id"] != chunk.document_id
+            or row["owner_id"] != chunk.owner_id
+            or row["sha256"] != chunk.source_sha256
         ):
-            raise ValueError("EvidenceChunk 的 Workspace 作用域与关联对象不一致")
+            raise ValueError("EvidenceChunk 与文档归属、版本或 SHA 不一致")
 
 
 def _row_to_candidate(row: Any) -> dict[str, Any]:
     return {
         "chunk": EvidenceChunk(
             chunk_id=row["chunk_id"],
-            workspace_id=row["workspace_id"],
-            case_id=row["case_id"],
+            owner_id=row["owner_id"],
             document_id=row["document_id"],
             document_version_id=row["document_version_id"],
             page_number=row["page_number"],
@@ -324,14 +281,14 @@ def _cosine_similarity(left: list[float], right: list[float]) -> float:
 
 def _bm25_scores(query: str, candidates: list[dict[str, Any]]) -> dict[str, float]:
     query_tokens = _tokenize(query)
-    documents = [_tokenize(candidate["chunk"].text) for candidate in candidates]
-    if not query_tokens or not documents:
+    chat_documents = [_tokenize(candidate["chunk"].text) for candidate in candidates]
+    if not query_tokens or not chat_documents:
         return {candidate["chunk"].chunk_id: 0.0 for candidate in candidates}
-    doc_count = len(documents)
-    avg_length = sum(len(tokens) for tokens in documents) / doc_count or 1.0
-    document_frequency = Counter(token for tokens in documents for token in set(tokens))
+    doc_count = len(chat_documents)
+    avg_length = sum(len(tokens) for tokens in chat_documents) / doc_count or 1.0
+    document_frequency = Counter(token for tokens in chat_documents for token in set(tokens))
     result: dict[str, float] = {}
-    for candidate, tokens in zip(candidates, documents, strict=True):
+    for candidate, tokens in zip(candidates, chat_documents, strict=True):
         frequencies = Counter(tokens)
         score = 0.0
         for token in query_tokens:
@@ -359,7 +316,7 @@ def _tokenize(text: str) -> list[str]:
 def _update_document_status(conn: Any, document: Document) -> None:
     conn.execute(
         """
-        UPDATE documents SET status = ?, updated_at = ?
+        UPDATE chat_documents SET status = ?, updated_at = ?
         WHERE document_id = ?
         """,
         (document.status, document.updated_at, document.document_id),
@@ -378,7 +335,7 @@ def _update_job_status(
         raise ValueError("ProcessingJob revision 必须递增")
     cursor = conn.execute(
         """
-        UPDATE processing_jobs SET
+        UPDATE chat_processing_jobs SET
             status = ?, current_stage = ?, progress = ?, error_code = ?,
             error_message = ?, retry_count = ?, updated_at = ?, started_at = ?,
             completed_at = ?, revision = ?

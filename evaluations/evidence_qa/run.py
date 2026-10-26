@@ -1,4 +1,4 @@
-"""运行 V3 Evidence QA Claim-Citation 离线评测。"""
+"""运行 Evidence QA Claim-Citation 离线评测。"""
 
 from __future__ import annotations
 
@@ -19,13 +19,13 @@ from evaluations.evidence_qa.evaluator import (  # noqa: E402
     write_report,
 )
 
-DEFAULT_DATASET = Path(__file__).parent / "datasets" / "claim_citation_eval_v1.json"
+DEFAULT_DATASET = Path(__file__).parent / "datasets" / "claim_citation_eval_v2.json"
 DEFAULT_REPORT_DIR = Path(__file__).parent / "reports"
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="评估 V3 Evidence QA 的结构覆盖、语义支持和安全拒答",
+        description="评估 Evidence QA 的结构覆盖、语义支持和安全拒答",
     )
     parser.add_argument(
         "--dataset",

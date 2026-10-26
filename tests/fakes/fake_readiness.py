@@ -1,24 +1,11 @@
-"""ReadinessPort Fake。"""
-
-from __future__ import annotations
+"""Readiness fake for the required local database."""
 
 
 class FakeReadiness:
-    def __init__(
-        self,
-        *,
-        database: bool = True,
-        redis: bool | str = "disabled",
-    ) -> None:
+    def __init__(self, *, database: bool = True) -> None:
         self._database = database
-        self._redis = redis
         self.calls = 0
 
     def check(self) -> dict[str, bool | str]:
         self.calls += 1
-        ready = self._database and (self._redis is True or self._redis == "disabled")
-        return {
-            "database": self._database,
-            "redis": self._redis,
-            "ready": ready,
-        }
+        return {"database": self._database, "ready": self._database}

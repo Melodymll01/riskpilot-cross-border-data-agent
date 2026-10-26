@@ -12,11 +12,15 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
+import threading
 import time
 from collections.abc import Iterator
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
+
+import pytest
 
 from api.v2.sse import stream_with_keepalive
 
@@ -32,6 +36,52 @@ class _FakeEventType(StrEnum):
 class _FakeEvent:
     event_type: _FakeEventType
     payload: dict[str, Any]
+
+
+class _LifecycleEvents:
+    def __init__(self) -> None:
+        self._events = iter([_FakeEvent(_FakeEventType.THOUGHT, {"text": "started"})])
+        self.disconnect_count = 0
+        self.close_count = 0
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return next(self._events)
+
+    def disconnect(self) -> None:
+        self.disconnect_count += 1
+
+    def close(self) -> None:
+        self.close_count += 1
+
+
+class _BlockingCancelableEvents:
+    def __init__(self) -> None:
+        self.index = 0
+        self.waiting = threading.Event()
+        self.release = threading.Event()
+        self.disconnect_count = 0
+        self.close_count = 0
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self.index == 0:
+            self.index += 1
+            return _FakeEvent(_FakeEventType.THOUGHT, {"text": "started"})
+        self.waiting.set()
+        self.release.wait(timeout=2.0)
+        raise StopIteration
+
+    def disconnect(self) -> None:
+        self.disconnect_count += 1
+        self.release.set()
+
+    def close(self) -> None:
+        self.close_count += 1
 
 
 def _collect(coro_async_iter):
@@ -50,6 +100,70 @@ def _collect(coro_async_iter):
 
 
 class TestStreamWithKeepalive:
+    def test_generator_context_survives_yields_and_disconnect_cleanup(self) -> None:
+        marker = contextvars.ContextVar("sse_context_marker", default="outside")
+        waiting, release, closed = threading.Event(), threading.Event(), threading.Event()
+        errors = []
+
+        class Source:
+            def __init__(self):
+                self.iterator = self.events()
+
+            def events(self):
+                assert marker.get() == "request"
+                token = marker.set("inside-generator")
+                try:
+                    yield _FakeEvent(_FakeEventType.THOUGHT, {"text": "started"})
+                    assert marker.get() == "inside-generator"
+                    waiting.set()
+                    release.wait(timeout=2)
+                    yield _FakeEvent(_FakeEventType.ANSWER, {"text": "late"})
+                finally:
+                    marker.reset(token)
+                    closed.set()
+
+            def __iter__(self):
+                return self.iterator
+
+            def disconnect(self):
+                release.set()
+
+            def close(self):
+                self.iterator.close()
+
+        async def run():
+            loop = asyncio.get_running_loop()
+            loop.set_exception_handler(lambda loop, context: errors.append(context))
+            token = marker.set("request")
+            source = Source()
+
+            async def consume():
+                async for _ in stream_with_keepalive(source, keepalive_seconds=0.01):
+                    pass
+
+            consumer = asyncio.create_task(consume())
+            try:
+                for _ in range(100):
+                    if waiting.is_set():
+                        break
+                    await asyncio.sleep(0.01)
+                assert waiting.is_set()
+                consumer.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await consumer
+                for _ in range(100):
+                    if closed.is_set():
+                        break
+                    await asyncio.sleep(0.01)
+                assert closed.is_set()
+                assert marker.get() == "request"
+                assert errors == []
+            finally:
+                release.set()
+                marker.reset(token)
+
+        asyncio.run(run())
+
     def test_fast_events_pass_through(self) -> None:
         events = [
             _FakeEvent(_FakeEventType.THOUGHT, {"text": "t1"}),
@@ -89,6 +203,15 @@ class TestStreamWithKeepalive:
         frames = _collect(stream_with_keepalive(iter([]), keepalive_seconds=0.5))
         assert frames == []
 
+    def test_normal_eof_releases_source_without_disconnect_notification(self) -> None:
+        source = _LifecycleEvents()
+
+        frames = _collect(stream_with_keepalive(source, keepalive_seconds=0.5))
+
+        assert len(frames) == 1
+        assert source.disconnect_count == 0
+        assert source.close_count == 1
+
     def test_generator_exception_becomes_sse_error_frame(self) -> None:
         def bad_gen() -> Iterator[_FakeEvent]:
             yield _FakeEvent(_FakeEventType.THOUGHT, {"text": "before"})
@@ -99,4 +222,42 @@ class TestStreamWithKeepalive:
         assert "event: thought" in frames[0]
         assert "event: error" in frames[1]
         assert "RuntimeError" in frames[1]
-        assert "boom" in frames[1]
+        assert "boom" not in frames[1]
+
+    def test_consumer_disconnect_invokes_backend_cancel_hook(self) -> None:
+        source = _LifecycleEvents()
+
+        async def consume_one_then_disconnect() -> None:
+            stream = stream_with_keepalive(source, keepalive_seconds=0.5)
+            frame = await anext(stream)
+            assert "event: thought" in frame
+            await stream.aclose()
+
+        asyncio.run(consume_one_then_disconnect())
+
+        assert source.disconnect_count == 1
+        assert source.close_count == 1
+
+    def test_disconnect_while_sync_next_is_running_signals_then_closes(self) -> None:
+        source = _BlockingCancelableEvents()
+
+        async def disconnect_during_next() -> None:
+            async def consume() -> None:
+                async for _frame in stream_with_keepalive(source, keepalive_seconds=0.05):
+                    pass
+
+            consumer = asyncio.create_task(consume())
+            while not source.waiting.is_set():
+                await asyncio.sleep(0.01)
+            consumer.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await consumer
+            for _ in range(50):
+                if source.close_count:
+                    return
+                await asyncio.sleep(0.01)
+
+        asyncio.run(disconnect_during_next())
+
+        assert source.disconnect_count == 1
+        assert source.close_count == 1

@@ -61,11 +61,10 @@ RUN mkdir -p data/chroma_db data/uploads data/embed_cache logs .cache/huggingfac
 
 USER app
 
-EXPOSE 8001 9101
+EXPOSE 8001
 STOPSIGNAL SIGTERM
 
 # 默认镜像命令是 API，因此镜像级 healthcheck 使用 readiness。
-# Worker service 在 Compose 中覆盖为 Celery inspect ping。
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/api/v2/health/ready', timeout=3)"
 

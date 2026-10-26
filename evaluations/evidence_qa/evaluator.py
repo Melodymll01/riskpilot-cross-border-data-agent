@@ -1,4 +1,4 @@
-"""V3 Evidence QA Claim-Citation 离线评测器。"""
+"""Evidence QA Claim-Citation 离线评测器。"""
 
 from __future__ import annotations
 
@@ -24,8 +24,7 @@ if TYPE_CHECKING:
 SecurityIssue = Literal[
     "citation_drift",
     "forged_citation",
-    "cross_workspace",
-    "cross_case",
+    "unauthorized_document",
 ]
 Difficulty = Literal["easy", "medium", "hard"]
 
@@ -278,8 +277,8 @@ def build_verifier_predictions(
                     for issue in (
                         "citation_drift",
                         "forged_citation",
-                        "cross_workspace",
-                        "cross_case",
+                        "unauthorized_document",
+                        "unauthorized_document",
                     )
                     if issue in detected_issues
                 ],
@@ -503,19 +502,8 @@ def _detect_case_security_issues(case: EvidenceQAEvaluationCase) -> set[Security
         issues.add("forged_citation")
     if not case.source_integrity_valid:
         issues.add("citation_drift")
-    for citation in case.citations:
-        if (
-            case.scope.workspace_id is not None
-            and citation.workspace_id is not None
-            and citation.workspace_id != case.scope.workspace_id
-        ):
-            issues.add("cross_workspace")
-        if (
-            case.scope.case_id is not None
-            and citation.case_id is not None
-            and citation.case_id != case.scope.case_id
-        ):
-            issues.add("cross_case")
+    if _unsafe_scope_citation_ids(case):
+        issues.add("unauthorized_document")
     return issues
 
 
@@ -582,21 +570,14 @@ def _gold_kept_claim_ids(case: EvidenceQAEvaluationCase) -> list[str]:
 
 
 def _unsafe_scope_citation_ids(case: EvidenceQAEvaluationCase) -> set[str]:
-    unsafe: set[str] = set()
-    for citation in case.citations:
-        if (
-            case.scope.workspace_id is not None
-            and citation.workspace_id is not None
-            and citation.workspace_id != case.scope.workspace_id
-        ):
-            unsafe.add(citation.citation_id)
-        if (
-            case.scope.case_id is not None
-            and citation.case_id is not None
-            and citation.case_id != case.scope.case_id
-        ):
-            unsafe.add(citation.citation_id)
-    return unsafe
+    allowed = case.scope.document_ids
+    return {
+        citation.citation_id
+        for citation in case.citations
+        if citation.corpus == "user_docs"
+        and allowed is not None
+        and citation.document_id not in allowed
+    }
 
 
 def _evaluate_gates(
@@ -680,7 +661,7 @@ def _render_markdown(report: dict[str, object]) -> str:
     assert isinstance(metrics, dict)
     assert isinstance(gates, dict)
     lines = [
-        "# V3 Evidence QA 评测报告",
+        "# Evidence QA 评测报告",
         "",
         f"- 数据集：`{dataset['name']}@{dataset['version']}`",
         f"- 候选系统：`{candidate['system']}`",

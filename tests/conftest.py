@@ -11,12 +11,18 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # 离线测试默认使用本地 Provider 配置。这里只避免配置门禁和真实密钥依赖；
 # 具体模型调用仍由各测试显式注入 Fake，普通 pytest 不访问本地 Ollama。
-os.environ.setdefault("LLM_PROVIDER", "local")
-os.environ.setdefault("EMBED_PROVIDER", "local")
+if os.environ.get("RUN_LIVE") != "1":
+    os.environ.setdefault("LLM_PROVIDER", "local")
+    os.environ.setdefault("EMBED_PROVIDER", "local")
 
 # 测试时使用临时目录，不污染生产数据
 os.environ.setdefault("CHROMA_PERSIST_DIR", tempfile.mkdtemp())
 os.environ.setdefault("UPLOAD_DIR", tempfile.mkdtemp())
+os.environ.setdefault("SQLITE_DB_PATH", os.path.join(tempfile.mkdtemp(), "tests.sqlite3"))
+os.environ.setdefault("OBJECT_STORE_DIR", tempfile.mkdtemp())
+os.environ.setdefault(
+    "LANGGRAPH_CHECKPOINT_DB_PATH", os.path.join(tempfile.mkdtemp(), "checkpoints.sqlite3")
+)
 
 
 @pytest.fixture

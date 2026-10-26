@@ -42,46 +42,25 @@ class OwnerMismatch(DomainError):
     """资源 `owner_id` 与当前请求者不匹配（越权访问）。"""
 
 
-# === V2 Workspace / Case ===
+class ConversationRunConflict(DomainError):
+    """对话 run 已被恢复、已结束，或不再允许当前状态转换。"""
+
+    def __init__(self, run_id: str) -> None:
+        self.run_id = run_id
+        super().__init__(f"对话执行 {run_id!r} 已被其他请求恢复或已经结束")
 
 
-class WorkspaceNotFound(DomainError):
-    """按 `workspace_id` 找不到工作空间或当前用户不可见。"""
+class ConversationRunStopped(DomainError):
+    """当前 run 已被运行控制终止，不能继续产生副作用或答案。"""
+
+    def __init__(self, run_id: str, *, status: str, reason: str) -> None:
+        self.run_id = run_id
+        self.status = status
+        self.reason = reason
+        super().__init__(f"对话执行 {run_id!r} 已结束：{reason}")
 
 
-class WorkspaceAccessDenied(DomainError):
-    """用户属于 Workspace，但角色不足以执行当前操作。"""
-
-    def __init__(self, workspace_id: str, user_id: str, action: str) -> None:
-        self.workspace_id = workspace_id
-        self.user_id = user_id
-        self.action = action
-        super().__init__(f"用户 {user_id!r} 无权在工作空间 {workspace_id!r} 执行 {action!r}")
-
-
-class CaseNotFound(DomainError):
-    """按 `case_id` 找不到案件或当前用户不可见。"""
-
-
-class CaseArchived(DomainError):
-    """归档案件不允许继续修改。"""
-
-    def __init__(self, case_id: str) -> None:
-        self.case_id = case_id
-        super().__init__(f"案件 {case_id!r} 已归档，不允许继续修改")
-
-
-class InvalidCaseTransition(DomainError):
-    """案件状态转换不符合领域状态机。"""
-
-    def __init__(self, case_id: str, source: str, target: str) -> None:
-        self.case_id = case_id
-        self.source = source
-        self.target = target
-        super().__init__(f"案件 {case_id!r} 不允许从 {source!r} 转换到 {target!r}")
-
-
-# === V2 Document / Processing ===
+# === Document / Processing ===
 
 
 class DocumentNotFound(DomainError):
@@ -130,121 +109,3 @@ class InvalidProcessingJobTransition(DomainError):
         self.source = source
         self.target = target
         super().__init__(f"处理任务 {job_id!r} 不允许从 {source!r} 转换到 {target!r}")
-
-
-# === V2 Fact / Policy ===
-
-
-class CaseFactNotFound(DomainError):
-    """按 `fact_id` 找不到案件事实或当前用户不可见。"""
-
-
-class InvalidCaseFactTransition(DomainError):
-    """案件事实状态转换不符合领域状态机。"""
-
-    def __init__(self, fact_id: str, source: str, target: str) -> None:
-        self.fact_id = fact_id
-        self.source = source
-        self.target = target
-        super().__init__(f"案件事实 {fact_id!r} 不允许从 {source!r} 转换到 {target!r}")
-
-
-class PolicyRuleNotFound(DomainError):
-    """按 rule_id + ruleset_version 找不到规则。"""
-
-
-class AssessmentNotFound(DomainError):
-    """按 assessment_id 找不到评估或当前用户不可见。"""
-
-
-class AssessmentNotActive(DomainError):
-    """试图审批的 Assessment 不是 Case 当前活动版本。"""
-
-    def __init__(
-        self,
-        assessment_id: str,
-        case_id: str,
-        active_assessment_id: str | None,
-    ) -> None:
-        self.assessment_id = assessment_id
-        self.case_id = case_id
-        self.active_assessment_id = active_assessment_id
-        super().__init__(f"Assessment {assessment_id!r} 不是案件 {case_id!r} 的活动版本")
-
-
-class InvalidAssessmentTransition(DomainError):
-    """Assessment 状态转换不符合领域状态机。"""
-
-    def __init__(self, assessment_id: str, source: str, target: str) -> None:
-        self.assessment_id = assessment_id
-        self.source = source
-        self.target = target
-        super().__init__(f"Assessment {assessment_id!r} 不允许从 {source!r} 转换到 {target!r}")
-
-
-# === V2 Workflow Run ===
-
-
-class AgentRunNotFound(DomainError):
-    """按 run_id 找不到工作流运行或当前用户不可见。"""
-
-
-class InvalidAgentRunTransition(DomainError):
-    """AgentRun 状态转换不符合领域状态机。"""
-
-    def __init__(self, run_id: str, source: str, target: str) -> None:
-        self.run_id = run_id
-        self.source = source
-        self.target = target
-        super().__init__(f"AgentRun {run_id!r} 不允许从 {source!r} 转换到 {target!r}")
-
-
-class AgentRunConflict(DomainError):
-    """运行快照版本已变化，当前写入需要重试。"""
-
-    def __init__(self, run_id: str) -> None:
-        self.run_id = run_id
-        super().__init__(f"AgentRun {run_id!r} 已被其他执行器更新，请刷新后重试")
-
-
-class AgentRunAlreadyActive(DomainError):
-    """同一 Case 和 Workflow 已存在非终态运行。"""
-
-    def __init__(self, case_id: str, run_id: str) -> None:
-        self.case_id = case_id
-        self.run_id = run_id
-        super().__init__(f"案件 {case_id!r} 已存在活动 AgentRun {run_id!r}")
-
-
-# === Tool / Agent ===
-
-
-class ToolNotFound(DomainError):
-    """Agent 想调用的工具未注册。"""
-
-
-class ToolExecutionError(DomainError):
-    """工具执行期错误，应携带 `tool_name` 与 `cause`。"""
-
-
-# === 检索 / 记忆 / 外部服务 ===
-
-
-class RetrievalError(DomainError):
-    """检索链路失败（向量库 / BM25 / RRF / Reranker 任一环节）。"""
-
-
-class MemoryError(DomainError):  # noqa: A001 - 明确覆盖语义；不与 builtins.MemoryError 混用
-    """记忆层读写失败。"""
-
-
-class RiskProfileServiceError(DomainError):
-    """风险画像模型服务返回 HTTP、JSON 或 schema 错误。"""
-
-
-class RiskProfileNotReady(DomainError):
-    """风险画像模型端点未配置或当前不可用。"""
-
-
-class WebSearchError(DomainError):
-    """联网检索失败。"""

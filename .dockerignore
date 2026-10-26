@@ -28,6 +28,10 @@ data/uploads/
 data/embed_cache/
 data/*.db
 data/*.sqlite3
+data/internal-service.key
+data/dev-stack.json
+data/bin/
+data/backups/
 logs/
 *.log
 

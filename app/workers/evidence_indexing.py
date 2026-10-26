@@ -68,10 +68,9 @@ class EvidenceIndexWorker:
         snapshot = self._repo.get_parse_snapshot(version.version_id)
         if snapshot is None:
             raise InvalidDocumentContent("DocumentVersion 缺少解析快照")
-        bindings = self._repo.list_bindings_for_document(document.document_id)
 
         try:
-            chunks = self._chunker.chunk(document, version, snapshot, bindings)
+            chunks = self._chunker.chunk(document, version, snapshot)
             embedding_job = job
             embedding_document = document
             if job.current_stage == "chunk":

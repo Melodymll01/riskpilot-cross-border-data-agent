@@ -1,6 +1,8 @@
-"""V3 Evidence QA 范围、引用与 Claim-Citation 校验测试。"""
+"""Evidence QA 范围、引用与 Claim-Citation 校验测试。"""
 
 from __future__ import annotations
+
+from copy import deepcopy
 
 import pytest
 from pydantic import ValidationError
@@ -14,19 +16,23 @@ from domain.qa import (
     EvidenceQACitation,
     EvidenceQAClaim,
     EvidenceQADraft,
+    EvidenceQAFlowchart,
+    EvidenceQAFlowEdge,
+    EvidenceQAFlowNode,
+    EvidenceQAPresentation,
     EvidenceQAScope,
+    EvidenceQATable,
+    EvidenceQATableRow,
 )
 
 
 def _case_citation(**overrides: object) -> EvidenceQACitation:
     values: dict[str, object] = {
         "citation_id": "E1",
-        "corpus": "case",
+        "corpus": "user_docs",
         "source_id": "chunk_001",
         "source_name": "case.txt",
         "quote": "境外接收方应承担安全保护责任",
-        "workspace_id": "ws_001",
-        "case_id": "case_001",
         "document_id": "doc_001",
         "document_version_id": "ver_001",
         "page_number": 2,
@@ -47,35 +53,77 @@ def _claim(**overrides: object) -> EvidenceQAClaim:
     return EvidenceQAClaim(**values)  # type: ignore[arg-type]
 
 
+def _contract_claims() -> list[EvidenceQAClaim]:
+    texts = {
+        "C1": "申请人提交合同后，流程进入初审。",
+        "C2": "初审人员检查合同信息。",
+        "C3": "初审完成后，系统判断审批结果。",
+        "C4": "审批通过后，合同进入归档队列。",
+        "C5": "审批退回后，合同交由申请人修改。",
+        "C6": "通过与退回分支汇合后，系统记录处理结果。",
+        "C7": "记录完成后，合同审批流程终止。",
+    }
+    return [
+        EvidenceQAClaim(claim_id=claim_id, text=text, citation_ids=["E1"])
+        for claim_id, text in texts.items()
+    ]
+
+
+def _contract_flow_payload() -> dict[str, object]:
+    return {
+        "schema_version": "2.0",
+        "title": "合同审批",
+        "nodes": [
+            {"node_id": "N1", "kind": "start", "claim_ids": ["C1"]},
+            {"node_id": "N2", "kind": "action", "claim_ids": ["C2"]},
+            {"node_id": "N3", "kind": "decision", "claim_ids": ["C3"]},
+            {"node_id": "N4", "kind": "action", "claim_ids": ["C4"]},
+            {"node_id": "N5", "kind": "action", "claim_ids": ["C5"]},
+            {"node_id": "N6", "kind": "merge", "claim_ids": ["C6"]},
+            {"node_id": "N7", "kind": "terminal", "claim_ids": ["C7"]},
+        ],
+        "edges": [
+            {"source_node_id": "N1", "target_node_id": "N2", "claim_ids": ["C1"]},
+            {"source_node_id": "N2", "target_node_id": "N3", "claim_ids": ["C3"]},
+            {
+                "source_node_id": "N3",
+                "target_node_id": "N4",
+                "condition": "审批通过",
+                "claim_ids": ["C4"],
+            },
+            {
+                "source_node_id": "N3",
+                "target_node_id": "N5",
+                "condition": "审批退回",
+                "claim_ids": ["C5"],
+            },
+            {"source_node_id": "N4", "target_node_id": "N6", "claim_ids": ["C6"]},
+            {"source_node_id": "N5", "target_node_id": "N6", "claim_ids": ["C6"]},
+            {"source_node_id": "N6", "target_node_id": "N7", "claim_ids": ["C7"]},
+        ],
+    }
+
+
 class TestEvidenceQAScope:
-    def test_regulatory_scope_needs_no_workspace(self) -> None:
-        scope = EvidenceQAScope(corpora=["regulatory"])
-        assert scope.workspace_id is None
-        with pytest.raises(ValidationError, match="不接受 workspace_id"):
-            EvidenceQAScope(corpora=["regulatory"], workspace_id="ws_001")
+    def test_regulatory_scope_uses_server_owner(self) -> None:
+        scope = EvidenceQAScope(owner_id="github:alice", corpora=["regulatory"])
+        assert scope.owner_id == "github:alice"
+        with pytest.raises(ValueError):
+            EvidenceQAScope(owner_id="", corpora=["user_docs"])
 
-    def test_case_scope_requires_workspace_and_case(self) -> None:
-        with pytest.raises(ValidationError, match="workspace_id"):
-            EvidenceQAScope(corpora=["case"], case_id="case_001")
-        with pytest.raises(ValidationError, match="case_id"):
-            EvidenceQAScope(corpora=["case"], workspace_id="ws_001")
-
-    def test_assessment_scope_requires_full_parent_chain(self) -> None:
-        with pytest.raises(ValidationError, match="assessment_id"):
+    def test_document_filter_only_accepted_for_user_docs(self) -> None:
+        with pytest.raises(ValueError):
             EvidenceQAScope(
-                corpora=["assessment"],
-                workspace_id="ws_001",
-                case_id="case_001",
+                owner_id="github:alice", corpora=["regulatory"], document_ids=["private"]
             )
 
     def test_duplicate_corpora_rejected(self) -> None:
         with pytest.raises(ValidationError, match="corpora"):
-            EvidenceQAScope(corpora=["regulatory", "regulatory"])
+            EvidenceQAScope(owner_id="github:alice", corpora=["regulatory", "regulatory"])
         with pytest.raises(ValidationError, match="assessment_id"):
             EvidenceQAScope(
-                corpora=["case"],
-                workspace_id="ws_001",
-                case_id="case_001",
+                owner_id="github:alice",
+                corpora=["user_docs"],
                 assessment_id="assessment_001",
             )
 
@@ -88,18 +136,6 @@ class TestEvidenceQACitation:
             _case_citation(document_version_id=None)
         with pytest.raises(ValidationError, match="source_sha256"):
             _case_citation(source_sha256=None)
-
-    def test_assessment_citation_requires_assessment_id(self) -> None:
-        with pytest.raises(ValidationError, match="assessment_id"):
-            EvidenceQACitation(
-                citation_id="A1",
-                corpus="assessment",
-                source_id="finding_001",
-                source_name="Assessment v1",
-                quote="规则已触发",
-                workspace_id="ws_001",
-                case_id="case_001",
-            )
 
     def test_blank_quote_rejected(self) -> None:
         with pytest.raises(ValidationError, match="quote"):
@@ -126,6 +162,196 @@ class TestEvidenceQADraft:
     def test_duplicate_claim_id_rejected(self) -> None:
         with pytest.raises(ValidationError, match="claim_id"):
             EvidenceQADraft(status="answered", claims=[_claim(), _claim()])
+
+    def test_table_presentation_must_cover_known_claims(self) -> None:
+        second = _claim(claim_id="C2")
+        presentation = EvidenceQAPresentation(
+            kind="table",
+            table=EvidenceQATable(rows=[EvidenceQATableRow(label="主体", claim_ids=["C1"])]),
+        )
+        with pytest.raises(ValidationError, match="未覆盖 Claim"):
+            EvidenceQADraft(
+                status="answered",
+                claims=[_claim(), second],
+                presentation=presentation,
+            )
+
+    def test_flowchart_rejects_cycles_and_unknown_nodes(self) -> None:
+        with pytest.raises(ValidationError, match="未知节点"):
+            EvidenceQAFlowchart(
+                nodes=[
+                    EvidenceQAFlowNode(node_id="N1", claim_ids=["C1"]),
+                    EvidenceQAFlowNode(node_id="N2", claim_ids=["C2"]),
+                ],
+                edges=[
+                    EvidenceQAFlowEdge(
+                        source_node_id="N1",
+                        target_node_id="N3",
+                        claim_ids=["C3"],
+                    )
+                ],
+            )
+        with pytest.raises(ValidationError, match="无环"):
+            EvidenceQAFlowchart(
+                nodes=[
+                    EvidenceQAFlowNode(node_id="N1", claim_ids=["C1"]),
+                    EvidenceQAFlowNode(node_id="N2", claim_ids=["C2"]),
+                ],
+                edges=[
+                    EvidenceQAFlowEdge(
+                        source_node_id="N1",
+                        target_node_id="N2",
+                        claim_ids=["C2"],
+                    ),
+                    EvidenceQAFlowEdge(
+                        source_node_id="N2",
+                        target_node_id="N1",
+                        claim_ids=["C1"],
+                    ),
+                ],
+            )
+
+    def test_flowchart_condition_must_match_associated_claim(self) -> None:
+        presentation = EvidenceQAPresentation(
+            kind="flowchart",
+            flowchart=EvidenceQAFlowchart(
+                nodes=[
+                    EvidenceQAFlowNode(node_id="N1", kind="start", claim_ids=["C1"]),
+                    EvidenceQAFlowNode(node_id="N2", kind="terminal", claim_ids=["C2"]),
+                ],
+                edges=[
+                    EvidenceQAFlowEdge(
+                        source_node_id="N1",
+                        target_node_id="N2",
+                        condition="审批通过",
+                        claim_ids=["C2"],
+                    )
+                ],
+            ),
+        )
+        with pytest.raises(ValidationError, match="condition 无法"):
+            EvidenceQADraft(
+                status="answered",
+                claims=[_claim(), _claim(claim_id="C2", text="网信部门开展查验。")],
+                presentation=presentation,
+            )
+
+    def test_generic_contract_flow_v2_is_valid_and_conditions_are_normalized(self) -> None:
+        payload = _contract_flow_payload()
+        payload["edges"][2]["condition"] = "审批 通 过"  # type: ignore[index]
+        flowchart = EvidenceQAFlowchart.model_validate(payload)
+
+        draft = EvidenceQADraft(
+            status="answered",
+            claims=_contract_claims(),
+            presentation=EvidenceQAPresentation(kind="flowchart", flowchart=flowchart),
+        )
+
+        assert draft.presentation is not None
+        assert flowchart.schema_version == "2.0"
+        assert {node.kind for node in flowchart.nodes} == {
+            "start",
+            "action",
+            "decision",
+            "merge",
+            "terminal",
+        }
+
+    @pytest.mark.parametrize(
+        ("violation", "message"),
+        [
+            ("multiple_start", "只能有一个 start"),
+            ("start_incoming", "start 节点不能有入边"),
+            ("start_no_exit", "start 节点必须至少有一个出口"),
+            ("decision_one_exit", "decision 节点必须至少有两个出口"),
+            ("decision_empty_condition", "非空 condition"),
+            ("decision_duplicate_condition", "condition 必须唯一"),
+            ("action_two_exits", "action 节点最多只能有一个出口"),
+            ("merge_one_input", "merge 节点必须至少有两条入边"),
+            ("merge_two_exits", "merge 节点最多只能有一个出口"),
+            ("terminal_exit", "terminal 节点不能有出口"),
+            ("unreachable", "必须可达"),
+            ("cycle", "无环有向图"),
+            ("no_terminal", "至少有一个 terminal"),
+        ],
+    )
+    def test_flow_v2_rejects_every_structural_violation(
+        self,
+        violation: str,
+        message: str,
+    ) -> None:
+        payload = deepcopy(_contract_flow_payload())
+        nodes = payload["nodes"]
+        edges = payload["edges"]
+        assert isinstance(nodes, list)
+        assert isinstance(edges, list)
+
+        if violation == "multiple_start":
+            nodes[1]["kind"] = "start"
+        elif violation == "start_incoming":
+            nodes.append({"node_id": "N8", "kind": "action", "claim_ids": ["C8"]})
+            edges.append({"source_node_id": "N8", "target_node_id": "N1", "claim_ids": ["C8"]})
+        elif violation == "start_no_exit":
+            edges.pop(0)
+        elif violation == "decision_one_exit":
+            edges.pop(3)
+        elif violation == "decision_empty_condition":
+            edges[2]["condition"] = ""
+        elif violation == "decision_duplicate_condition":
+            edges[3]["condition"] = "审 批 通 过"
+        elif violation == "action_two_exits":
+            edges.append({"source_node_id": "N2", "target_node_id": "N4", "claim_ids": ["C4"]})
+        elif violation == "merge_one_input":
+            edges.pop(5)
+        elif violation == "merge_two_exits":
+            nodes.append({"node_id": "N8", "kind": "terminal", "claim_ids": ["C8"]})
+            edges.append({"source_node_id": "N6", "target_node_id": "N8", "claim_ids": ["C8"]})
+        elif violation == "terminal_exit":
+            nodes.append({"node_id": "N8", "kind": "terminal", "claim_ids": ["C8"]})
+            edges.append({"source_node_id": "N7", "target_node_id": "N8", "claim_ids": ["C8"]})
+        elif violation == "unreachable":
+            nodes.append({"node_id": "N8", "kind": "action", "claim_ids": ["C8"]})
+        elif violation == "cycle":
+            edges.append({"source_node_id": "N6", "target_node_id": "N3", "claim_ids": ["C6"]})
+        elif violation == "no_terminal":
+            nodes[6]["kind"] = "action"
+
+        with pytest.raises(ValidationError, match=message):
+            EvidenceQAFlowchart.model_validate(payload)
+
+    @pytest.mark.parametrize("reference", ["node", "edge"])
+    def test_flow_v2_rejects_unknown_claim_references(self, reference: str) -> None:
+        payload = _contract_flow_payload()
+        if reference == "node":
+            payload["nodes"][1]["claim_ids"] = ["UNKNOWN"]  # type: ignore[index]
+        else:
+            payload["edges"][0]["claim_ids"] = ["UNKNOWN"]  # type: ignore[index]
+        presentation = EvidenceQAPresentation(
+            kind="flowchart",
+            flowchart=EvidenceQAFlowchart.model_validate(payload),
+        )
+
+        with pytest.raises(ValidationError, match="未知 Claim"):
+            EvidenceQADraft(
+                status="answered",
+                claims=_contract_claims(),
+                presentation=presentation,
+            )
+
+    def test_v1_linear_payload_is_upgraded_and_can_be_exported(self) -> None:
+        v1 = {
+            "title": "事件上报",
+            "nodes": [
+                {"node_id": "N1", "claim_ids": ["C1"]},
+                {"node_id": "N2", "claim_ids": ["C2"]},
+            ],
+            "edges": [{"source_node_id": "N1", "target_node_id": "N2", "claim_ids": ["C2"]}],
+        }
+
+        upgraded = EvidenceQAFlowchart.model_validate(v1)
+
+        assert [node.kind for node in upgraded.nodes] == ["start", "terminal"]
+        assert upgraded.to_v1_payload() == v1
 
 
 def _support_result(
@@ -257,9 +483,8 @@ class TestEvidenceQAAnswer:
         answer = EvidenceQAAnswer(
             question="境外接收方有什么义务？",
             scope=EvidenceQAScope(
-                corpora=["case"],
-                workspace_id="ws_001",
-                case_id="case_001",
+                owner_id="github:alice",
+                corpora=["user_docs"],
             ),
             status="answered",
             claims=[claim],
@@ -277,9 +502,8 @@ class TestEvidenceQAAnswer:
         answer = EvidenceQAAnswer(
             question="材料是否完整？",
             scope=EvidenceQAScope(
-                corpora=["case"],
-                workspace_id="ws_001",
-                case_id="case_001",
+                owner_id="github:alice",
+                corpora=["user_docs"],
             ),
             status="partially_answered",
             claims=[claim],
@@ -292,13 +516,86 @@ class TestEvidenceQAAnswer:
         assert answer.answer.startswith("⚠️")
         assert "未找到保存期限" in answer.answer
 
+    def test_table_renders_only_verified_claim_text(self) -> None:
+        claim = _claim()
+        citation = _case_citation()
+        answer = EvidenceQAAnswer(
+            question="以表格说明义务",
+            scope=EvidenceQAScope(owner_id="github:alice", corpora=["user_docs"]),
+            status="answered",
+            claims=[claim],
+            citations=[citation],
+            presentation=EvidenceQAPresentation(
+                kind="table",
+                table=EvidenceQATable(
+                    title="义务对照",
+                    rows=[EvidenceQATableRow(label="境外接收方", claim_ids=["C1"])],
+                ),
+            ),
+            verification=ClaimCitationVerifier.verify([claim], [citation]),
+            support_verification=_support_result(),
+            repair_report=_repair_report(),
+        )
+        assert "| 项目 | 经核验结论 | 证据 |" in answer.answer
+        assert "境外接收方应承担安全保护责任。" in answer.answer
+        assert "| [E1] |" in answer.answer
+
+    def test_flowchart_renders_server_generated_dsl(self) -> None:
+        first = _claim(text="提交申报材料。")
+        second = _claim(claim_id="C2", text="提交申报材料后进入完备性查验。")
+        citation = _case_citation()
+        support = ClaimSupportResult(
+            judgements=[
+                ClaimSupportJudgement(
+                    claim_id=claim.claim_id,
+                    supported=True,
+                    citation_ids=["E1"],
+                )
+                for claim in (first, second)
+            ],
+            unsupported_claim_ids=[],
+            valid=True,
+        )
+        answer = EvidenceQAAnswer(
+            question="申报流程是什么？",
+            scope=EvidenceQAScope(owner_id="github:alice", corpora=["user_docs"]),
+            status="answered",
+            claims=[first, second],
+            citations=[citation],
+            presentation=EvidenceQAPresentation(
+                kind="flowchart",
+                flowchart=EvidenceQAFlowchart(
+                    title="申报流程",
+                    nodes=[
+                        EvidenceQAFlowNode(node_id="N1", claim_ids=["C1"]),
+                        EvidenceQAFlowNode(node_id="N2", claim_ids=["C2"]),
+                    ],
+                    edges=[
+                        EvidenceQAFlowEdge(
+                            source_node_id="N1",
+                            target_node_id="N2",
+                            claim_ids=["C2"],
+                        )
+                    ],
+                ),
+            ),
+            verification=ClaimCitationVerifier.verify([first, second], [citation]),
+            support_verification=support,
+            repair_report=_repair_report(kept_claim_ids=["C1", "C2"]),
+        )
+        assert "```riskpilot-flow" in answer.answer
+        assert '"coverage":"complete"' in answer.answer
+        assert '"from":"N1","to":"N2"' in answer.answer
+        assert '"label":"进入下一步"' in answer.answer
+        assert "流程依据：" in answer.answer
+
     def test_non_refusal_rejects_invalid_verification(self) -> None:
         claim = _claim(citation_ids=[])
         citation = _case_citation()
         with pytest.raises(ValidationError, match="必须通过"):
             EvidenceQAAnswer(
                 question="问题",
-                scope=EvidenceQAScope(corpora=["regulatory"]),
+                scope=EvidenceQAScope(owner_id="github:alice", corpora=["regulatory"]),
                 status="answered",
                 claims=[claim],
                 citations=[citation],
@@ -311,7 +608,7 @@ class TestEvidenceQAAnswer:
         verification = ClaimCitationVerifier.verify([], [])
         answer = EvidenceQAAnswer(
             question="未知问题",
-            scope=EvidenceQAScope(corpora=["regulatory"]),
+            scope=EvidenceQAScope(owner_id="github:alice", corpora=["regulatory"]),
             status="refused",
             refusal_reason="根据当前检索范围未找到足够证据。",
             verification=verification,
@@ -335,7 +632,7 @@ class TestEvidenceQAAnswer:
         with pytest.raises(ValidationError, match="verification"):
             EvidenceQAAnswer(
                 question="问题",
-                scope=EvidenceQAScope(corpora=["case"], workspace_id="ws_001", case_id="case_001"),
+                scope=EvidenceQAScope(owner_id="github:alice", corpora=["user_docs"]),
                 status="answered",
                 claims=[claim],
                 citations=[citation],
@@ -351,9 +648,8 @@ class TestEvidenceQAAnswer:
             EvidenceQAAnswer(
                 question="问题",
                 scope=EvidenceQAScope(
-                    corpora=["case"],
-                    workspace_id="ws_001",
-                    case_id="case_001",
+                    owner_id="github:alice",
+                    corpora=["user_docs"],
                 ),
                 status="answered",
                 claims=[claim],
@@ -374,9 +670,8 @@ class TestEvidenceQAAnswer:
             EvidenceQAAnswer(
                 question="问题",
                 scope=EvidenceQAScope(
-                    corpora=["case"],
-                    workspace_id="ws_001",
-                    case_id="case_001",
+                    owner_id="github:alice",
+                    corpora=["user_docs"],
                 ),
                 status="answered",
                 claims=[claim],
@@ -398,9 +693,8 @@ class TestEvidenceQAAnswer:
         answer = EvidenceQAAnswer(
             question="问题",
             scope=EvidenceQAScope(
-                corpora=["case"],
-                workspace_id="ws_001",
-                case_id="case_001",
+                owner_id="github:alice",
+                corpora=["user_docs"],
             ),
             status="partially_answered",
             claims=[claim],
@@ -416,9 +710,8 @@ class TestEvidenceQAAnswer:
             EvidenceQAAnswer(
                 question="问题",
                 scope=EvidenceQAScope(
-                    corpora=["case"],
-                    workspace_id="ws_001",
-                    case_id="case_001",
+                    owner_id="github:alice",
+                    corpora=["user_docs"],
                 ),
                 status="answered",
                 claims=[claim],

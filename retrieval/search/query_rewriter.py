@@ -19,9 +19,14 @@ from collections import OrderedDict
 from typing import TYPE_CHECKING
 
 from config import settings
+from domain.errors import ConversationRunStopped
+from infra.chat import LangChainChatAdapter, build_chat_model
 
 if TYPE_CHECKING:
     from langchain_core.language_models.chat_models import BaseChatModel
+
+    from config import Settings
+    from domain.ports import RunControlPort
 
 logger = logging.getLogger(__name__)
 
@@ -68,23 +73,19 @@ _CACHE_MAX_SIZE = 256
 class QueryRewriter:
     """查询改写器：规则预处理 → LLM 改写 → 后处理校验，三段式管线。"""
 
-    def __init__(self, model: BaseChatModel | None = None):
-        if model is None:
-            from infra.agents.model import build_langchain_chat_model
-
-            model = build_langchain_chat_model(
-                model=settings.effective_chat_model,
-                api_key=settings.effective_chat_api_key,
-                base_url=settings.effective_chat_base_url,
-                temperature=0.0,
-                max_tokens=1000,
-            )
+    def __init__(self, model: BaseChatModel | None = None, *, config: Settings | None = None):
+        self._settings = config or settings
         self._model = model
-        self.enabled = settings.enable_query_rewrite
+        self.enabled = self._settings.enable_query_rewrite
         # LRU 缓存：OrderedDict 实现，存在进程内存中，进程重启即清空
         self._cache: OrderedDict[str, list[str]] = OrderedDict()
 
-    def rewrite(self, query: str) -> list[str]:
+    def rewrite(
+        self,
+        query: str,
+        *,
+        runtime_control: RunControlPort | None = None,
+    ) -> list[str]:
         """
         改写用户查询。
 
@@ -99,6 +100,9 @@ class QueryRewriter:
         if not self.enabled:
             return [query]
 
+        if self._model is None:
+            self._model = build_chat_model(self._settings, temperature=0.0, max_tokens=1000)
+
         # ① 规则预处理：同义词/缩写标准化
         normalized = self._normalize(query)
 
@@ -111,22 +115,12 @@ class QueryRewriter:
 
         # ③ LLM 改写
         try:
-            response = self._model.invoke(
-                [
-                    {
-                        "role": "user",
-                        "content": REWRITE_PROMPT.format(query=normalized),
-                    },
-                ],
-            )
-            rewritten = (
-                response.content
-                if isinstance(response.content, str)
-                else "\n".join(
-                    str(item.get("text") or "")
-                    for item in response.content
-                    if isinstance(item, dict) and item.get("type") == "text"
-                )
+            rewritten = LangChainChatAdapter(self._model).chat(
+                [{"role": "user", "content": REWRITE_PROMPT.format(query=normalized)}],
+                temperature=0.0,
+                max_tokens=1000,
+                runtime_control=runtime_control,
+                operation="query_rewrite",
             )
 
             # ④ 后处理：清洗 + 校验
@@ -143,6 +137,8 @@ class QueryRewriter:
             logger.info(f"查询改写: '{query[:50]}' → {result}")
             return result
 
+        except ConversationRunStopped:
+            raise
         except Exception as e:
             logger.warning(f"查询改写失败，使用原始查询: {e}")
             return [query]

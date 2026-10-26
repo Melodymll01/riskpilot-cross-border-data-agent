@@ -20,63 +20,45 @@ from opentelemetry.trace import SpanKind, Status, StatusCode
 from domain.ports import TracePort, TraceSpanPort
 
 _HASHED_ID_KEYS = {
-    "actor_id",
-    "assessment_id",
-    "case_id",
-    "owner_id",
     "task_id",
+    "owner_id",
+    "run_id",
     "thread_id",
     "user_id",
-    "workspace_id",
 }
 _STRING_ATTRIBUTE_KEYS = {
     "decision",
     "error_type",
-    "evidence_state",
     "framework",
     "http.request.method",
     "http.route",
-    "interrupt_kind",
     "langgraph_node",
     "model",
     "operation",
-    "run_id",
     "stage",
     "status",
     "tool",
     "workflow",
+    "verification_status",
 }
 _NUMBER_ATTRIBUTE_KEYS = {
     "attachment_count",
-    "completed_stage_count",
-    "cost",
-    "document_count",
-    "document_length",
     "duration_ms",
     "evidence_count",
     "http.response.status_code",
     "langgraph_step",
     "message_length",
-    "missing_fact_count",
-    "pending_document_count",
+    "model_call_count",
     "query_length",
-    "ready_document_count",
-    "retrieval_rounds",
     "retry_count",
-    "target_length",
     "token_usage",
     "tool_count",
     "top_k",
 }
 _BOOLEAN_ATTRIBUTE_KEYS = {
-    "completed",
-    "enable_web_search",
-    "has_attachments",
     "interrupted",
     "refused",
     "resumed",
-    "risk_profile_configured",
-    "web_search_used",
 }
 
 

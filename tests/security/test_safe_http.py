@@ -6,8 +6,8 @@ from dataclasses import dataclass
 
 import pytest
 
+import infra.web.safe_http as safe_http_module
 from infra.web import SafeHttpClient, SafeHttpResponse, validate_public_url
-from infra.web import safe_http as safe_http_module
 from ingestion.web_loader import WebLoader
 
 
@@ -187,7 +187,10 @@ def test_web_loader_uses_safe_client_and_preserves_final_url(
             _QueuedResponse(
                 content=(
                     "<html><head><title>安全页面</title></head>"
-                    "<body><main>正文内容</main></body></html>"
+                    "<body><main><p>这是用于验证通用正文抽取器的安全页面正文，"
+                    "包含足够长度的连续内容和完整句子。</p>"
+                    "<p>第二段继续说明网页正文应当保留，导航链接不应进入结果。</p>"
+                    "</main></body></html>"
                 ).encode()
             )
         ]
@@ -196,6 +199,60 @@ def test_web_loader_uses_safe_client_and_preserves_final_url(
 
     document = loader.load("https://example.com/article")
 
-    assert document.content == "正文内容"
+    assert "这是用于验证通用正文抽取器的安全页面正文" in document.content
+    assert "第二段继续说明网页正文应当保留" in document.content
     assert document.title == "安全页面"
+    assert document.source_name == "https://example.com/article"
     assert document.source_url == "https://example.com/article"
+    assert document.extra_metadata["extraction_method"].startswith("scored:")
+
+
+def test_web_loader_prefers_official_body_label_and_removes_navigation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        safe_http_module,
+        "_resolve_addresses",
+        lambda host: ["8.8.8.8"],
+    )
+    html = """
+    <html><head><title>数据出境安全评估办法_官方页面</title></head><body>
+      <div class="main">
+        <div class="main-title"><h1>数据出境安全评估办法</h1></div>
+        <div class="main-content"><div id="BodyLabel">
+          <p>国家互联网信息办公室令</p>
+          <p>第11号</p>
+          <p>《数据出境安全评估办法》现予公布，自2022年9月1日起施行。</p>
+          <p>第一条 为了规范数据出境活动，制定本办法。</p>
+        </div></div>
+        <div class="site-nav">设为首页 加入收藏 手机版 繁体 搜索</div>
+      </div>
+    </body></html>
+    """
+    transport = _FakeTransport([_QueuedResponse(content=html.encode())])
+    loader = WebLoader(safe_http=SafeHttpClient(transport=transport))
+
+    document = loader.load("https://example.com/law")
+
+    assert "国家互联网信息办公室令" in document.content
+    assert "第一条 为了规范数据出境活动，制定本办法。" in document.content
+    assert "设为首页" not in document.content
+    assert "加入收藏" not in document.content
+    assert document.source_name == "https://example.com/law"
+    assert document.title == "数据出境安全评估办法"
+    assert document.extra_metadata["extraction_method"] == "selector:#BodyLabel"
+
+
+def test_web_loader_rejects_navigation_only_page(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        safe_http_module,
+        "_resolve_addresses",
+        lambda host: ["8.8.8.8"],
+    )
+    links = "".join(f'<a href="/item/{i}">栏目导航链接{i}</a>' for i in range(40))
+    html = f"<html><head><title>导航页</title></head><body><main>{links}</main></body></html>"
+    transport = _FakeTransport([_QueuedResponse(content=html.encode())])
+    loader = WebLoader(safe_http=SafeHttpClient(transport=transport))
+
+    with pytest.raises(ValueError, match="链接|导航"):
+        loader.load("https://example.com/navigation")

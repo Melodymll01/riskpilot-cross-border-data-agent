@@ -1,3 +1,4 @@
+import { renderSafeMarkdown } from "./markdown.js?v=20261023-flow7";
 /**
  * chat.js — 聊天主流程：消息渲染、SSE 接入、状态管理。
  *
@@ -5,19 +6,21 @@
  * 每次发送：先 push 用户消息到 DOM，再起 SSE 消费 agent 事件流。
  */
 
-import { streamChat } from "./sse.js";
-import { tasks as tasksApi, feedback as feedbackApi } from "./api.js";
+import { streamChat, streamRunResume } from "./sse.js";
+import { copilot as copilotApi, tasks as tasksApi, feedback as feedbackApi } from "./api.js";
 
 const $ = (sel) => document.querySelector(sel);
 
 // ─────────── 状态 ───────────
 let _currentTaskId = null;
-let _currentMode = "qa";  // qa | research | profile；仅在创建新 task 时生效
 let _abortCurrent = null;
 let _onTaskCreated = null;
 let _onTaskUpdated = null;
-let _onModeChanged = null;
 let _onConversationReset = null;
+let _onAttachmentSelectionChanged = null;
+let _activeRunId = null;
+let _streamGeneration = 0;
+let _stopPending = false;
 
 export function setCurrentTaskId(taskId) {
   _currentTaskId = taskId;
@@ -25,23 +28,79 @@ export function setCurrentTaskId(taskId) {
 export function getCurrentTaskId() {
   return _currentTaskId;
 }
-export function getCurrentMode() {
-  return _currentMode;
-}
-/** 设置当前模式；仅下一条新 task 生效。返回是否变更。*/
-export function setCurrentMode(mode) {
-  if (mode !== "qa" && mode !== "research" && mode !== "profile") return false;
-  if (_currentMode === mode) return false;
-  _currentMode = mode;
-  _onModeChanged?.(mode);
-  return true;
-}
-
 export function onTaskCreated(fn) { _onTaskCreated = fn; }
 export function onTaskUpdated(fn) { _onTaskUpdated = fn; }
-export function onModeChanged(fn) { _onModeChanged = fn; }
-/** 新对话剧本重置后触发，供上层渲染当前 mode 的欢迎卡。*/
 export function onConversationReset(fn) { _onConversationReset = fn; }
+export function onAttachmentSelectionChanged(fn) { _onAttachmentSelectionChanged = fn; }
+
+export function resumeCompletionState({
+  errorStatus = null,
+  runStatus = null,
+} = {}) {
+  if (errorStatus === 409) return { buttonText: "已由其他请求处理", outcome: "conflict" };
+  if (errorStatus !== null) return { buttonText: "恢复失败", outcome: "failed" };
+  if (runStatus === "completed") return { buttonText: "已恢复", outcome: "completed" };
+  if (runStatus === "interrupted") return { buttonText: "仍处于暂停", outcome: "interrupted" };
+  if (runStatus === "cancelled") return { buttonText: "已取消", outcome: "cancelled" };
+  if (runStatus === "timed_out") return { buttonText: "已超时", outcome: "timed_out" };
+  if (runStatus === "budget_exhausted") return { buttonText: "预算已耗尽", outcome: "budget_exhausted" };
+  if (runStatus === "failed") return { buttonText: "恢复失败", outcome: "failed" };
+  return { buttonText: "恢复未完成", outcome: "failed" };
+}
+
+export function isCurrentStream(streamGeneration, currentGeneration) {
+  return streamGeneration === currentGeneration;
+}
+
+const RUN_STATE_LABELS = {
+  idle: "就绪",
+  agent: "正在执行",
+  tool: "正在检索",
+  generation: "正在生成待核验草稿",
+  verification: "正在核验",
+  cancel_requested: "正在停止",
+  interrupted: "已暂停",
+  cancelled: "已取消",
+  timed_out: "已超时",
+  budget_exhausted: "预算已耗尽",
+  failed: "失败",
+  completed: "已完成",
+};
+const SETTLED_RUN_STATES = new Set([
+  "interrupted",
+  "cancelled",
+  "timed_out",
+  "budget_exhausted",
+  "failed",
+  "completed",
+]);
+
+export function runStateLabel(state) {
+  return RUN_STATE_LABELS[state] || state || RUN_STATE_LABELS.idle;
+}
+
+export function authoritativeRunStatus(currentStatus, event, data = null) {
+  if (event === "run_started" || event === "run_resumed") return "running";
+  if (event === "run_interrupted") return "interrupted";
+  if (event === "run_status") return data?.status || currentStatus;
+  // Message/progress events, including answer, never decide run success.
+  return currentStatus;
+}
+
+export function shouldDisplayAnswer(runStatus) {
+  return runStatus === "completed" || runStatus === "failed";
+}
+
+function setRunState(state) {
+  const label = $("#run-status");
+  if (label) label.textContent = runStateLabel(state);
+  const stop = $("#btn-stop");
+  if (stop) {
+    const active = ["agent", "tool", "generation", "verification", "cancel_requested"].includes(state);
+    stop.classList.toggle("hidden", !active);
+    stop.disabled = !_activeRunId || _stopPending || state === "cancel_requested";
+  }
+}
 
 // ─────────── DOM 渲染 ───────────
 const messagesEl = () => $("#messages");
@@ -160,13 +219,13 @@ function renderToolCall(body, payload) {
   card.dataset.toolName = payload.tool_name;
   card.innerHTML = `
     <div class="tool-card-header">
-      🛠 <span class="tool-name">${escapeHtml(payload.tool_name || "tool")}</span>
+      <svg aria-hidden="true" class="tool-icon" fill="none" viewBox="0 0 24 24"><path d="M12 3.5 14.2 8l4.8.7-3.5 3.4.8 4.8-4.3-2.3-4.3 2.3.8-4.8L5 8.7 9.8 8 12 3.5Z"/></svg>
+      <span class="tool-name">${escapeHtml(payload.tool_name || "tool")}</span>
       <span class="tool-status">运行中…</span>
     </div>
     <div class="tool-args"></div>
   `;
-  card.querySelector(".tool-args").textContent =
-    JSON.stringify(payload.tool_args || {}, null, 2);
+  card.querySelector(".tool-args").textContent = payload.summary || "已提交受控工具请求";
   processBodyOf(body).appendChild(card);
   bumpProcessCount(body);
   scrollToBottom();
@@ -192,21 +251,44 @@ function renderToolResult(body, payload) {
 
   const result = document.createElement("div");
   result.className = "tool-result";
-  result.textContent = formatToolResult(payload.result);
+  const value = payload.result;
+  result.textContent = value?.evidence_count != null
+    ? `找到 ${value.evidence_count} 条候选证据`
+    : value?.control_type === "clarification"
+      ? "正在确认缺失信息"
+      : payload.is_error
+        ? String(value || "工具执行失败")
+        : "工具执行完成";
   card.appendChild(result);
   scrollToBottom();
+}
+
+function renderDraftDelta(body, payload) {
+  let draft = body.querySelector(":scope > .answer-draft");
+  if (!draft) {
+    draft = document.createElement("div");
+    draft.className = "answer-draft";
+    draft.innerHTML = '<div class="answer-draft-label">待核验草稿</div><div class="answer-draft-text"></div>';
+    body.appendChild(draft);
+  }
+  draft.querySelector(".answer-draft-text").textContent += payload.text || "";
+  setRunState("generation");
+  scrollToBottom();
+}
+
+function discardDraft(body) {
+  body.querySelector(":scope > .answer-draft")?.remove();
 }
 
 function renderAnswer(body, payload) {
   // answer 落地 → 折叠推理过程卡片
   finalizeProcess(body);
+  discardDraft(body);
 
   const wrap = document.createElement("div");
   wrap.className = "answer";
   const md = (payload.text || "").trim();
-  // marked 是全局 UMD（index.html 已加载）
-  // eslint-disable-next-line no-undef
-  wrap.innerHTML = window.marked ? window.marked.parse(md) : `<p>${escapeHtml(md)}</p>`;
+  renderSafeMarkdown(wrap, md);
   body.appendChild(wrap);
 
   if (payload.citations?.length) {
@@ -240,7 +322,7 @@ function renderAnswerActions({ rawText, msgId, taskId, createdAt, rating }) {
   copyBtn.type = "button";
   copyBtn.className = "answer-action";
   copyBtn.title = "复制回答";
-  copyBtn.innerHTML = `<span class="aa-ico">⧉</span><span class="aa-label">复制</span>`;
+  copyBtn.innerHTML = `<span class="aa-ico"><svg aria-hidden="true" fill="none" viewBox="0 0 24 24"><rect height="12" rx="2" width="12" x="8" y="8"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path></svg></span><span class="aa-label">复制</span>`;
   copyBtn.addEventListener("click", async () => {
     try {
       await navigator.clipboard.writeText(rawText || "");
@@ -261,13 +343,13 @@ function renderAnswerActions({ rawText, msgId, taskId, createdAt, rating }) {
   upBtn.type = "button";
   upBtn.className = "answer-action answer-action-up";
   upBtn.title = "有帮助";
-  upBtn.innerHTML = `<span class="aa-ico">👍</span>`;
+  upBtn.innerHTML = `<span class="aa-ico"><svg aria-hidden="true" fill="none" viewBox="0 0 24 24"><path d="M7 10v10H4V10h3Zm0 8h10.2a2 2 0 0 0 2-1.7l.8-5A2 2 0 0 0 18 9h-4l.6-3.1A1.6 1.6 0 0 0 13 4l-1 3.2L7 12"></path></svg></span>`;
 
   const downBtn = document.createElement("button");
   downBtn.type = "button";
   downBtn.className = "answer-action answer-action-down";
   downBtn.title = "没帮助";
-  downBtn.innerHTML = `<span class="aa-ico">👎</span>`;
+  downBtn.innerHTML = `<span class="aa-ico"><svg aria-hidden="true" fill="none" viewBox="0 0 24 24"><path d="M7 14V4H4v10h3Zm0-8h10.2a2 2 0 0 1 2 1.7l.8 5A2 2 0 0 1 18 15h-4l.6 3.1A1.6 1.6 0 0 1 13 20l-1-3.2L7 12"></path></svg></span>`;
 
   if (!msgId) {
     // 没有 msg_id（理论上不该发生）→ 反馈不可用
@@ -324,14 +406,61 @@ function formatTime(d) {
   return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${hm}`;
 }
 
-function renderAskUser(body, payload) {
-  // 需要用户确认 → 推理告一段落，折叠过程卡片
+function renderRunInterrupted(body, payload) {
   finalizeProcess(body);
-  const el = document.createElement("div");
-  el.className = "trace";
-  el.innerHTML = `🙋 <strong>需要你确认</strong>：${escapeHtml(payload.question || "")}`;
-  body.appendChild(el);
-  scrollToBottom();
+  const box = document.createElement("div");
+  box.className = "notice";
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "btn btn-primary";
+  button.textContent = "继续本轮执行";
+  box.append("执行已安全暂停。", button);
+  body.appendChild(box);
+  button.addEventListener("click", () => {
+    if (_abortCurrent) return;
+    const streamGeneration = ++_streamGeneration;
+    _activeRunId = payload.run_id;
+    button.disabled = true;
+    button.textContent = "恢复中…";
+    setRunState("agent");
+    let terminalStatus = null;
+    _abortCurrent = streamRunResume(payload.run_id, {
+      onEvent: (frame) => {
+        if (!isCurrentStream(streamGeneration, _streamGeneration)) return;
+        if (frame.event === "run_status" && frame.data?.status !== "running") {
+          terminalStatus = frame.data?.status || null;
+        } else if (frame.event === "run_interrupted") {
+          terminalStatus = "interrupted";
+        }
+        handleEvent(frame, body);
+      },
+      onError: (error) => {
+        if (!isCurrentStream(streamGeneration, _streamGeneration)) return;
+        finalizeProcess(body);
+        const knownStatus = terminalStatus && SETTLED_RUN_STATES.has(terminalStatus)
+          ? terminalStatus
+          : null;
+        button.textContent = resumeCompletionState({
+          errorStatus: knownStatus ? null : error.status,
+          runStatus: knownStatus,
+        }).buttonText;
+        setRunState(knownStatus || (error.status === 409 ? "idle" : "failed"));
+        _activeRunId = null;
+        _abortCurrent = null;
+        appendNotice(`恢复失败：${error.message}`);
+        _onTaskUpdated?.(_currentTaskId);
+      },
+      onDone: () => {
+        if (!isCurrentStream(streamGeneration, _streamGeneration)) return;
+        finalizeProcess(body);
+        button.textContent = resumeCompletionState({ runStatus: terminalStatus }).buttonText;
+        if (_activeRunId) setRunState("failed");
+        _activeRunId = null;
+        _abortCurrent = null;
+        _onTaskUpdated?.(_currentTaskId);
+      },
+    });
+  });
 }
 
 function renderCitations(citations) {
@@ -347,6 +476,11 @@ function renderCitations(citations) {
     const title = c.title || c.source_name || c.source_title || c.source || c.name || "未命名来源";
     const snippet = c.text_snippet || c.snippet || c.text || "";
     const url = typeof c.source_url === "string" && c.source_url.startsWith("http") ? c.source_url : null;
+    const location = [
+      c.citation_id || "",
+      c.source_version ? `版本 ${c.source_version}` : "",
+      c.page_number ? `第 ${c.page_number} 页` : "",
+    ].filter(Boolean).join(" · ");
 
     const item = document.createElement("div");
     item.className = "citation";
@@ -355,6 +489,7 @@ function renderCitations(citations) {
       : escapeHtml(title);
     item.innerHTML = `
       <div class="citation-source">${titleHtml}</div>
+      ${location ? `<div class="citation-location">${escapeHtml(location)}</div>` : ""}
       <div class="citation-snippet">${escapeHtml(snippet)}</div>
     `;
     box.appendChild(item);
@@ -363,12 +498,15 @@ function renderCitations(citations) {
 }
 
 // ─────────── 公开：发送一条用户消息 ───────────
-export function sendMessage(text) {
+export function sendMessage(text, attachmentDocIds = undefined) {
   if (!text || !text.trim()) return;
   if (_abortCurrent) {
     _abortCurrent.abort();
     _abortCurrent = null;
   }
+  const streamGeneration = ++_streamGeneration;
+  _activeRunId = null;
+  setRunState("agent");
 
   // 用户气泡
   const userBody = appendMsg("user");
@@ -379,28 +517,35 @@ export function sendMessage(text) {
   const typing = appendTyping(assistantBody);
 
   const payload = { message: text };
+  if (attachmentDocIds !== undefined) payload.attachment_doc_ids = attachmentDocIds;
   if (_currentTaskId) {
     payload.task_id = _currentTaskId;
-  } else {
-    // 仅在创建新 task 时顺手携上 mode；service 会持久化到 task.mode
-    payload.mode = _currentMode;
   }
 
   _abortCurrent = streamChat(payload, {
     onEvent: (frame) => {
+      if (!isCurrentStream(streamGeneration, _streamGeneration)) return;
       // 收到第一个真实事件就清掉 typing
       if (typing.parentNode) typing.remove();
       handleEvent(frame, assistantBody);
     },
     onError: (err) => {
+      if (!isCurrentStream(streamGeneration, _streamGeneration)) return;
       if (typing.parentNode) typing.remove();
       finalizeProcess(assistantBody);
+      const knownStatus = assistantBody.dataset.runStatus;
+      setRunState(SETTLED_RUN_STATES.has(knownStatus) ? knownStatus : "failed");
+      _activeRunId = null;
+      _abortCurrent = null;
       appendNotice(`流式中断：${err.message}`);
     },
     onDone: () => {
+      if (!isCurrentStream(streamGeneration, _streamGeneration)) return;
       // 免防后端只发 thought 不发 answer 时 spinner 永久转。
       finalizeProcess(assistantBody);
       _abortCurrent = null;
+      if (_activeRunId) setRunState("failed");
+      _activeRunId = null;
       _onTaskUpdated?.(_currentTaskId);
     },
   });
@@ -408,25 +553,75 @@ export function sendMessage(text) {
 
 function handleEvent(frame, body) {
   const { event, data } = frame;
+  const trackedStatus = authoritativeRunStatus(body.dataset.runStatus || null, event, data);
+  if (trackedStatus) body.dataset.runStatus = trackedStatus;
   switch (event) {
     case "task_created":
       _currentTaskId = data?.task_id || _currentTaskId;
       if (_currentTaskId) _onTaskCreated?.(_currentTaskId, data?.title || "新对话");
       break;
+    case "run_started":
+    case "run_resumed":
+      _activeRunId = data?.run_id || _activeRunId;
+      setRunState("agent");
+      break;
+    case "run_status":
+      setRunState(data?.status === "running" ? data?.stage : data?.status);
+      if (["completed", "cancelled", "timed_out", "budget_exhausted", "failed"].includes(data?.status)) {
+        _activeRunId = null;
+        finalizeProcess(body);
+        if (data?.status !== "completed" && !body.dataset.runEnded) {
+          body.dataset.runEnded = "true";
+          discardDraft(body);
+          const messages = {
+            cancelled: "本轮已取消，未保存未核验草稿。",
+            timed_out: "本轮执行超时，未保存未核验草稿。",
+            budget_exhausted: "本轮调用预算已耗尽，未保存未核验草稿。",
+            failed: "本轮执行失败。",
+          };
+          const notice = document.createElement("div");
+          notice.className = "notice";
+          notice.textContent = messages[data.status] || "本轮未完成。";
+          body.appendChild(notice);
+        }
+      }
+      break;
+    case "run_interrupted":
+      _activeRunId = null;
+      setRunState("interrupted");
+      renderRunInterrupted(body, data || {});
+      break;
     case "thought":
       renderThought(body, data?.text || "");
       break;
     case "tool_call":
+      setRunState("tool");
       renderToolCall(body, data || {});
       break;
     case "tool_result":
       renderToolResult(body, data || {});
       break;
-    case "answer":
-      renderAnswer(body, data || {});
+    case "tool_error":
+      renderToolResult(body, {
+        tool_name: data?.tool_name || "tool",
+        result: data?.error || "工具执行失败",
+        is_error: true,
+      });
       break;
-    case "ask_user":
-      renderAskUser(body, data || {});
+    case "draft_delta":
+      renderDraftDelta(body, data || {});
+      break;
+    case "draft_discarded":
+      discardDraft(body);
+      break;
+    case "answer":
+      // answer 只负责展示消息；运行是否成功由服务端 run_status 决定。
+      // 技术失败也可能携带一条安全说明，不能因此改写为 completed。
+      if (!shouldDisplayAnswer(body.dataset.runStatus)) {
+        discardDraft(body);
+        break;
+      }
+      renderAnswer(body, data || {});
       break;
     case "citations":
       body.appendChild(renderCitations(data?.items || data || []));
@@ -446,11 +641,14 @@ function handleEvent(frame, body) {
  * 进入某个历史 task：清空 message 区域，从 /tasks/{id} 拉历史并回放。
  */
 export async function loadTask(taskId) {
+  _streamGeneration += 1;
   if (_abortCurrent) {
     _abortCurrent.abort();
     _abortCurrent = null;
   }
   _currentTaskId = taskId;
+  _activeRunId = null;
+  setRunState("idle");
   messagesEl().innerHTML = "";
 
   let detail;
@@ -463,13 +661,7 @@ export async function loadTask(taskId) {
 
   const title = detail.task?.title || "对话";
   $("#chat-title").textContent = title;
-  // 历史 task 的 mode 是唯一真相 → 同步 UI Tab
-  const taskMode = detail.task?.mode || "qa";
-  if (taskMode !== _currentMode) {
-    _currentMode = taskMode;
-    _onModeChanged?.(taskMode);
-  }
-
+  _onAttachmentSelectionChanged?.(detail.attachment_doc_ids || []);
   // 反馈状态（点赞/点踩）一次性拉取，用于回显按钮高亮；失败不阻塞历史渲染。
   let ratings = {};
   try {
@@ -494,15 +686,51 @@ export async function loadTask(taskId) {
       });
     }
   }
+  if (detail.latest_run) {
+    const latest = detail.latest_run;
+    setRunState(latest.status === "running" ? latest.stage : latest.status);
+    if (["running", "cancel_requested"].includes(latest.status)) {
+      _activeRunId = latest.run_id;
+    }
+  }
+  if (detail.latest_run?.status === "interrupted") {
+    const body = appendMsg("assistant");
+    renderRunInterrupted(body, detail.latest_run);
+  }
 }
 
 export function newConversation() {
+  _streamGeneration += 1;
   if (_abortCurrent) { _abortCurrent.abort(); _abortCurrent = null; }
   _currentTaskId = null;
+  _activeRunId = null;
+  setRunState("idle");
   $("#chat-title").textContent = "新对话";
-  // 空容器 + 上层按 mode 填充
   messagesEl().innerHTML = `<div class="welcome" id="welcome"></div>`;
-  _onConversationReset?.(_currentMode);
+  _onAttachmentSelectionChanged?.([]);
+  _onConversationReset?.();
+}
+
+export async function stopGeneration() {
+  if (!_activeRunId || _stopPending) return;
+  const runId = _activeRunId;
+  _stopPending = true;
+  setRunState("cancel_requested");
+  try {
+    const run = await copilotApi.cancelRun(runId);
+    if (runId !== _activeRunId) return;
+    setRunState(run.status);
+    if (run.status !== "cancel_requested") _activeRunId = null;
+  } catch (error) {
+    if (runId !== _activeRunId) return;
+    appendNotice(`停止失败：${error.message}`);
+    _activeRunId = null;
+    setRunState("failed");
+  } finally {
+    _stopPending = false;
+    const current = _activeRunId ? "cancel_requested" : "idle";
+    if (_activeRunId) setRunState(current);
+  }
 }
 
 // ─────────── 工具函数 ───────────
@@ -515,21 +743,4 @@ function escapeHtml(s) {
 function cssEscape(s) {
   // 仅对工具名场景兜底，工具名不含特殊字符
   return String(s ?? "").replace(/"/g, "\\\"");
-}
-
-function formatToolResult(r) {
-  if (r == null) return "(no result)";
-  if (typeof r === "string") return r;
-  try { return JSON.stringify(r, null, 2); } catch { return String(r); }
-}
-
-// ─────────── Dev 钩子（仅用于 Playwright / 手动验证 process UI）───────────
-// 生产路径不依赖这些函数；挂到 window 便于在浏览器里注入合成事件序列回放。
-if (typeof window !== "undefined") {
-  window.__chatDevHooks__ = {
-    appendMsg,
-    handleEvent,
-    finalizeProcess,
-    ensureProcess,
-  };
 }

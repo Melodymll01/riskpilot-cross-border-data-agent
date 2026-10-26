@@ -6,7 +6,6 @@
 
 Step 025a 多租户：``owner_id`` 翻译为 ``viewers``：
 - ``owner_id=None``（匿名）→ ``viewers=[None]``，仅看公共
-- ``owner_id="<uid>"`` → ``viewers=[None, "<uid>"]``，公共 ∪ 自己
 不引入 ``viewer_is_admin``：admin 检索默认也走"公共∪自己"视角，避免越权拼装。
 """
 
@@ -14,10 +13,14 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterable
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from domain.models import Chunk, Corpus
 from processing.metadata import PUBLIC_OWNER_MARKER
+
+if TYPE_CHECKING:
+    from config import Settings
+    from domain.ports import RunControlPort
 
 logger = logging.getLogger(__name__)
 
@@ -28,29 +31,36 @@ class _RetrieverLike(Protocol):
         query: str,
         top_k: int = ...,
         viewers: Iterable[str | None] | None = ...,
+        runtime_control: RunControlPort | None = ...,
     ) -> list[dict[str, Any]]: ...
 
 
 class HybridRetrieverAdapter:
     """实现 `RetrievePort`，委托给现有 `Retriever`。"""
 
-    def __init__(self, retriever: _RetrieverLike | None = None) -> None:
+    def __init__(
+        self, retriever: _RetrieverLike | None = None, *, model_settings: Settings | None = None
+    ) -> None:
         # retriever=None → 懒构造：首次 retrieve 时才 new Retriever 并注入
         # build_reranker()。CrossEncoder 精排会同步加载 ~1GB 模型，绝不能在
         # 容器构造 / app import 时加载（否则 `from main import app` 阻塞）。
         self._retriever = retriever
+        self._model_settings = model_settings
 
     def _ensure_retriever(self) -> _RetrieverLike:
         if self._retriever is None:
             from retrieval.search.embedder import Embedder
+            from retrieval.search.query_rewriter import QueryRewriter
             from retrieval.search.reranker import build_reranker
             from retrieval.search.retriever import Retriever
             from retrieval.search.vector_store import VectorStore
 
             self._retriever = Retriever(
-                embedder=Embedder(),
-                vector_store=VectorStore(),
-                reranker=build_reranker(),
+                embedder=Embedder(config=self._model_settings),
+                vector_store=VectorStore(config=self._model_settings),
+                reranker=build_reranker(config=self._model_settings),
+                query_rewriter=QueryRewriter(config=self._model_settings),
+                config=self._model_settings,
             )
         return self._retriever
 
@@ -60,26 +70,24 @@ class HybridRetrieverAdapter:
         top_k: int = 5,
         corpus: Corpus = "law",
         owner_id: str | None = None,
-        filters: dict[str, str] | None = None,
+        runtime_control: RunControlPort | None = None,
     ) -> list[Chunk]:
-        if corpus != "law":
-            # PR-3 阶段只接入法规库；user_docs 待后续 step 接入
-            logger.debug(
-                "HybridRetrieverAdapter: corpus=%s 当前未支持，已退化为 law",
-                corpus,
+        if corpus == "law":
+            viewers: list[str | None] = [None]
+        elif corpus == "user_docs" and owner_id:
+            viewers = [owner_id]
+        else:
+            raise ValueError("user_docs 检索必须提供 owner_id")
+        retriever = self._ensure_retriever()
+        if runtime_control is None:
+            raw = retriever.retrieve(query, top_k=top_k, viewers=viewers)
+        else:
+            raw = retriever.retrieve(
+                query,
+                top_k=top_k,
+                viewers=viewers,
+                runtime_control=runtime_control,
             )
-        if filters is not None:
-            logger.debug(
-                "HybridRetrieverAdapter: filters 暂未下推（filters=%s）",
-                filters,
-            )
-
-        # Step 025a: owner_id → viewers（公共∪自己；匿名仅公共）
-        viewers: list[str | None] = [None]
-        if owner_id:
-            viewers.append(owner_id)
-
-        raw = self._ensure_retriever().retrieve(query, top_k=top_k, viewers=viewers)
         return [_dict_to_chunk(item) for item in raw]
 
 

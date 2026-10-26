@@ -51,6 +51,8 @@ data/*.db
 data/*.sqlite
 data/*.sqlite3
 data/*.json
+data/bin/
+data/internal-service.key
 # SQLite WAL 模式辅助文件
 *.db-shm
 *.db-wal
@@ -73,6 +75,7 @@ tests/logs/
 # 评测产物（保留代码与 README，不跟踪生成的报告/数据集快照）
 # =========================
 evaluations/**/reports/
+data/regulatory_builds/
 evaluations/**/*.tmp.json
 
 # =========================
@@ -102,20 +105,9 @@ evaluations/**/*.tmp.json
 # =========================
 interview_doc/
 prompts/
-# V2 设计、架构和 ADR 是工程 SSOT，需要进入版本控制；其它临时文档默认忽略。
-docs/*
-!docs/architecture/
-!docs/architecture/**
-!docs/design/
-!docs/design/**
-!docs/decisions/
-!docs/decisions/**
-!docs/guides/
-!docs/guides/**
-!docs/implementation/
-!docs/implementation/**
-!docs/roadmap/
-!docs/roadmap/**
+# 本地 CLI 临时产物与不纳入版本库的指南
+.codex_tmp/
+
 .github/skills/
 .copilot/
 .claude/
@@ -141,6 +133,10 @@ node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+playwright-report/
+test-results/
+blob-report/
+.playwright/
 
 # =========================
 # Docker 运行时（保留 Dockerfile / docker-compose.yml）
@@ -155,13 +151,5 @@ yarn-error.log*
 *.rej
 
 # =========================
-# 显式跟踪（防止以上规则误伤）
-# 这些文件夹/文件是工程档案，必须进 git
-# =========================
-# docs/decisions/    — ADR 决策记录（已显式放行）
-# docs/design/       — 产品与技术设计 SSOT（已显式放行）
-# docs/architecture/ — 架构设计（已显式放行）
-# docs/roadmap/      — 生产化阶段路线与验收门禁
-# docs/implementation/ — 每阶段“为什么 + 怎么实现 + 验证证据”复盘
-# evaluations/**/datasets/  — 评测输入数据集
+# Keep current documentation and evaluation inputs under version control.
 !.gitkeep
