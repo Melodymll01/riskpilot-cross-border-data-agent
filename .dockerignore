@@ -44,9 +44,13 @@ logs/
 .DS_Store
 Thumbs.db
 
-# ── 文档/评测产物 ────────────────────────────────
-evaluations/*/reports/
-!evaluations/*/reports/.gitkeep
+# ── Python 服务测试/评测产物 ─────────────────────
+services/agent-runtime/tests/
+services/agent-runtime/evaluations/**/reports/
+!services/agent-runtime/evaluations/**/reports/.gitkeep
+services/agent-runtime/evaluations/**/*.tmp.json
+services/agent-runtime/data/
+services/agent-runtime/logs/
 
 # ── 私人材料 ─────────────────────────────────────
 interview_doc/

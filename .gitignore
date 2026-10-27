@@ -67,16 +67,16 @@ debug.log
 # =========================
 # 测试产物
 # =========================
-tests/data/chroma_db/
-tests/data/uploads/
-tests/logs/
+services/agent-runtime/tests/data/chroma_db/
+services/agent-runtime/tests/data/uploads/
+services/agent-runtime/tests/logs/
 
 # =========================
 # 评测产物（保留代码与 README，不跟踪生成的报告/数据集快照）
 # =========================
-evaluations/**/reports/
+services/agent-runtime/evaluations/**/reports/
 data/regulatory_builds/
-evaluations/**/*.tmp.json
+services/agent-runtime/evaluations/**/*.tmp.json
 
 # =========================
 # 数据库 / 缓存 / 备份

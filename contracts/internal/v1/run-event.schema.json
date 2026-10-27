@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "riskpilot/internal/v1/run-event",
+  "title": "Ordered Agent runtime event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "run_id", "attempt_id", "event_seq", "event_type", "payload"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "run_id": {"type": "string", "minLength": 1, "maxLength": 100},
+    "attempt_id": {"type": "integer", "minimum": 1},
+    "event_seq": {"type": "integer", "minimum": 1},
+    "event_type": {
+      "enum": [
+        "stage",
+        "tool_call",
+        "tool_result",
+        "tool_error",
+        "draft_delta",
+        "draft_discarded",
+        "usage",
+        "interrupted",
+        "result_proposal"
+      ]
+    },
+    "payload": {"type": "object"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"event_type": {"const": "stage"}}},
+      "then": {"properties": {"payload": {"$ref": "#/$defs/stage"}}}
+    },
+    {
+      "if": {"properties": {"event_type": {"const": "draft_delta"}}},
+      "then": {"properties": {"payload": {"$ref": "#/$defs/draft_delta"}}}
+    },
+    {
+      "if": {"properties": {"event_type": {"const": "usage"}}},
+      "then": {"properties": {"payload": {"$ref": "#/$defs/usage"}}}
+    },
+    {
+      "if": {"properties": {"event_type": {"const": "result_proposal"}}},
+      "then": {"properties": {"payload": {"$ref": "#/$defs/result_proposal"}}}
+    }
+  ],
+  "$defs": {
+    "stage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stage"],
+      "properties": {
+        "stage": {"enum": ["agent", "tool", "generation", "verification"]}
+      }
+    },
+    "draft_delta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text"],
+      "properties": {"text": {"type": "string", "minLength": 1}}
+    },
+    "usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model_calls", "tool_calls", "input_tokens", "output_tokens"],
+      "properties": {
+        "model_calls": {"type": "integer", "minimum": 0},
+        "tool_calls": {"type": "integer", "minimum": 0},
+        "input_tokens": {"type": ["integer", "null"], "minimum": 0},
+        "output_tokens": {"type": ["integer", "null"], "minimum": 0}
+      }
+    },
+    "result_proposal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "answer",
+        "citations",
+        "verified_citation_ids",
+        "verified_context_message_ids",
+        "end_reason"
+      ],
+      "properties": {
+        "status": {"enum": ["completed", "failed"]},
+        "answer": {"type": "string", "minLength": 1},
+        "citations": {"type": "array", "items": {"type": "object"}},
+        "verified_citation_ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "verified_context_message_ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "clarification_fields": {"type": "array", "items": {"type": "string"}, "default": []},
+        "error_type": {"type": ["string", "null"]},
+        "end_reason": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

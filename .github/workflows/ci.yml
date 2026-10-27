@@ -2,7 +2,7 @@ name: CI
 
 # CI 策略：
 # - 所有 Python 文件进入 Ruff 与 format 门禁；
-# - domain/app/infra 进入 mypy 门禁；
+# - services/agent-runtime/domain|app|infra 进入 mypy 门禁；
 # - pytest 默认 local/Fake profile，零密钥、零网络、零模型下载；
 # - 显式 live 评测只允许人工运行，不进入普通 PR CI。
 on:
@@ -18,6 +18,8 @@ concurrency:
 
 env:
   PYTHON_VERSION: "3.12"
+  PYTHONPATH: ${{ github.workspace }}/services/agent-runtime
+  PYTHONSAFEPATH: "1"
 
 jobs:
   go:
@@ -28,12 +30,12 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.26.x"
-          cache-dependency-path: services/api-go/go.sum
+          cache-dependency-path: services/control-plane/go.sum
       - name: Go format
-        working-directory: services/api-go
+        working-directory: services/control-plane
         run: test -z "$(gofmt -l cmd internal)"
       - name: Go vet and tests
-        working-directory: services/api-go
+        working-directory: services/control-plane
         run: |
           go vet ./...
           go test -race ./...
@@ -42,54 +44,48 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.26.x"
-          cache-dependency-path: services/api-go/go.sum
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
+          cache-dependency-path: services/agent-runtime/requirements-dev.txt
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
+          pip install -r services/agent-runtime/requirements-dev.txt
       - name: Ruff check
-        run: ruff check .
+        run: python -m ruff check --config services/agent-runtime/pyproject.toml services/agent-runtime scripts
       - name: Ruff format check
-        run: ruff format --check .
+        run: python -m ruff format --check --config services/agent-runtime/pyproject.toml services/agent-runtime scripts
       - name: Mypy
-        run: mypy domain app infra observability_context.py
+        run: >-
+          python -m mypy --config-file services/agent-runtime/pyproject.toml
+          services/agent-runtime/domain services/agent-runtime/app services/agent-runtime/infra
+          services/agent-runtime/observability_context.py
 
   test:
     name: Tests (pytest · offline fakes)
     runs-on: ubuntu-latest
     env:
-      # tests/conftest.py 默认 local profile；具体调用全部注入 Fake。
       ENABLE_RERANKER: "false"
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
-      # Auth：使用假的 OAuth 凭据让 AuthService 能装配，但不会真正调 GitHub
-      GITHUB_CLIENT_ID: fake_ci_client_id
-      GITHUB_CLIENT_SECRET: fake_ci_client_secret
-      JWT_SECRET: ci-test-jwt-secret-do-not-use-in-prod-32chars-min
-      # admin baseline：留空 → 测试里要 admin 的用例自己 monkeypatch
-      ADMIN_USER_IDS: ""
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: "1.26.x"
-          cache-dependency-path: services/api-go/go.sum
+          cache-dependency-path: services/control-plane/go.sum
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
+          cache-dependency-path: services/agent-runtime/requirements-dev.txt
       - name: Install dependencies (with dev)
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
+          pip install -r services/agent-runtime/requirements-dev.txt
       - name: Run pytest
-        run: pytest -q
+        run: python -m pytest -c services/agent-runtime/pytest.ini services/agent-runtime/tests -q
       - name: Run offline claim-citation evaluation
         run: python -m evaluations.evidence_qa.run --oracle-self-check --no-write

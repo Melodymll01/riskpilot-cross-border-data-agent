@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "riskpilot/internal/v1/document-process",
+  "title": "Control-plane document processing command",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "operation",
+    "document_id",
+    "version_id",
+    "actor_id",
+    "owner_id",
+    "source_name",
+    "source_type",
+    "source_url",
+    "category",
+    "mime_type",
+    "sha256",
+    "content_base64"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "operation": {"enum": ["ingest", "delete"]},
+    "document_id": {"type": "string", "minLength": 1, "maxLength": 100},
+    "version_id": {"type": "string", "minLength": 1, "maxLength": 100},
+    "actor_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "owner_id": {"type": ["string", "null"], "minLength": 1, "maxLength": 200},
+    "source_name": {"type": "string", "minLength": 1, "maxLength": 1000},
+    "source_type": {"enum": ["file", "web"]},
+    "source_url": {"type": ["string", "null"], "maxLength": 2000},
+    "category": {"type": "string", "maxLength": 100},
+    "mime_type": {"type": "string", "minLength": 1, "maxLength": 255},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "content_base64": {"type": ["string", "null"], "contentEncoding": "base64"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"operation": {"const": "delete"}}},
+      "then": {"properties": {"content_base64": {"type": "null"}}}
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {"const": "ingest"},
+          "source_type": {"const": "file"}
+        }
+      },
+      "then": {
+        "properties": {
+          "content_base64": {"type": "string", "minLength": 1},
+          "source_url": {"type": "null"}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {"const": "ingest"},
+          "source_type": {"const": "web"}
+        }
+      },
+      "then": {
+        "properties": {
+          "content_base64": {"type": "null"},
+          "source_url": {"type": "string", "format": "uri", "pattern": "^https?://"}
+        }
+      }
+    }
+  ]
+}

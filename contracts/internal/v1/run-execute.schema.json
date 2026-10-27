@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "riskpilot/internal/v1/run-execute",
+  "title": "Immutable Agent run execution snapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "attempt_id",
+    "thread_id",
+    "owner_id",
+    "task_id",
+    "input_message_id",
+    "question",
+    "attachment_versions",
+    "memory_snapshot",
+    "budget"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "run_id": {"type": "string", "minLength": 1, "maxLength": 100},
+    "attempt_id": {"type": "integer", "minimum": 1},
+    "thread_id": {"type": "string", "minLength": 1, "maxLength": 100},
+    "owner_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "task_id": {"type": "string", "minLength": 1, "maxLength": 100},
+    "input_message_id": {"type": "string", "minLength": 1, "maxLength": 100},
+    "question": {"type": "string", "minLength": 1, "maxLength": 8000},
+    "attachment_versions": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {"$ref": "#/$defs/attachment_version"}
+    },
+    "memory_snapshot": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {"$ref": "#/$defs/memory_reference"}
+    },
+    "recent_messages": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {"$ref": "#/$defs/context_message"},
+      "default": []
+    },
+    "conversation_summary": {"type": "string", "maxLength": 20000, "default": ""},
+    "resume": {
+      "type": "boolean",
+      "default": false,
+      "description": "True only for a new execution attempt that must restore the same thread checkpoint after interruption or runtime restart."
+    },
+    "budget": {"$ref": "#/$defs/budget"}
+  },
+  "$defs": {
+    "attachment_version": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["document_id", "version_id", "sha256"],
+      "properties": {
+        "document_id": {"type": "string", "minLength": 1, "maxLength": 100},
+        "version_id": {"type": "string", "minLength": 1, "maxLength": 100},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "memory_reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["memory_id", "revision", "content", "source_message_id", "source_quote"],
+      "properties": {
+        "memory_id": {"type": "string", "minLength": 1, "maxLength": 100},
+        "revision": {"type": "integer", "minimum": 1},
+        "content": {"type": "string", "minLength": 1, "maxLength": 800},
+        "source_message_id": {"type": "string", "minLength": 1, "maxLength": 100},
+        "source_quote": {"type": "string", "minLength": 1, "maxLength": 8000}
+      }
+    },
+    "context_message": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["message_id", "role", "content"],
+      "properties": {
+        "message_id": {"type": "string", "minLength": 1, "maxLength": 100},
+        "role": {"enum": ["user", "assistant"]},
+        "content": {"type": "string", "minLength": 1, "maxLength": 20000}
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["deadline_at", "max_model_calls", "max_tool_calls"],
+      "properties": {
+        "deadline_at": {"type": "number"},
+        "max_model_calls": {"type": "integer", "minimum": 1, "maximum": 50},
+        "max_tool_calls": {"type": "integer", "minimum": 1, "maximum": 50}
+      }
+    }
+  }
+}

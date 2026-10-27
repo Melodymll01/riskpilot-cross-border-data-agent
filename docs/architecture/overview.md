@@ -1,252 +1,72 @@
-# RiskPilot 架构总览
+# 对话式 RiskPilot 当前架构
 
-## 当前架构
+RiskPilot 已完成双服务迁移：`services/control-plane` 是 Go 业务控制面，拥有业务数据与运行终态；`services/agent-runtime` 是仅供内部调用的 Python AI 执行服务。旧服务目录与仓库根目录 Python 包不再是运行路径。完整所有权与迁移完成记录见[双服务边界](go-python-migration.md)。
 
-当前 `/api/v2` 提供通用 Copilot、知识库和记忆能力，`/api/v3` 提供案件工作台能力；
-两套 API 按产品域并行，继续遵守四层结构：
-
-```text
-api → app → domain
-       ↑
-     infra
+```mermaid
+flowchart TD
+    UI[frontend] --> GO[services/control-plane]
+    GO --> DB[(users / conversations / messages / memories / files / runs)]
+    GO -->|immutable run snapshot| PY[services/agent-runtime]
+    PY --> AG[LangChain create_agent]
+    AG --> LG[(LangGraph checkpoint)]
+    AG --> L[法规检索]
+    AG --> D[授权材料检索]
+    AG --> W[公开网页搜索]
+    L --> C[SRC candidates]
+    D --> C
+    W --> C
+    C --> V[Evidence QA]
+    V --> P[verified result proposal]
+    P -->|ordered event| GO
+    GO --> TX[validate scope / versions / attempt]
+    TX -->|atomic message + terminal status| DB
+    GO -->|SSE + authoritative run_status| UI
 ```
 
-- `domain`：纯领域模型和 Port；
-- `app`：用例、Agent 编排和依赖装配；
-- `infra`：数据库、检索、模型、记忆、鉴权等适配器；
-- `api`：FastAPI 路由、鉴权依赖和 SSE；
-- `frontend`：无构建步骤的浏览器端工作台。
+## Go 业务控制面
 
-Copilot 使用 LangChain 标准 Tool Calling Agent，Deep Research 与 Case Assessment
-使用两张独立 LangGraph；案件工作台使用 `/api/v3`，覆盖 Workspace、Case、Document、
-Text Evidence、Visual Evidence、Fact、Policy、Assessment 和 Assessment Run。
+`services/control-plane` 是浏览器唯一入口，也是业务状态的唯一权威写入方：
 
-本轮生产化升级把 **Case Assessment Agent** 设为唯一产品主线。Copilot、Memory、
-Visual Evidence 和 Deep Research 都是辅助模块，不与正式案件评估争夺项目叙事。
-阶段路线、目标架构和验收门禁见：
+- GitHub/匿名认证、Cookie/JWT、账号与权限。
+- 会话、消息、反馈、附件选择与历史读取。
+- 账号记忆 CRUD、原话来源、revision、期限、复核和召回开关。
+- 文件目录、不可变版本、处理任务登记与可用状态。
+- run、attempt、幂等、执行权、取消/恢复、事件游标和预算。
+- 最终引用、助手消息与运行终态的原子提交。
+- 面向浏览器的 REST/SSE、限流、错误映射和健康状态。
 
-- `docs/roadmap/autumn-recruitment-production-plan.md`
-- `docs/implementation/phase-00-baseline-and-product-focus.md`
+Go 在调用 Python 前固定 owner、消息、附件版本、记忆快照和预算。Python 返回结果后，Go 重新校验 attempt、取消状态、记忆 revision、文件版本和引用范围；只有校验成功才写入最终消息并发布 `completed`。迟到、越权或版本失效的提案不能提交。
 
-## V2 已落地架构
+## Python AI 执行服务
 
-```text
-Frontend
-  → API V3
-    → Application Use Cases
-      → Domain
-      → WorkflowRuntimePort
-        → LangGraph Runtime
-      → Infrastructure Ports
-        → SQL / Object Store / Retrieval / LLM
-```
+`services/agent-runtime` 不拥有会话、记忆、文件目录、最终消息或业务终态。它只负责：
 
-V2 的关键边界：
+- Agent 工具决策、模型调用、查询改写和会话摘要提案。
+- 解析、OCR、切块、Embedding、reranker、RAG 与索引计算。
+- Evidence QA 的来源回读、Claim 结构校验和独立语义支持校验。
+- LangGraph checkpoint、节点执行状态和本次 attempt 的调用预算检查。
+- 向 Go 返回带 `run_id + attempt_id + event_seq` 的工具过程、候选引用、使用量和已校验结果提案。
 
-1. Evidence QA 是普通应用服务，不依赖 LangGraph；
-2. Case Assessment 和 Deep Research 使用 LangGraph；
-3. LangGraph 只保存执行状态，不取代领域 Repository；
-4. 合规门槛由版本化规则引擎计算；
-5. 文档、事实、证据和 Assessment 均为一等领域对象；
-6. `/api/v2` 与 `/api/v3` 按通用 Copilot / 案件工作台边界并行运行。
+Python checkpoint 只证明 AI 节点执行到哪里，不能证明业务成功。浏览器也不能直接调用 Python 或用内部 thread ID 恢复运行。
 
-### LangChain Copilot
+## 可信来源路径
 
-```text
-RunCopilotUseCase
-  → CopilotAgentPort
-    ← LangChainComplianceAgent
-      → create_agent / ChatOpenAI
-      → ToolRuntime(owner_id, task_id)
-      → law / user docs / web / risk profile tools
-```
+Agent runtime 从 Go 授权的不可变快照执行检索，并生成稳定 `SRC-*` 候选证据：
 
-- 不再维护自定义 JSON action parser 和 ReAct 循环；
-- owner_id 由 `ToolRuntime` 注入，不进入模型可控参数；
-- Tool Call 仍写入 TaskRepo，API 继续输出既有 SSE 事件；
-- 记忆由应用层装配为额外 SystemMessage。
+1. 附件引用回读指定 DocumentVersion 和 parse snapshot，核对页码、SHA 和 quote。
+2. 一般知识材料受 owner 与版本范围约束；法规只来自 public corpus；网页必须有实际 URL。
+3. 结构化生成器把回答拆成 Claim，并且只能引用本轮候选 ID。
+4. 结构校验移除无引用或未知引用 Claim；独立 verifier 检查语义支持且不能扩大引用集合。
+5. Python 返回可靠子集或拒答提案；Go 复核业务版本与权限后提交最终消息。
 
-### AI 可观测性
+页面展示是独立安全边界：来源和语义校验通过的文本仍不能作为可信 HTML。实时回答与历史消息使用相同的 Markdown 清洗入口，限制标签、属性和 URL 协议。
 
-```text
-LangChain Copilot / LangGraph Research / LangGraph Assessment / Risk Profile
-  → TracePort
-    ├─ NoopTraceAdapter（默认）
-    └─ LangSmithTraceAdapter（显式启用）
-```
+## 中断、取消与恢复
 
-- LangSmith 是可替换基础设施 Adapter，不进入领域逻辑；
-- 默认关闭且无网络；项目专属开关避免 SDK 全局自动追踪绕过隐私策略；
-- Client 出站前隐藏输入/输出，删除序列化 Prompt、事件和附件；
-- 异常只记录类型，异常正文和 traceback 统一脱敏；
-- metadata 采用白名单，业务 ID 使用 HMAC 哈希；
-- 不上传案件正文、证据原文、记忆原文、Prompt、回答、图片、Embedding 或思维链。
+Go 拥有业务 run、attempt、取消请求和恢复权限。恢复时 Go 创建新的 attempt，重新发送带 `resume=true` 的不可变快照；Python 使用相同 `thread_id` 的 LangGraph checkpoint 继续 AI 计算。Go 只接受当前 attempt 的单调事件序号；旧执行者的迟到结果被拒绝。
 
-### 风险评估模型
+正常 SSE EOF 只结束客户端传输，不自动把 run 标记为成功。`answer` 事件也不是完成证明；前端始终以 Go 发布的权威 `run_status` 为准。
 
-```text
-RunCopilotUseCase / risk_profile_assess tool
-  → RiskProfilePort
-    ← HttpRiskProfileClient
-      → POST /v1/risk-profile
-```
+## 追踪与指标
 
-- `RISK_PROFILE_API_BASE` 留空时 fail closed，明确返回模型未配置；
-- HTTP、JSON 和 `RiskProfile` schema 错误翻译为领域异常；
-- 风险模型可独立部署和升级，不把训练仓库依赖引入本应用；
-- Trace 只记录 target/document 长度、evidence state、证据数和状态。
-
-### LangGraph Deep Research
-
-```text
-plan → retrieve → assess ── sufficient ─→ generate
-                    ├─ partial ─────────→ retrieve
-                    └─ insufficient ────→ web_search → generate
-```
-
-- 检索始终携带 owner_id；
-- 最多三轮补查，防止无限循环；
-- 证据为空且禁用 Web Search 时安全拒答。
-
-### Evidence QA
-
-```text
-POST /api/v3/qa
-  → EvidenceQAUseCase
-    → server-authorized scope
-    → Regulatory / Workspace / Case / Assessment retrieval
-    → reread current source span
-    → EvidenceQAGeneratorPort
-    → structural_v1 Claim-Citation verification
-    → ClaimSupportVerifierPort
-    → answer or refuse
-```
-
-- Regulatory 只检索公共法规语料，不携带当前用户私人 KB owner；
-- Workspace 范围只读取 `document_type=workspace_knowledge` 的 ready 当前版本，且只有
-  Workspace admin 可以上传该类文档；
-- Case 范围按 `workspace_id + case_id` 下推过滤；
-- Document Citation 必须带 `document_id`、`document_version_id`、页码和 SHA-256；
-- 回答前重新读取当前解析页，确认版本、SHA、CaseDocument 绑定和 quote 仍一致；
-- LLM 只生成原子 Claim 和 citation IDs，服务端不直接透出自由长答案；
-- 独立验证调用不能扩大 Claim 声明的引用范围；不受支持的 Claim 只能被结果层移除，
-  至少保留一条可信 Claim 时降级为部分回答，否则 fail closed；
-- API 不返回 Prompt、原始模型响应或思维链。
-
-### AI 长期记忆提取
-
-```text
-user messages only
-  → deterministic source filter
-  → LLM selects quote / tags / salience
-  → server verifies message_id + verbatim quote
-  → sensitive / injection / transient gates
-  → embed, deduplicate or supersede
-  → owner-scoped L4 Fact
-```
-
-- 助手、系统和工具消息不进入提取上下文，避免把模型回答反写成用户事实；
-- 输入以 JSON 数组传递 `message_id + content`，用户文本不能突破消息边界；
-- LLM 不生成最终事实文案，`Fact.text` 直接使用服务端核验过的用户逐字 quote；
-- 密码、API Key、联系方式、身份证/银行卡、生物特征、健康/政治等高敏属性、
-  提示注入和一次性/假设性请求均 fail closed；
-- `Fact` 持久化 `source_message_id + source_quote`，管理面板展示来源原话；
-- `evaluations/memory_extraction` 只证明确定性协议门禁，不冒充生产模型抽取准确率。
-
-### AI 长期记忆召回
-
-```text
-query
-  → owner-scoped vector candidates
-  → superseded / TTL / minimum semantic gates
-  → hybrid_v1 score
-      semantic 0.65
-      + confidence 0.15
-      + salience 0.15
-      + freshness 0.05
-  → minimum final score
-  → top-k prompt injection + safe recall trace
-```
-
-- `domain.memory.MemoryRecallPolicy` 是纯领域策略，生产和离线评测复用同一实现；
-- 向量库只负责 owner 隔离的候选获取，扩大候选池后再按事实质量重排；
-- `MemoryRecallTrace` 记录候选数、过滤原因和命中分解，不记录 embedding、Prompt 或思维链；
-- `/api/v2/memory/recall/explain` 只向已认证 owner 展示其自己的事实与分数；
-- `evaluations/memory_recall` 验证排序和安全过滤协议，不冒充真实 embedding 召回准确率。
-
-### Visual Evidence
-
-- PNG/JPEG/WebP 经魔数、解码、尺寸和大小校验后写入对象存储；
-- Chinese-CLIP 分别生成 image embedding 与 text embedding；
-- SQLite 查询先按 `workspace_id + case_id` 过滤，再计算余弦相似度；
-- Viewer 可以检索，Editor/Reviewer/Admin 才能上传；
-- `evaluations/visual_retrieval` 默认生成 12 张合成图片；
-- `run.py --live` 才下载并实测 Chinese-CLIP，CI 不下载模型。
-
-### Case Assessment
-
-```text
-AssessmentRunUseCase
-  → Domain Repositories / PolicyRuleEngine / AssessmentManagementUseCase
-  → WorkflowRuntimePort
-    → LangGraphWorkflowRuntime
-      → local SQLite / production PostgreSQL checkpointer
-```
-
-- `AgentRunRepoPort` 保存产品可见的 Run、轻量 checkpoint 和审计事件；
-- LangGraph checkpointer 只保存框架执行位置；local 使用 SQLite，production 使用
-  PostgreSQL，两者与产品 Run 使用同一个 `thread_id` 关联但不互相取代；
-- LangChain function calling 生成 EvidencePlan；Typed Tool Registry 复核 Schema、角色、
-  阶段、timeout/retry 和副作用级别；
-- 案件证据检索按调查问题有限循环，规则计算、引用校验和人工审批是不可跳过的单向门禁；
-- `AssessmentRunUseCase` 在中断点重新读取 Document/Fact/Policy Repository，不信任
-  客户端提交的业务状态；
-- Graph 不保存文档正文、证据原文、原始 prompt、凭证或思维链；
-- `assessment_generation` 是内部中断：应用层调用确定性 Assessment 用例后再恢复 Graph；
-- `assessment_review` 只能由 Reviewer/Admin 通过审批用例完成；
-- 同一 Case 同一工作流只允许一个活动 Run，Run/检查点/事件写入使用乐观锁；
-- 支持进程重建恢复、失败重试、取消和增量事件查询。
-
-### PostgreSQL 生产存储 Profile
-
-```text
-STORAGE_BACKEND=sqlite
-  → SQLite Repository + Chroma local profile
-
-STORAGE_BACKEND=postgres
-  → SQLAlchemy Workspace / Case / Document / Evidence / Fact
-  → SQLAlchemy Policy / Assessment / AgentRun / RunEvent
-  → PostgreSQL transaction + JSONB + partial unique index
-```
-
-- Domain Pydantic Model 不依赖 SQLAlchemy ORM；
-- `SqlAlchemyDatabase` 统一 Engine、短生命周期 Session 和事务边界；
-- Alembic 初始 revision 创建 20 张核心业务表和 `alembic_version`；
-- `AgentRun` 使用 `WHERE revision = expected_revision` 乐观锁；
-- PostgreSQL partial unique index 保证同一 Case + Workflow 只有一个活动 Run；
-- Assessment 版本切换和审批使用条件更新，防止活动版本漂移；
-- Evidence Index 在 Phase 2 暂以 JSON 向量保持完整 PostgreSQL profile，Phase 3
-  升级为 pgvector + PostgreSQL FTS；
-- User/Task/Memory/Audit 等辅助 V2 模块当前仍复用 SQLite，避免一次性迁移全仓。
-
-### 当前边界
-
-已实现 Evidence QA、图内文档 Fact 提议与 Case Assessment 的证据驱动闭环。
-Fact 提议具备字段白名单、当前版本原文复核、冲突检测和 Reviewer 唯一确认，并已通过
-Typed Tool Registry 接入 LangGraph；原生案件工作台通过 Run 事件完成候选生成、证据展示、
-Reviewer 确认和继续运行，并支持 Workspace / Case 创建与多 Case 导航。
-案件材料支持浏览器上传、解析、索引、进度展示和失败重试；材料列表同时返回当前版本
-最新 ProcessingJob，因此页面刷新后仍可恢复 job_id 和处理状态。Assessment 已实现
-Fact / Evidence / Clause 不可变引用快照和审批前漂移校验；Deep Research Graph 与
-Case 图片检索已落地，图片暂作为检索辅助证据，尚未进入正式 Assessment 引用闭包。
-
-核心 Agent 工具执行经过统一 Tool Policy：高权限工具不能注册，运行时 scope 不能由模型
-传入，可逆写工具必须显式 allowlist 且禁止自动重试。网页正文和用户提交 URL 使用
-SSRF-safe Client，逐跳校验 DNS/IP、重定向、Content-Type 与响应体大小。
-
-完整产品和技术设计见：
-
-- `docs/design/riskpilot-v2.md`
-- `docs/decisions/ADR-014-v2-增量迁移与领域内核.md`
-- `docs/decisions/ADR-015-AI能力分层与LangGraph边界.md`
-- `docs/decisions/ADR-016-案件证据与规则快照.md`
+同一 `run_id` 关联 Go 业务生命周期与 Python Agent、工具、检索和引用校验 span。LangSmith 出站适配器清空正文、Prompt、附件、模型输出和原始异常，只保留白名单状态、计数、耗时及不可逆标识哈希。Provider 未返回 usage 或未配置价格时不补造 token 与费用。

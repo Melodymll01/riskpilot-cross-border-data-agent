@@ -28,7 +28,7 @@ if __name__ == "__main__":
     raise SystemExit(
         subprocess.run(
             [os.environ.get("RISKPILOT_GO", "go"), *sys.argv[1:]],
-            cwd=ROOT / "services/api-go",
+            cwd=ROOT / "services/control-plane",
             env=go_environment(),
         ).returncode
     )

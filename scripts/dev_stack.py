@@ -18,8 +18,80 @@ from dotenv import dotenv_values
 from go_tool import go_environment
 
 ROOT = Path(__file__).resolve().parents[1]
+AGENT_RUNTIME = ROOT / "services/agent-runtime"
+CONTROL_PLANE = ROOT / "services/control-plane"
 STATE = ROOT / "data/dev-stack.json"
 LOG = ROOT / "logs/dev-stack.log"
+
+CONTROL_PLANE_KEYS = {
+    "RISKPILOT_ROOT",
+    "INTERNAL_SERVICE_KEY_FILE",
+    "CONTROL_PLANE_LISTEN",
+    "CONTROL_PLANE_DB_PATH",
+    "CONTROL_PLANE_MAX_ACTIVE_REQUESTS",
+    "CONTROL_PLANE_RUNTIME_TIMEOUT_SECONDS",
+    "CONTROL_PLANE_RATE_PER_MINUTE",
+    "AGENT_RUNTIME_URL",
+    "JWT_SECRET",
+    "JWT_TTL_SECONDS",
+    "GITHUB_CLIENT_ID",
+    "GITHUB_CLIENT_SECRET",
+    "GITHUB_REDIRECT_URI",
+    "ADMIN_USER_IDS",
+    "COOKIE_NAME",
+    "COOKIE_SECURE",
+    "COOKIE_SAMESITE",
+    "MAX_UPLOAD_MB",
+    "RATE_LIMIT_ENABLED",
+    "RUN_MAX_DURATION_SECONDS",
+    "RUN_MAX_MODEL_CALLS",
+    "RUN_MAX_TOOL_CALLS",
+    "SSE_KEEPALIVE_SECONDS",
+}
+
+AGENT_RUNTIME_KEYS = {
+    "AGENT_RUNTIME_ARTIFACT_DB_PATH",
+    "AGENT_RUNTIME_EMBED_CACHE_DIR",
+    "AGENT_RUNTIME_LANGGRAPH_CHECKPOINT_DB_PATH",
+    "AGENT_RUNTIME_INTERNAL_SERVICE_KEY_FILE",
+    "LLM_PROVIDER",
+    "EMBED_PROVIDER",
+    "LOCAL_SENTENCE_EMBEDDING_MODEL",
+    "OPENAI_API_KEY",
+    "OPENAI_API_BASE",
+    "CHAT_MODEL",
+    "CHAT_API_KEY",
+    "CHAT_API_BASE",
+    "EMBEDDING_MODEL",
+    "EMBEDDING_DIMENSIONS",
+    "CHAT_MAX_TOKENS",
+    "OLLAMA_API_BASE",
+    "LOCAL_CHAT_MODEL",
+    "LOCAL_EMBEDDING_MODEL",
+    "CHROMA_PERSIST_DIR",
+    "ENABLE_QUERY_REWRITE",
+    "ENABLE_RERANKER",
+    "RERANKER_MODEL",
+    "RERANKER_DEVICE",
+    "CHUNK_SIZE",
+    "CHUNK_OVERLAP",
+    "EMBEDDING_MAX_INPUT_TOKENS",
+    "INDEX_SCHEMA_VERSION",
+    "EMBEDDING_INPUT_STRATEGY",
+    "CONVERSATION_MODEL_CALL_TIMEOUT_SECONDS",
+    "CONVERSATION_TOOL_CALL_TIMEOUT_SECONDS",
+    "CONVERSATION_CONTROL_POLL_SECONDS",
+    "JSON_LOGS_ENABLED",
+    "PROMETHEUS_ENABLED",
+    "OBSERVABILITY_HASH_SALT",
+    "RISK_PILOT_LANGSMITH_ENABLED",
+    "LANGSMITH_API_KEY",
+    "LANGSMITH_ENDPOINT",
+    "LANGSMITH_PROJECT",
+    "LANGSMITH_HASH_SALT",
+    "OTEL_ENABLED",
+    "OTEL_EXPORTER_OTLP_ENDPOINT",
+}
 
 
 def environment() -> dict[str, str]:
@@ -43,6 +115,14 @@ def environment() -> dict[str, str]:
     if not env.get("JWT_SECRET") or len(env["JWT_SECRET"]) < 32:
         raise RuntimeError("Set JWT_SECRET with at least 32 characters in .env")
     return env
+
+
+def service_environment(source: dict[str, str], allowed: set[str]) -> dict[str, str]:
+    """Pass only one service's configuration on top of the process environment."""
+    return {
+        **os.environ,
+        **{key: source[key] for key in allowed if key in source},
+    }
 
 
 def stop_group(pid: int) -> None:
@@ -70,27 +150,53 @@ def wait_ready(url: str, process: subprocess.Popen, deadline: float) -> None:
     raise RuntimeError(f"Service startup timed out; see {LOG}")
 
 
+def wait_port(host: str, port: int, process: subprocess.Popen, deadline: float) -> None:
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise RuntimeError(f"Service exited with {process.returncode}; see {LOG}")
+        try:
+            with socket.create_connection((host, port), timeout=1):
+                return
+        except OSError:
+            time.sleep(0.2)
+    raise RuntimeError(f"Service startup timed out; see {LOG}")
+
+
 def run(python: str, go: str) -> None:
     env = environment()
-    go_port = int(env.get("GATEWAY_PORT", "8765"))
-    python_port = int(env.get("PYTHON_SERVICE_PORT", "8766"))
-    if go_port == python_port:
+    control_plane_port = int(env.get("CONTROL_PLANE_PORT", "8765"))
+    agent_runtime_port = int(env.get("AGENT_RUNTIME_PORT", "8766"))
+    if control_plane_port == agent_runtime_port:
         raise RuntimeError("Go and Python require separate ports")
-    for port in [go_port, python_port]:
+    for port in [control_plane_port, agent_runtime_port]:
         with socket.socket() as probe:
             probe.bind(("127.0.0.1", port))
-    binary = ROOT / "data/bin/riskpilot-api"
+    binary = ROOT / "data/bin/riskpilot-control-plane"
     binary.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(
         [go, "build", "-o", str(binary), "./cmd/riskpilot"],
-        cwd=ROOT / "services/api-go",
-        env=go_environment(env),
+        cwd=CONTROL_PLANE,
+        env=go_environment(service_environment(env, {"GO_SDKROOT"})),
         check=True,
     )
     env.update(
         {
-            "GATEWAY_LISTEN": f"127.0.0.1:{go_port}",
-            "PYTHON_SERVICE_URL": f"http://127.0.0.1:{python_port}",
+            "CONTROL_PLANE_LISTEN": f"127.0.0.1:{control_plane_port}",
+            "AGENT_RUNTIME_URL": f"http://127.0.0.1:{agent_runtime_port}",
+            "CONTROL_PLANE_DB_PATH": str(ROOT / "data/control-plane.sqlite3"),
+            "AGENT_RUNTIME_ARTIFACT_DB_PATH": str(ROOT / "data/agent-runtime-artifacts.sqlite3"),
+            "AGENT_RUNTIME_LANGGRAPH_CHECKPOINT_DB_PATH": str(
+                ROOT / "data/conversation-checkpoints.sqlite3"
+            ),
+        }
+    )
+    control_env = service_environment(env, CONTROL_PLANE_KEYS)
+    runtime_env = service_environment(env, AGENT_RUNTIME_KEYS)
+    runtime_env.update(
+        {
+            "PYTHONPATH": str(AGENT_RUNTIME),
+            "PYTHONSAFEPATH": "1",
+            "AGENT_RUNTIME_INTERNAL_SERVICE_KEY_FILE": env["INTERNAL_SERVICE_KEY_FILE"],
         }
     )
     LOG.parent.mkdir(exist_ok=True)
@@ -105,11 +211,6 @@ def run(python: str, go: str) -> None:
     signal.signal(signal.SIGINT, on_signal)
     try:
         with LOG.open("ab") as output:
-            private_env = {
-                **env,
-                "INTERNAL_SERVICE_REQUIRED": "true",
-                "RATE_LIMIT_ENABLED": "false",
-            }
             python_process = subprocess.Popen(
                 [
                     python,
@@ -119,47 +220,52 @@ def run(python: str, go: str) -> None:
                     "--host",
                     "127.0.0.1",
                     "--port",
-                    str(python_port),
+                    str(agent_runtime_port),
                 ],
                 cwd=ROOT,
-                env=private_env,
+                env=runtime_env,
                 stdout=output,
                 stderr=output,
                 stdin=subprocess.DEVNULL,
                 start_new_session=True,
             )
             children.append(python_process)
-            wait_ready(
-                f"http://127.0.0.1:{python_port}/api/v2/health/ready",
+            wait_port(
+                "127.0.0.1",
+                agent_runtime_port,
                 python_process,
                 time.monotonic() + 120,
             )
-            gateway = subprocess.Popen(
+            control_plane = subprocess.Popen(
                 [str(binary)],
                 cwd=ROOT,
-                env=env,
+                env=control_env,
                 stdout=output,
                 stderr=output,
                 stdin=subprocess.DEVNULL,
                 start_new_session=True,
             )
-            children.append(gateway)
+            children.append(control_plane)
             wait_ready(
-                f"http://127.0.0.1:{go_port}/api/v2/health/ready", gateway, time.monotonic() + 15
+                f"http://127.0.0.1:{control_plane_port}/api/v2/health/ready",
+                control_plane,
+                time.monotonic() + 15,
             )
             STATE.write_text(
                 json.dumps(
                     {
                         "manager": os.getpid(),
-                        "python": python_process.pid,
-                        "gateway": gateway.pid,
-                        "go_port": go_port,
-                        "python_port": python_port,
+                        "agent_runtime": python_process.pid,
+                        "control_plane": control_plane.pid,
+                        "control_plane_port": control_plane_port,
+                        "agent_runtime_port": agent_runtime_port,
                     }
                 )
             )
             print(
-                f"Go API: http://127.0.0.1:{go_port}; private Python: {python_port}; log: {LOG}",
+                "Control plane: "
+                f"http://127.0.0.1:{control_plane_port}; "
+                f"private agent runtime: {agent_runtime_port}; log: {LOG}",
                 flush=True,
             )
             while not interrupted:

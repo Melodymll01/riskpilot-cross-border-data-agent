@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "riskpilot/internal/v1/document-result",
+  "title": "Agent runtime document processing result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "document_id", "status", "title", "chunk_count", "error_code", "message"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "document_id": {"type": "string", "minLength": 1, "maxLength": 100},
+    "status": {"enum": ["ready", "deleted", "failed"]},
+    "title": {"type": "string", "maxLength": 1000},
+    "chunk_count": {"type": "integer", "minimum": 0},
+    "error_code": {"type": ["string", "null"]},
+    "message": {"type": "string"}
+  }
+}

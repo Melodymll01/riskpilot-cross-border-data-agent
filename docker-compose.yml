@@ -1,48 +1,93 @@
 services:
-  app:
+  agent-runtime:
     init: true
-    build: .
-    image: riskpilot-chat:latest
+    build:
+      context: .
+      dockerfile: services/agent-runtime/Dockerfile
+    image: riskpilot-agent-runtime:latest
     restart: unless-stopped
     expose:
       - "8001"
     user: "${RISKPILOT_UID:-1000}:${RISKPILOT_GID:-1000}"
-    env_file:
-      - path: .env
-        required: true
     environment:
-      SQLITE_DB_PATH: /app/data/rag.sqlite3
-      CHROMA_PERSIST_DIR: /app/data/chroma_db
-      OBJECT_STORE_DIR: /app/data/objects
-      UPLOAD_DIR: /app/data/uploads
-      INTERNAL_SERVICE_REQUIRED: "true"
-      INTERNAL_SERVICE_KEY_FILE: /app/data/internal-service.key
-      RATE_LIMIT_ENABLED: "false"
+      PYTHONPATH: /app
+      PYTHONSAFEPATH: "1"
+      AGENT_RUNTIME_ARTIFACT_DB_PATH: /app/data/agent-runtime-artifacts.sqlite3
+      AGENT_RUNTIME_LANGGRAPH_CHECKPOINT_DB_PATH: /app/data/conversation-checkpoints.sqlite3
+      AGENT_RUNTIME_INTERNAL_SERVICE_KEY_FILE: /app/data/internal-service.key
+      AGENT_RUNTIME_EMBED_CACHE_DIR: /app/data/embed_cache
+      CHROMA_PERSIST_DIR: "${CHROMA_PERSIST_DIR:-/app/data/chroma_db}"
+      LLM_PROVIDER: "${LLM_PROVIDER:-api}"
+      EMBED_PROVIDER: "${EMBED_PROVIDER:-sentence_transformer}"
+      LOCAL_SENTENCE_EMBEDDING_MODEL: "${LOCAL_SENTENCE_EMBEDDING_MODEL:-BAAI/bge-small-zh-v1.5}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-your-api-key-here}"
+      OPENAI_API_BASE: "${OPENAI_API_BASE:-https://open.bigmodel.cn/api/paas/v4}"
+      CHAT_MODEL: "${CHAT_MODEL:-glm-4-flash}"
+      CHAT_API_KEY: "${CHAT_API_KEY:-}"
+      CHAT_API_BASE: "${CHAT_API_BASE:-}"
+      EMBEDDING_MODEL: "${EMBEDDING_MODEL:-embedding-3}"
+      EMBEDDING_DIMENSIONS: "${EMBEDDING_DIMENSIONS:-2048}"
+      CHAT_MAX_TOKENS: "${CHAT_MAX_TOKENS:-4096}"
+      ENABLE_QUERY_REWRITE: "${ENABLE_QUERY_REWRITE:-true}"
+      ENABLE_RERANKER: "${ENABLE_RERANKER:-true}"
+      CHUNK_SIZE: "${CHUNK_SIZE:-420}"
+      CHUNK_OVERLAP: "${CHUNK_OVERLAP:-84}"
+      EMBEDDING_MAX_INPUT_TOKENS: "${EMBEDDING_MAX_INPUT_TOKENS:-480}"
+      INDEX_SCHEMA_VERSION: "${INDEX_SCHEMA_VERSION:-parent-child-v1}"
+      EMBEDDING_INPUT_STRATEGY: "${EMBEDDING_INPUT_STRATEGY:-section-path-prefix-v1}"
+      CONVERSATION_MODEL_CALL_TIMEOUT_SECONDS: "${CONVERSATION_MODEL_CALL_TIMEOUT_SECONDS:-45}"
+      CONVERSATION_TOOL_CALL_TIMEOUT_SECONDS: "${CONVERSATION_TOOL_CALL_TIMEOUT_SECONDS:-20}"
+      CONVERSATION_CONTROL_POLL_SECONDS: "${CONVERSATION_CONTROL_POLL_SECONDS:-0.05}"
+      JSON_LOGS_ENABLED: "${JSON_LOGS_ENABLED:-true}"
+      PROMETHEUS_ENABLED: "${PROMETHEUS_ENABLED:-true}"
+      OBSERVABILITY_HASH_SALT: "${OBSERVABILITY_HASH_SALT:-dev-observability-salt-change-me}"
+      RISK_PILOT_LANGSMITH_ENABLED: "${RISK_PILOT_LANGSMITH_ENABLED:-false}"
+      LANGSMITH_API_KEY: "${LANGSMITH_API_KEY:-}"
+      LANGSMITH_ENDPOINT: "${LANGSMITH_ENDPOINT:-https://api.smith.langchain.com}"
+      LANGSMITH_PROJECT: "${LANGSMITH_PROJECT:-riskpilot}"
+      LANGSMITH_HASH_SALT: "${LANGSMITH_HASH_SALT:-}"
+      OTEL_ENABLED: "${OTEL_ENABLED:-false}"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-}"
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
-  gateway:
+  control-plane:
     init: true
     build:
       context: .
-      dockerfile: services/api-go/Dockerfile
-    image: riskpilot-go:latest
+      dockerfile: services/control-plane/Dockerfile
+    image: riskpilot-control-plane:latest
     restart: unless-stopped
     user: "${RISKPILOT_UID:-1000}:${RISKPILOT_GID:-1000}"
     ports:
       - "${APP_PORT:-8765}:8000"
-    env_file:
-      - path: .env
-        required: true
     environment:
       RISKPILOT_ROOT: /app
-      GATEWAY_LISTEN: 0.0.0.0:8000
-      PYTHON_SERVICE_URL: http://app:8001
-      SQLITE_DB_PATH: /app/data/rag.sqlite3
+      CONTROL_PLANE_LISTEN: 0.0.0.0:8000
+      AGENT_RUNTIME_URL: http://agent-runtime:8001
+      CONTROL_PLANE_DB_PATH: /app/data/control-plane.sqlite3
       INTERNAL_SERVICE_KEY_FILE: /app/data/internal-service.key
+      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
+      JWT_TTL_SECONDS: "${JWT_TTL_SECONDS:-86400}"
+      GITHUB_CLIENT_ID: "${GITHUB_CLIENT_ID:-}"
+      GITHUB_CLIENT_SECRET: "${GITHUB_CLIENT_SECRET:-}"
+      GITHUB_REDIRECT_URI: "${GITHUB_REDIRECT_URI:-http://127.0.0.1:8765/api/v2/auth/github/callback}"
+      ADMIN_USER_IDS: "${ADMIN_USER_IDS:-}"
+      COOKIE_NAME: "${COOKIE_NAME:-copilot_session}"
+      COOKIE_SECURE: "${COOKIE_SECURE:-false}"
+      COOKIE_SAMESITE: "${COOKIE_SAMESITE:-lax}"
+      MAX_UPLOAD_MB: "${MAX_UPLOAD_MB:-50}"
+      CONTROL_PLANE_MAX_ACTIVE_REQUESTS: "${CONTROL_PLANE_MAX_ACTIVE_REQUESTS:-16}"
+      CONTROL_PLANE_RUNTIME_TIMEOUT_SECONDS: "${CONTROL_PLANE_RUNTIME_TIMEOUT_SECONDS:-510}"
+      CONTROL_PLANE_RATE_PER_MINUTE: "${CONTROL_PLANE_RATE_PER_MINUTE:-60}"
+      RATE_LIMIT_ENABLED: "${RATE_LIMIT_ENABLED:-true}"
+      RUN_MAX_DURATION_SECONDS: "${RUN_MAX_DURATION_SECONDS:-120}"
+      RUN_MAX_MODEL_CALLS: "${RUN_MAX_MODEL_CALLS:-12}"
+      RUN_MAX_TOOL_CALLS: "${RUN_MAX_TOOL_CALLS:-6}"
+      SSE_KEEPALIVE_SECONDS: "${SSE_KEEPALIVE_SECONDS:-15}"
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
     depends_on:
-      app:
+      agent-runtime:
         condition: service_healthy
